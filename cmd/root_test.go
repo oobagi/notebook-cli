@@ -280,13 +280,31 @@ func TestDispatchNoteDelete(t *testing.T) {
 
 func TestDispatchNoteCopy(t *testing.T) {
 	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "readme", "# Hello\n\nSome content.")
 
 	out, err := executeCapture([]string{"--dir", dir, "work", "readme", "copy"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	// Should show success message (clipboard copy may use OSC 52 fallback in CI).
+	if !strings.Contains(out, "Copied") || !strings.Contains(out, "readme") {
+		t.Errorf("expected success message with note name, got %q", out)
+	}
+}
+
+func TestDispatchNoteCopyNotFound(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "nonexistent", "copy"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "\u2717") {
+		t.Errorf("expected error symbol in output, got %q", out)
+	}
+	if !strings.Contains(out, "not found") {
+		t.Errorf("expected 'not found' in output, got %q", out)
 	}
 }
 
