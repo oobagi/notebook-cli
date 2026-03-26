@@ -2,6 +2,7 @@ package editor
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -248,6 +249,154 @@ func TestStatusBarContainsTitle(t *testing.T) {
 	view := m.View()
 	if !containsPlainText(view, "work \u203A notes") {
 		t.Fatal("view should contain the title in the status bar")
+	}
+}
+
+func TestPreviewVisibleByDefault(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	if !m.showPreview {
+		t.Fatal("showPreview should be true by default")
+	}
+}
+
+func TestCtrlPTogglesPreview(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if !m.showPreview {
+		t.Fatal("preview should be visible initially")
+	}
+
+	// Toggle off.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = updated.(Model)
+
+	if m.showPreview {
+		t.Fatal("Ctrl+P should toggle preview off")
+	}
+
+	// Toggle back on.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = updated.(Model)
+
+	if !m.showPreview {
+		t.Fatal("Ctrl+P should toggle preview back on")
+	}
+	if cmd == nil {
+		t.Fatal("toggling preview on should schedule a preview tick")
+	}
+}
+
+func TestPreviewTickRendersContent(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Mark dirty and send tick with matching seq.
+	m.previewDirty = true
+	updated, _ = m.Update(previewTickMsg{seq: m.previewSeq})
+	m = updated.(Model)
+
+	if m.previewDirty {
+		t.Fatal("previewDirty should be false after tick renders")
+	}
+	if m.preview == "" {
+		t.Fatal("preview should contain rendered content after tick")
+	}
+}
+
+func TestPreviewTickSkipsWhenNotDirty(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Ensure not dirty.
+	m.previewDirty = false
+	m.preview = "old"
+
+	updated, _ = m.Update(previewTickMsg{seq: m.previewSeq})
+	m = updated.(Model)
+
+	if m.preview != "old" {
+		t.Fatal("preview should not change when not dirty")
+	}
+}
+
+func TestPreviewTickSkipsStaleSeq(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.previewDirty = true
+	staleSeq := m.previewSeq - 1
+
+	updated, _ = m.Update(previewTickMsg{seq: staleSeq})
+	m = updated.(Model)
+
+	if !m.previewDirty {
+		t.Fatal("stale tick should not trigger render")
+	}
+}
+
+func TestViewContainsPreviewWhenVisible(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Trigger preview render.
+	m.previewDirty = true
+	updated, _ = m.Update(previewTickMsg{seq: m.previewSeq})
+	m = updated.(Model)
+
+	view := m.View()
+	// The view should contain the border character when preview is visible.
+	if !strings.Contains(view, "│") {
+		t.Fatal("view should contain the vertical border when preview is visible")
+	}
+}
+
+func TestViewFullWidthWhenPreviewHidden(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Toggle preview off.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = updated.(Model)
+
+	view := m.View()
+	// Without preview, there should be no border character.
+	if strings.Contains(view, "│") {
+		t.Fatal("view should not contain border when preview is hidden")
+	}
+}
+
+func TestPreviewAutoHidesWhenNarrow(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello"})
+	// Set width below minSplitWidth.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 30, Height: 24})
+	m = updated.(Model)
+
+	// Preview is logically on, but should not render in the view.
+	if !m.showPreview {
+		t.Fatal("showPreview should still be true (auto-hide is view-level)")
+	}
+
+	view := m.View()
+	if strings.Contains(view, "│") {
+		t.Fatal("view should not show preview border when terminal is too narrow")
+	}
+}
+
+func TestStatusBarContainsPreviewHint(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	view := m.View()
+	if !containsPlainText(view, "Ctrl+P preview") {
+		t.Fatal("status bar should contain Ctrl+P preview hint")
 	}
 }
 
