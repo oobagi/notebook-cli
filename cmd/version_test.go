@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestVersionCommand(t *testing.T) {
-	out, err := executeCapture([]string{"version"})
+func TestVersionFlag(t *testing.T) {
+	out, err := executeCapture([]string{"--version"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
