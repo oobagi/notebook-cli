@@ -35,9 +35,15 @@ func RenderMarkdown(content string, width int) string {
 		return content
 	}
 
+	// Style GitHub-style admonition blocks ([!NOTE], [!TIP], etc.) when
+	// outputting to a TTY with colors enabled.
+	_, noColor := os.LookupEnv("NO_COLOR")
+	if term.IsTerminal(int(os.Stdout.Fd())) && !noColor {
+		out = RenderAdmonitions(out)
+	}
+
 	// Add clickable hyperlinks via OSC 8 when outputting to a TTY.
 	// Skip when NO_COLOR is set to keep output free of escape sequences.
-	_, noColor := os.LookupEnv("NO_COLOR")
 	if term.IsTerminal(int(os.Stdout.Fd())) && !noColor {
 		out = LinkifyMarkdown(out)
 	}
