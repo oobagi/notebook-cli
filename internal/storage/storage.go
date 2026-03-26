@@ -129,7 +129,7 @@ func (s *Store) GetNote(notebook, name string) (model.Note, error) {
 		Name:      name,
 		Notebook:  notebook,
 		Content:   string(data),
-		CreatedAt: info.ModTime(), // best approximation; most filesystems lack birth time
+		CreatedAt: fileCreatedAt(info),
 		UpdatedAt: info.ModTime(),
 	}, nil
 }
