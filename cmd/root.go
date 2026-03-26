@@ -8,13 +8,15 @@ import (
 
 	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook/internal/theme"
 	"github.com/spf13/cobra"
 )
 
 var (
-	store   *storage.Store
-	dirFlag string
-	cfg     config.Config
+	store     *storage.Store
+	dirFlag   string
+	themeFlag string
+	cfg       config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -29,6 +31,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
+
+		// Resolve the active theme: flag > config > auto-detect.
+		themeName := themeFlag
+		if themeName == "auto" && cfg.Theme != "" && cfg.Theme != "auto" {
+			themeName = cfg.Theme
+		}
+		theme.SetTheme(theme.FromName(themeName))
 
 		root := dirFlag
 		if root == "" {
@@ -59,6 +68,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&dirFlag, "dir", "", "root directory for notebook storage (default ~/.notebook)")
+	rootCmd.PersistentFlags().StringVar(&themeFlag, "theme", "auto", "color theme (auto, dark, light)")
 }
 
 // Execute runs the root command.
