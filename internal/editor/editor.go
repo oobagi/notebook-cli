@@ -28,6 +28,9 @@ type savedMsg struct{ content string }
 // saveErrMsg is sent when a save fails.
 type saveErrMsg struct{ err error }
 
+// savedQuitMsg is sent after a successful save-then-quit.
+type savedQuitMsg struct{ content string }
+
 // previewTickMsg is sent after the debounce interval to trigger preview rendering.
 // The seq field is compared against Model.previewSeq to implement true debounce:
 // only the most recent tick (matching the current seq) triggers a render.
@@ -49,9 +52,11 @@ type Model struct {
 	height       int
 	status       string
 	statusStyle  statusKind
-	quitWarning  bool
+	quitPrompt   bool
 	quitting     bool
 	showPreview  bool
+	showHelp     bool
+	clipboard    string
 	preview      string
 	previewDirty bool
 	previewSeq   int
@@ -151,6 +156,83 @@ func (m *Model) schedulePreviewTick() tea.Cmd {
 	})
 }
 
+// cursorLine returns the zero-based line index where the textarea cursor is.
+func (m Model) cursorLine() int {
+	return m.textarea.Line()
+}
+
+// cutLine removes the current line from the textarea and stores it in the
+// clipboard. It returns the cut text.
+func (m *Model) cutLine() string {
+	value := m.textarea.Value()
+	lines := strings.Split(value, "\n")
+
+	line := m.cursorLine()
+	if line < 0 || line >= len(lines) {
+		return ""
+	}
+
+	cut := lines[line]
+
+	// Remove the line.
+	newLines := make([]string, 0, len(lines)-1)
+	newLines = append(newLines, lines[:line]...)
+	newLines = append(newLines, lines[line+1:]...)
+
+	m.textarea.SetValue(strings.Join(newLines, "\n"))
+
+	// Reposition cursor: stay on the same line index, clamped to the new
+	// line count. Move to the start of the line for simplicity.
+	newLineCount := len(newLines)
+	targetLine := line
+	if targetLine >= newLineCount {
+		targetLine = newLineCount - 1
+	}
+	if targetLine < 0 {
+		targetLine = 0
+	}
+	m.textarea.SetCursor(0)
+	for m.textarea.Line() > targetLine {
+		m.textarea.CursorUp()
+	}
+	for m.textarea.Line() < targetLine {
+		m.textarea.CursorDown()
+	}
+
+	return cut
+}
+
+// pasteLine inserts the clipboard content at the current cursor line.
+func (m *Model) pasteLine() {
+	if m.clipboard == "" {
+		return
+	}
+	value := m.textarea.Value()
+	lines := strings.Split(value, "\n")
+
+	line := m.cursorLine()
+	if line < 0 {
+		line = 0
+	}
+	if line > len(lines) {
+		line = len(lines)
+	}
+
+	// Insert the clipboard as a new line before the current line.
+	newLines := make([]string, 0, len(lines)+1)
+	newLines = append(newLines, lines[:line]...)
+	newLines = append(newLines, m.clipboard)
+	newLines = append(newLines, lines[line:]...)
+
+	m.textarea.SetValue(strings.Join(newLines, "\n"))
+
+	// Position cursor on the pasted line.
+	m.textarea.SetCursor(0)
+	for m.textarea.Line() < line {
+		m.textarea.CursorDown()
+	}
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -168,13 +250,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Clear transient status on any keypress, unless quitting.
+		// When help overlay is showing, only Ctrl+G and Esc dismiss it.
+		if m.showHelp {
+			switch msg.String() {
+			case "ctrl+g", "esc":
+				m.showHelp = false
+			}
+			return m, nil
+		}
+
+		// When quit prompt is showing, handle the 3-option response.
+		if m.quitPrompt {
+			switch msg.String() {
+			case "y", "Y", "enter":
+				m.quitPrompt = false
+				// Save then quit.
+				if m.config.Save != nil {
+					content := m.textarea.Value()
+					return m, func() tea.Msg {
+						if err := m.config.Save(content); err != nil {
+							return saveErrMsg{err: err}
+						}
+						return savedQuitMsg{content: content}
+					}
+				}
+				// No save function configured — just quit.
+				m.quitting = true
+				return m, tea.Quit
+			case "n", "N":
+				m.quitting = true
+				return m, tea.Quit
+			case "esc":
+				m.quitPrompt = false
+				m.status = ""
+				m.statusStyle = statusNone
+				return m, nil
+			}
+			// Ignore all other keys while in the prompt.
+			return m, nil
+		}
+
+		// Clear transient status on any keypress.
 		if m.statusStyle == statusSuccess {
 			m.status = ""
 			m.statusStyle = statusNone
 		}
 
 		switch msg.String() {
+		case "ctrl+g":
+			m.showHelp = true
+			return m, nil
+
+		case "ctrl+k":
+			m.clipboard = m.cutLine()
+			m.previewDirty = true
+			return m, m.schedulePreviewTick()
+
+		case "ctrl+u":
+			m.pasteLine()
+			m.previewDirty = true
+			return m, m.schedulePreviewTick()
+
 		case "ctrl+p":
 			m.showPreview = !m.showPreview
 			m.resizeTextarea()
@@ -185,7 +321,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+s":
-			m.quitWarning = false
 			if m.config.Save != nil {
 				content := m.textarea.Value()
 				return m, func() tea.Msg {
@@ -198,9 +333,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+q":
-			if m.modified() && !m.quitWarning {
-				m.quitWarning = true
-				m.status = "Unsaved changes! Press Ctrl+Q again to quit without saving"
+			if m.modified() {
+				m.quitPrompt = true
+				m.status = "Save before quitting? [Y/n/Esc]"
 				m.statusStyle = statusWarning
 				return m, nil
 			}
@@ -212,14 +347,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Any key other than ctrl+q resets the quit warning.
-		m.quitWarning = false
-
 	case savedMsg:
 		m.initial = msg.content
 		m.status = "Saved"
 		m.statusStyle = statusSuccess
 		return m, nil
+
+	case savedQuitMsg:
+		m.initial = msg.content
+		m.quitting = true
+		return m, tea.Quit
 
 	case saveErrMsg:
 		m.status = fmt.Sprintf("Save failed: %s", msg.err)
@@ -242,10 +379,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// renderHelpOverlay builds the full-screen help panel.
+func (m Model) renderHelpOverlay() string {
+	help := `  Keybindings
+  ───────────────────────────
+
+  Ctrl+S    Save
+  Ctrl+Q    Quit
+  Ctrl+C    Force quit (no save)
+  Ctrl+P    Toggle preview
+  Ctrl+G    Toggle this help
+  Ctrl+K    Cut line
+  Ctrl+U    Paste line
+
+  Press Ctrl+G or Esc to close`
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(1, 2).
+		Width(36).
+		Align(lipgloss.Left)
+
+	rendered := box.Render(help)
+
+	// Center the box in the terminal.
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
+}
+
 // View renders the editor UI.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
+	}
+
+	if m.showHelp {
+		return m.renderHelpOverlay()
 	}
 
 	statusBar := m.renderStatusBar()
@@ -302,7 +480,7 @@ func (m Model) renderStatusBar() string {
 	if m.status != "" {
 		right = m.status
 	} else {
-		right = "Ctrl+S save \u00B7 Ctrl+P preview \u00B7 Ctrl+Q quit"
+		right = "Ctrl+S save \u00B7 Ctrl+P preview \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
 	}
 
 	// Calculate gap between left and right.
