@@ -137,6 +137,10 @@ func createNoteInBook(w io.Writer, book, title string) error {
 
 func deleteNoteFromBook(w io.Writer, book, note string) error {
 	if err := store.DeleteNote(book, note); err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			return nil
+		}
 		printError(w, err.Error())
 		return nil
 	}
