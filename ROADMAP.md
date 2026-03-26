@@ -18,22 +18,22 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 3: Editor Mode
 
-- [ ] [#9 Basic terminal editor with Bubble Tea](https://github.com/oobagi/notebook/issues/9)
-- [ ] [#10 Live split-pane markdown preview](https://github.com/oobagi/notebook/issues/10)
-- [ ] [#11 Editor keybindings and save/quit flow](https://github.com/oobagi/notebook/issues/11)
-- [ ] [#16 Interactive checkboxes, lists, and links in editor](https://github.com/oobagi/notebook/issues/16)
+- [x] [#9 Basic terminal editor with Bubble Tea](https://github.com/oobagi/notebook/issues/9)
+- [x] [#10 Live split-pane markdown preview](https://github.com/oobagi/notebook/issues/10)
+- [x] [#11 Editor keybindings and save/quit flow](https://github.com/oobagi/notebook/issues/11)
+- [x] [#16 Interactive checkboxes, lists, and links in editor](https://github.com/oobagi/notebook/issues/16)
 
 ## Phase 4: Polish
 
-- [ ] [#12 Search across notes and notebooks](https://github.com/oobagi/notebook/issues/12)
-- [ ] [#13 Note metadata (created/modified timestamps)](https://github.com/oobagi/notebook/issues/13)
-- [ ] [#14 Configuration file support (~/.config/notebook)](https://github.com/oobagi/notebook/issues/14)
-- [ ] [#15 Shell completions (bash, zsh, fish)](https://github.com/oobagi/notebook/issues/15)
+- [x] [#12 Search across notes and notebooks](https://github.com/oobagi/notebook/issues/12)
+- [x] [#13 Note metadata (created/modified timestamps)](https://github.com/oobagi/notebook/issues/13)
+- [x] [#14 Configuration file support (~/.config/notebook)](https://github.com/oobagi/notebook/issues/14)
+- [x] [#15 Shell completions (bash, zsh, fish)](https://github.com/oobagi/notebook/issues/15)
 
 ## Phase 5: Rich Experience
 
-- [ ] [#17 TUI notebook/note browser with fuzzy search](https://github.com/oobagi/notebook/issues/17)
-- [ ] [#18 Auto light/dark theme detection](https://github.com/oobagi/notebook/issues/18)
-- [ ] [#19 Clickable hyperlinks in rendered output (OSC 8)](https://github.com/oobagi/notebook/issues/19)
-- [ ] [#20 Clipboard copy support](https://github.com/oobagi/notebook/issues/20)
-- [ ] [#21 GitHub-style admonition blocks in rendering](https://github.com/oobagi/notebook/issues/21)
+- [x] [#17 TUI notebook/note browser with fuzzy search](https://github.com/oobagi/notebook/issues/17)
+- [x] [#18 Auto light/dark theme detection](https://github.com/oobagi/notebook/issues/18)
+- [x] [#19 Clickable hyperlinks in rendered output (OSC 8)](https://github.com/oobagi/notebook/issues/19)
+- [x] [#20 Clipboard copy support](https://github.com/oobagi/notebook/issues/20)
+- [x] [#21 GitHub-style admonition blocks in rendering](https://github.com/oobagi/notebook/issues/21)
