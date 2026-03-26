@@ -4,17 +4,17 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 1: Foundation
 
-- [ ] [#1 Project scaffolding and CI setup](https://github.com/oobagi/notebook/issues/1)
-- [ ] [#2 Core data model and filesystem storage](https://github.com/oobagi/notebook/issues/2)
-- [ ] [#3 CLI framework with Cobra](https://github.com/oobagi/notebook/issues/3)
+- [x] [#1 Project scaffolding and CI setup](https://github.com/oobagi/notebook/issues/1)
+- [x] [#2 Core data model and filesystem storage](https://github.com/oobagi/notebook/issues/2)
+- [x] [#3 CLI framework with Cobra](https://github.com/oobagi/notebook/issues/3)
 
 ## Phase 2: Core Commands
 
-- [ ] [#4 notebook new — create notes and notebooks](https://github.com/oobagi/notebook/issues/4)
-- [ ] [#5 notebook list — list notebooks and notes](https://github.com/oobagi/notebook/issues/5)
-- [ ] [#6 notebook view — render markdown in terminal](https://github.com/oobagi/notebook/issues/6)
-- [ ] [#7 notebook rm — delete notes and notebooks](https://github.com/oobagi/notebook/issues/7)
-- [ ] [#8 Auto-create notebooks on note creation](https://github.com/oobagi/notebook/issues/8)
+- [x] [#4 notebook new — create notes and notebooks](https://github.com/oobagi/notebook/issues/4)
+- [x] [#5 notebook list — list notebooks and notes](https://github.com/oobagi/notebook/issues/5)
+- [x] [#6 notebook view — render markdown in terminal](https://github.com/oobagi/notebook/issues/6)
+- [x] [#7 notebook rm — delete notes and notebooks](https://github.com/oobagi/notebook/issues/7)
+- [x] [#8 Auto-create notebooks on note creation](https://github.com/oobagi/notebook/issues/8)
 
 ## Phase 3: Editor Mode
 
