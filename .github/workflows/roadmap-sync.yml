@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
-      ISSUE_STATE: ${{ github.event.action }}
+      ISSUE_STATE: ${{ github.event.action == 'closed' && 'closed' || 'open' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
