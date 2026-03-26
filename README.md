@@ -26,19 +26,21 @@
 
 ## What is Notebook?
 
-Notebook is a CLI tool for people who think in markdown. Organize notes into notebooks, write with live preview, and never leave your terminal.
+Notebook is a terminal-native note editor that renders markdown as you type — split-pane, real-time, no browser needed. Think Google Docs meets your terminal.
 
-- **No config needed** — just start writing
-- **Notebooks auto-create** — reference a notebook that doesn't exist and it appears
-- **Plain markdown files** — your notes are just `.md` files on disk, no lock-in
-- **Live editor mode** — split-pane TUI with real-time markdown rendering as you type
+- **Live split-pane editor** — write markdown on the left, see it rendered on the right, updated as you type
+- **Interactive preview** — toggle checkboxes, open links, and navigate elements right in the rendered view
+- **TUI browser** — launch `notebook` and browse everything with arrow keys and fuzzy search, like a GUI
+- **Clickable links** — URLs in your notes are actually clickable in supported terminals (OSC 8)
 
 ## Features
 
-- **[Create & organize](#usage)** — Group notes into notebooks. Create as many as you need.
-- **[Live markdown preview](#usage)** — Editor mode renders markdown in real-time alongside your text.
-- **[Terminal-native](#usage)** — Beautifully rendered markdown right in your terminal. No browser, no GUI.
-- **[Zero lock-in](#usage)** — Notes are plain `.md` files in directories. Take them anywhere.
+- **[Split-pane editor](#usage)** — Real-time markdown rendering side-by-side with your text. Ctrl+P to toggle.
+- **[Interactive markdown](#usage)** — Toggle checkboxes, follow links, and navigate elements without leaving the editor.
+- **[Full-text search](#usage)** — `notebook search "query"` across every note, with highlighted matches and context.
+- **[TUI browser](#usage)** — Fuzzy-searchable notebook/note browser. Arrow keys + Enter. No commands to memorize.
+- **[GitHub admonitions](#usage)** — `[!NOTE]`, `[!WARNING]`, and friends render with colored borders and icons.
+- **[Auto theming](#usage)** — Detects your terminal's light/dark background. No config needed.
 
 ## Quickstart
 
