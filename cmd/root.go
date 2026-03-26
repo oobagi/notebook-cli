@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -12,6 +14,7 @@ import (
 var (
 	store   *storage.Store
 	dirFlag string
+	cfg     config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -21,14 +24,26 @@ var rootCmd = &cobra.Command{
 	Short:         "A dead-simple CLI note manager with live markdown preview",
 	Long:          "Notebook is a CLI tool for managing markdown notes organized into notebooks, with a live-preview editor mode right in your terminal.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+
 		root := dirFlag
 		if root == "" {
+			root = cfg.StorageDir
+		}
+
+		// Expand ~ to home directory.
+		if strings.HasPrefix(root, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return fmt.Errorf("resolve home directory: %w", err)
 			}
-			root = filepath.Join(home, ".notebook")
+			root = filepath.Join(home, root[2:])
 		}
+
 		store = storage.NewStore(root)
 		return nil
 	},
