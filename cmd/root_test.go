@@ -527,6 +527,36 @@ func TestNewNoteAutoCreatesNotebook(t *testing.T) {
 	}
 }
 
+func TestViewNoteShowsMetadata(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("ideas", "spark", "# Spark\n\nSome content here.")
+
+	out, err := executeCapture([]string{"--dir", dir, "ideas", "spark"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Output should contain the "Modified" timestamp line.
+	if !strings.Contains(out, "Modified") {
+		t.Errorf("expected 'Modified' timestamp in output, got %q", out)
+	}
+}
+
+func TestViewNoteShowsBreadcrumb(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("ideas", "spark", "# Spark\n\nSome content here.")
+
+	out, err := executeCapture([]string{"--dir", dir, "ideas", "spark"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Output should contain the breadcrumb with U+203A separator.
+	if !strings.Contains(out, "ideas \u203A spark") {
+		t.Errorf("expected breadcrumb 'ideas \u203A spark' in output, got %q", out)
+	}
+}
+
 func TestNewDuplicateNoteShowsError(t *testing.T) {
 	dir := setupTestStore(t)
 	st := storage.NewStore(dir)

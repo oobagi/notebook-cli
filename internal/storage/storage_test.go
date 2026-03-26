@@ -422,6 +422,34 @@ func TestCreateNoteDuplicate(t *testing.T) {
 	}
 }
 
+// --- Timestamp tests ---
+
+func TestGetNotePopulatesTimestamps(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("nb", "ts-test", "timestamp content"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	note, err := store.GetNote("nb", "ts-test")
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+
+	if note.CreatedAt.IsZero() {
+		t.Error("CreatedAt should be non-zero")
+	}
+	if note.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should be non-zero")
+	}
+
+	// CreatedAt should be <= UpdatedAt (or equal for a freshly created file).
+	if note.CreatedAt.After(note.UpdatedAt) {
+		t.Errorf("CreatedAt (%v) should not be after UpdatedAt (%v)",
+			note.CreatedAt, note.UpdatedAt)
+	}
+}
+
 // --- ListNotebooks with non-existent root ---
 
 func TestListNotebooksNonExistentRoot(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/editor"
@@ -170,6 +171,23 @@ func viewNote(w io.Writer, book, note string) error {
 		printInfo(w, fmt.Sprintf("Note %q in %q is empty", note, book))
 		return nil
 	}
+
+	// Metadata header: breadcrumb (bold) and timestamps (dim).
+	fmt.Fprintf(w, "  \x1b[1m%s \u203A %s\x1b[0m\n", book, note)
+
+	// Show both timestamps when created and modified differ by more than 1 minute.
+	diff := n.UpdatedAt.Sub(n.CreatedAt)
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > time.Minute {
+		fmt.Fprintf(w, "  \x1b[2mCreated %s \u00B7 Modified %s\x1b[0m\n",
+			relativeTime(n.CreatedAt), relativeTime(n.UpdatedAt))
+	} else {
+		fmt.Fprintf(w, "  \x1b[2mModified %s\x1b[0m\n", relativeTime(n.UpdatedAt))
+	}
+
+	fmt.Fprintln(w)
 
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || width <= 0 {
