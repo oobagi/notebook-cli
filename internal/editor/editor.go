@@ -12,6 +12,12 @@ import (
 	"github.com/oobagi/notebook/internal/render"
 )
 
+// linkOpenMsg is sent after attempting to open a link in the browser.
+type linkOpenMsg struct {
+	url string
+	err error
+}
+
 // Config holds the configuration for the editor.
 type Config struct {
 	// Title is displayed in the status bar (e.g. "book > note").
@@ -45,21 +51,25 @@ const minSplitWidth = 40
 
 // Model is the Bubble Tea model for the editor.
 type Model struct {
-	textarea     textarea.Model
-	config       Config
-	initial      string
-	width        int
-	height       int
-	status       string
-	statusStyle  statusKind
-	quitPrompt   bool
-	quitting     bool
-	showPreview  bool
-	showHelp     bool
-	clipboard    string
-	preview      string
-	previewDirty bool
-	previewSeq   int
+	textarea       textarea.Model
+	config         Config
+	initial        string
+	width          int
+	height         int
+	status         string
+	statusStyle    statusKind
+	quitPrompt     bool
+	quitting       bool
+	showPreview    bool
+	showHelp       bool
+	clipboard      string
+	preview        string
+	previewDirty   bool
+	previewSeq     int
+	previewMode    bool
+	elements       []Element
+	focusedElement int
+	previewScroll  int
 }
 
 type statusKind int
@@ -143,6 +153,75 @@ func (m *Model) renderPreview() {
 	}
 	m.preview = render.RenderMarkdown(content, pw)
 	m.previewDirty = false
+}
+
+// renderPreviewWithFocus builds a preview pane that shows an element list
+// with the currently focused element highlighted. This is displayed when
+// the editor is in preview mode.
+func (m Model) renderPreviewWithFocus(width, height int) string {
+	var lines []string
+	for i, el := range m.elements {
+		prefix := "  "
+		if i == m.focusedElement {
+			prefix = "> "
+		}
+		line := prefix + elementDisplayText(el)
+		// Truncate to fit width.
+		if len(line) > width {
+			line = line[:width-1] + "\u2026"
+		}
+		lines = append(lines, line)
+	}
+
+	// If there are more lines than height, scroll to keep focused element visible.
+	if len(lines) > height {
+		start := m.focusedElement - height/2
+		if start < 0 {
+			start = 0
+		}
+		end := start + height
+		if end > len(lines) {
+			end = len(lines)
+			start = end - height
+			if start < 0 {
+				start = 0
+			}
+		}
+		lines = lines[start:end]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// refreshElements re-parses interactive elements from the current content.
+// It clamps the focused element index to remain valid.
+func (m *Model) refreshElements() {
+	m.elements = parseElements(m.textarea.Value())
+	if m.focusedElement >= len(m.elements) {
+		m.focusedElement = len(m.elements) - 1
+	}
+	if m.focusedElement < 0 {
+		m.focusedElement = 0
+	}
+}
+
+// enterPreviewMode switches to preview mode with interactive element navigation.
+func (m *Model) enterPreviewMode() {
+	m.refreshElements()
+	if len(m.elements) == 0 {
+		m.status = "No interactive elements"
+		m.statusStyle = statusWarning
+		return
+	}
+	m.previewMode = true
+	m.focusedElement = 0
+	m.textarea.Blur()
+}
+
+// exitPreviewMode returns to edit mode.
+func (m *Model) exitPreviewMode() {
+	m.previewMode = false
+	m.textarea.Focus()
 }
 
 // schedulePreviewTick increments the sequence counter and returns a tick command.
@@ -290,6 +369,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When in preview mode, handle interactive navigation.
+		if m.previewMode {
+			switch msg.String() {
+			case "ctrl+e", "esc":
+				m.exitPreviewMode()
+				return m, nil
+
+			case "up", "shift+tab":
+				if m.focusedElement > 0 {
+					m.focusedElement--
+				}
+				return m, nil
+
+			case "down", "tab":
+				if m.focusedElement < len(m.elements)-1 {
+					m.focusedElement++
+				}
+				return m, nil
+
+			case "enter", " ":
+				if m.focusedElement >= 0 && m.focusedElement < len(m.elements) {
+					el := m.elements[m.focusedElement]
+					switch el.Kind {
+					case ElementCheckbox:
+						newContent, checked := toggleCheckbox(m.textarea.Value(), el.Line)
+						m.textarea.SetValue(newContent)
+						m.elements[m.focusedElement].Checked = checked
+						m.refreshElements()
+						m.previewDirty = true
+						return m, m.schedulePreviewTick()
+					case ElementLink:
+						url := el.URL
+						m.status = "Opening link..."
+						m.statusStyle = statusSuccess
+						return m, func() tea.Msg {
+							err := openLink(url)
+							return linkOpenMsg{url: url, err: err}
+						}
+					}
+				}
+				return m, nil
+
+			case "ctrl+q":
+				if m.modified() {
+					m.exitPreviewMode()
+					m.quitPrompt = true
+					m.status = "Save before quitting? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.quitting = true
+				return m, tea.Quit
+
+			case "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			}
+			// Ignore all other keys in preview mode.
+			return m, nil
+		}
+
 		// Clear transient status on any keypress.
 		if m.statusStyle == statusSuccess {
 			m.status = ""
@@ -297,6 +437,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "ctrl+e":
+			if m.showPreview && m.width >= minSplitWidth {
+				m.enterPreviewMode()
+			}
+			return m, nil
+
 		case "ctrl+g":
 			m.showHelp = true
 			return m, nil
@@ -347,6 +493,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case linkOpenMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Failed to open link: %s", msg.err)
+			m.statusStyle = statusError
+		}
+		return m, nil
+
 	case savedMsg:
 		m.initial = msg.content
 		m.status = "Saved"
@@ -388,6 +541,7 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+Q    Quit
   Ctrl+C    Force quit (no save)
   Ctrl+P    Toggle preview
+  Ctrl+E    Preview mode
   Ctrl+G    Toggle this help
   Ctrl+K    Cut line
   Ctrl+U    Paste line
@@ -455,7 +609,14 @@ func (m Model) View() string {
 		Height(editorHeight)
 
 	leftPane := m.textarea.View()
-	rightPane := previewStyle.Render(m.preview)
+
+	// When in preview mode, overlay a focused-element indicator on the preview.
+	previewContent := m.preview
+	if m.previewMode && len(m.elements) > 0 {
+		previewContent = m.renderPreviewWithFocus(rightWidth, editorHeight)
+	}
+
+	rightPane := previewStyle.Render(previewContent)
 
 	split := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, border, rightPane)
 
@@ -469,8 +630,11 @@ func (m Model) renderStatusBar() string {
 		width = 80
 	}
 
-	// Left side: title + modified indicator.
+	// Left side: title + mode indicator + modified indicator.
 	left := m.config.Title
+	if m.previewMode {
+		left += " PREVIEW"
+	}
 	if m.modified() {
 		left += " [modified]"
 	}
@@ -479,8 +643,10 @@ func (m Model) renderStatusBar() string {
 	var right string
 	if m.status != "" {
 		right = m.status
+	} else if m.previewMode {
+		right = "\u2191/\u2193 navigate \u00B7 Enter toggle/open \u00B7 Ctrl+E edit \u00B7 Ctrl+Q quit"
 	} else {
-		right = "Ctrl+S save \u00B7 Ctrl+P preview \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
+		right = "Ctrl+S save \u00B7 Ctrl+E preview \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
 	}
 
 	// Calculate gap between left and right.
