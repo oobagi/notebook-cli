@@ -163,13 +163,18 @@ func TestDispatchBookDelete(t *testing.T) {
 
 func TestDispatchBookSearch(t *testing.T) {
 	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "todo", "hello world")
 
 	out, err := executeCapture([]string{"--dir", dir, "work", "search", "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	if !strings.Contains(out, "work") {
+		t.Errorf("expected 'work' in output, got %q", out)
+	}
+	if !strings.Contains(out, "todo") {
+		t.Errorf("expected 'todo' in output, got %q", out)
 	}
 }
 
@@ -389,8 +394,9 @@ func TestTopLevelSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	// No notebooks exist, so should show "No matches".
+	if !strings.Contains(out, "No matches") {
+		t.Errorf("expected 'No matches' message, got %q", out)
 	}
 }
 

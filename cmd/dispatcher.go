@@ -151,8 +151,7 @@ func deleteNoteFromBook(w io.Writer, book, note string) error {
 }
 
 func searchInBook(w io.Writer, book, query string) error {
-	fmt.Fprintln(w, "search: not implemented yet")
-	return nil
+	return runSearch(w, query, book, false)
 }
 
 // --- Note-scoped operations ---

@@ -449,3 +449,97 @@ func TestListNotesNonExistentNotebook(t *testing.T) {
 		t.Fatal("ListNotes on non-existent notebook should return an error")
 	}
 }
+
+// --- SearchNotes tests ---
+
+func TestSearchNotesFindsMatch(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_ = store.CreateNote("work", "meeting", "discussed the quarterly plan\nother stuff")
+	_ = store.CreateNote("personal", "journal", "reminded me of the quarterly review")
+
+	results, err := store.SearchNotes("quarterly", "", false)
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+
+	// Results should be sorted by notebook name.
+	if results[0].Notebook != "personal" {
+		t.Errorf("first result notebook = %q, want %q", results[0].Notebook, "personal")
+	}
+	if results[1].Notebook != "work" {
+		t.Errorf("second result notebook = %q, want %q", results[1].Notebook, "work")
+	}
+}
+
+func TestSearchNotesCaseInsensitive(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_ = store.CreateNote("nb", "note", "Hello World\ngoodbye world")
+
+	results, err := store.SearchNotes("HELLO", "", false)
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (case-insensitive match)", len(results))
+	}
+	if results[0].Line != 1 {
+		t.Errorf("Line = %d, want 1", results[0].Line)
+	}
+	if results[0].Text != "Hello World" {
+		t.Errorf("Text = %q, want %q", results[0].Text, "Hello World")
+	}
+}
+
+func TestSearchNotesCaseSensitive(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_ = store.CreateNote("nb", "note", "Hello World\nhello world")
+
+	results, err := store.SearchNotes("Hello", "", true)
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (case-sensitive, only first line)", len(results))
+	}
+	if results[0].Line != 1 {
+		t.Errorf("Line = %d, want 1", results[0].Line)
+	}
+}
+
+func TestSearchNotesScoped(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_ = store.CreateNote("work", "todo", "buy milk")
+	_ = store.CreateNote("personal", "list", "buy milk")
+
+	results, err := store.SearchNotes("milk", "work", false)
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (scoped to work)", len(results))
+	}
+	if results[0].Notebook != "work" {
+		t.Errorf("Notebook = %q, want %q", results[0].Notebook, "work")
+	}
+}
+
+func TestSearchNotesNoResults(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_ = store.CreateNote("nb", "note", "nothing relevant here")
+
+	results, err := store.SearchNotes("zzzzz", "", false)
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("got %d results, want 0", len(results))
+	}
+}

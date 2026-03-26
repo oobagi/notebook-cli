@@ -1,15 +1,25 @@
 package storage
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/oobagi/notebook/internal/model"
 )
+
+// SearchResult represents a single line that matched a search query.
+type SearchResult struct {
+	Notebook string
+	Note     string
+	Line     int    // 1-based line number
+	Text     string // the matching line
+}
 
 // ErrInvalidName is returned when a notebook or note name contains
 // path-traversal sequences or is otherwise unsafe for use as a filename.
@@ -276,4 +286,87 @@ func (s *Store) UpdateNote(notebook, name, content string) error {
 		return fmt.Errorf("update note %q/%q: %w", notebook, name, err)
 	}
 	return nil
+}
+
+// SearchNotes searches for a query string across notes. If notebook is
+// non-empty, only that notebook is searched. Results are sorted by
+// notebook, note name, then line number.
+func (s *Store) SearchNotes(query string, notebook string, caseSensitive bool) ([]SearchResult, error) {
+	var notebooks []string
+	if notebook != "" {
+		if err := validName(notebook); err != nil {
+			return nil, err
+		}
+		notebooks = []string{notebook}
+	} else {
+		var err error
+		notebooks, err = s.ListNotebooks()
+		if err != nil {
+			return nil, fmt.Errorf("search: list notebooks: %w", err)
+		}
+	}
+
+	q := query
+	if !caseSensitive {
+		q = strings.ToLower(query)
+	}
+
+	var results []SearchResult
+	for _, nb := range notebooks {
+		dir := s.notebookPath(nb)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("search: read dir %q: %w", nb, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			noteName := strings.TrimSuffix(e.Name(), ".md")
+			p := filepath.Join(dir, e.Name())
+
+			f, err := os.Open(p)
+			if err != nil {
+				return nil, fmt.Errorf("search: open %q/%q: %w", nb, noteName, err)
+			}
+
+			scanner := bufio.NewScanner(f)
+			lineNum := 0
+			for scanner.Scan() {
+				lineNum++
+				line := scanner.Text()
+				haystack := line
+				if !caseSensitive {
+					haystack = strings.ToLower(line)
+				}
+				if strings.Contains(haystack, q) {
+					results = append(results, SearchResult{
+						Notebook: nb,
+						Note:     noteName,
+						Line:     lineNum,
+						Text:     line,
+					})
+				}
+			}
+			f.Close()
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("search: scan %q/%q: %w", nb, noteName, err)
+			}
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Notebook != results[j].Notebook {
+			return results[i].Notebook < results[j].Notebook
+		}
+		if results[i].Note != results[j].Note {
+			return results[i].Note < results[j].Note
+		}
+		return results[i].Line < results[j].Line
+	})
+
+	return results, nil
 }
