@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -88,24 +89,31 @@ func listNotesInBook(w io.Writer, book string) error {
 		return fmt.Errorf("list notes in %q: %w", book, err)
 	}
 	for _, n := range notes {
-		fmt.Fprintln(w, n.Name)
+		fmt.Fprintf(w, "  %s\n", n.Name)
 	}
 	return nil
 }
 
 func createNoteInBook(w io.Writer, book, title string) error {
 	if err := store.CreateNote(book, title, ""); err != nil {
-		return err
+		// Check for "already exists" from the storage layer.
+		if strings.Contains(err.Error(), "already exists") {
+			printError(w, fmt.Sprintf("Note %q already exists in %q", title, book))
+			return nil
+		}
+		printError(w, err.Error())
+		return nil
 	}
-	fmt.Fprintf(w, "Created %q in %s\n", title, book)
+	printSuccess(w, fmt.Sprintf("Created %q in %s", title, book))
 	return nil
 }
 
 func deleteNoteFromBook(w io.Writer, book, note string) error {
 	if err := store.DeleteNote(book, note); err != nil {
-		return err
+		printError(w, err.Error())
+		return nil
 	}
-	fmt.Fprintf(w, "Deleted %q from %s\n", note, book)
+	printSuccess(w, fmt.Sprintf("Deleted %q from %s", note, book))
 	return nil
 }
 
