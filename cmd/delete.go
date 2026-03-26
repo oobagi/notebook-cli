@@ -11,11 +11,13 @@ var deleteCmd = &cobra.Command{
 	Short: "Delete a notebook",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		w := cmd.OutOrStdout()
 		name := args[0]
 		if err := store.DeleteNotebook(name); err != nil {
-			return err
+			printError(w, err.Error())
+			return nil
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Deleted %q\n", name)
+		printSuccess(w, fmt.Sprintf("Deleted %q", name))
 		return nil
 	},
 }

@@ -17,7 +17,7 @@ var listCmd = &cobra.Command{
 		}
 		w := cmd.OutOrStdout()
 		for _, name := range notebooks {
-			fmt.Fprintln(w, name)
+			fmt.Fprintf(w, "  %s\n", name)
 		}
 		return nil
 	},

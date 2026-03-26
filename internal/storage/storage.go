@@ -48,6 +48,12 @@ func (s *Store) notebookPath(name string) string {
 	return filepath.Join(s.Root, name)
 }
 
+// NotebookDir returns the full filesystem path for a notebook directory.
+// This is the exported version of notebookPath for use by the command layer.
+func (s *Store) NotebookDir(name string) string {
+	return filepath.Join(s.Root, name)
+}
+
 // CreateNotebook creates a new notebook directory.
 func (s *Store) CreateNotebook(name string) error {
 	if err := validName(name); err != nil {

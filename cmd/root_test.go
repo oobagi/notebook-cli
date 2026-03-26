@@ -93,8 +93,8 @@ func TestDispatchBookWithNoArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "spark") {
-		t.Errorf("expected output to contain %q, got %q", "spark", out)
+	if !strings.Contains(out, "  spark\n") {
+		t.Errorf("expected indented %q in output, got %q", "  spark", out)
 	}
 }
 
@@ -109,11 +109,11 @@ func TestDispatchBookList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "todo") {
-		t.Errorf("expected %q in output, got %q", "todo", out)
+	if !strings.Contains(out, "  todo\n") {
+		t.Errorf("expected indented %q in output, got %q", "  todo", out)
 	}
-	if !strings.Contains(out, "meeting") {
-		t.Errorf("expected %q in output, got %q", "meeting", out)
+	if !strings.Contains(out, "  meeting\n") {
+		t.Errorf("expected indented %q in output, got %q", "  meeting", out)
 	}
 }
 
@@ -124,8 +124,9 @@ func TestDispatchBookNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Created") {
-		t.Errorf("expected 'Created' in output, got %q", out)
+	want := "  \u2713 Created \"day1\" in journal\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 
 	// Verify the note was actually created.
@@ -148,8 +149,9 @@ func TestDispatchBookDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Deleted") {
-		t.Errorf("expected 'Deleted' in output, got %q", out)
+	want := "  \u2713 Deleted \"temp\" from work\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 
 	// Verify the note is gone.
@@ -206,8 +208,9 @@ func TestDispatchNoteDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Deleted") {
-		t.Errorf("expected 'Deleted' in output, got %q", out)
+	want := "  \u2713 Deleted \"doomed\" from work\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 
 	_, err = st.GetNote("work", "doomed")
@@ -270,11 +273,11 @@ func TestTopLevelList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "alpha") {
-		t.Errorf("expected %q in output, got %q", "alpha", out)
+	if !strings.Contains(out, "  alpha\n") {
+		t.Errorf("expected indented %q in output, got %q", "  alpha", out)
 	}
-	if !strings.Contains(out, "beta") {
-		t.Errorf("expected %q in output, got %q", "beta", out)
+	if !strings.Contains(out, "  beta\n") {
+		t.Errorf("expected indented %q in output, got %q", "  beta", out)
 	}
 }
 
@@ -285,8 +288,9 @@ func TestTopLevelNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Created") {
-		t.Errorf("expected 'Created' in output, got %q", out)
+	want := "  \u2713 Created \"Projects\"\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 
 	st := storage.NewStore(dir)
@@ -311,8 +315,9 @@ func TestTopLevelDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Deleted") {
-		t.Errorf("expected 'Deleted' in output, got %q", out)
+	want := "  \u2713 Deleted \"trash\"\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 
 	nbs, _ := st.ListNotebooks()
@@ -358,5 +363,123 @@ func TestNoArgsPrintsHelp(t *testing.T) {
 	}
 	if !strings.Contains(out, "notebook") {
 		t.Errorf("expected help output, got %q", out)
+	}
+}
+
+// --- Issue #4: notebook new output formatting ---
+
+func TestNewNotebookSuccessOutput(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "new", "test-book"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "  \u2713 Created \"test-book\"\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+
+	// Verify the notebook was actually created.
+	st := storage.NewStore(dir)
+	nbs, _ := st.ListNotebooks()
+	found := false
+	for _, n := range nbs {
+		if n == "test-book" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("notebook 'test-book' should exist after creation")
+	}
+}
+
+func TestNewNoteInBookSuccessOutput(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "mybook", "new", "test-note"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "  \u2713 Created \"test-note\" in mybook\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+
+	// Verify the note was actually created.
+	st := storage.NewStore(dir)
+	note, err := st.GetNote("mybook", "test-note")
+	if err != nil {
+		t.Fatalf("note should exist: %v", err)
+	}
+	if note.Name != "test-note" {
+		t.Errorf("note name = %q, want %q", note.Name, "test-note")
+	}
+}
+
+func TestNewDuplicateNotebookShowsError(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("my-notebook")
+
+	out, err := executeCapture([]string{"--dir", dir, "new", "my-notebook"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "\u2717") {
+		t.Errorf("expected error symbol in output, got %q", out)
+	}
+	if !strings.Contains(out, "already exists") {
+		t.Errorf("expected 'already exists' in output, got %q", out)
+	}
+}
+
+func TestNewNoteAutoCreatesNotebook(t *testing.T) {
+	dir := setupTestStore(t)
+
+	// "newbook" does not exist yet; creating a note should auto-create it.
+	out, err := executeCapture([]string{"--dir", dir, "newbook", "new", "first-note"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "\u2713") {
+		t.Errorf("expected success symbol in output, got %q", out)
+	}
+
+	// Verify both the notebook and note exist.
+	st := storage.NewStore(dir)
+	nbs, _ := st.ListNotebooks()
+	found := false
+	for _, n := range nbs {
+		if n == "newbook" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("notebook 'newbook' should have been auto-created")
+	}
+	note, err := st.GetNote("newbook", "first-note")
+	if err != nil {
+		t.Fatalf("note should exist: %v", err)
+	}
+	if note.Name != "first-note" {
+		t.Errorf("note name = %q, want %q", note.Name, "first-note")
+	}
+}
+
+func TestNewDuplicateNoteShowsError(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("my-notebook", "my-note", "content")
+
+	out, err := executeCapture([]string{"--dir", dir, "my-notebook", "new", "my-note"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "\u2717") {
+		t.Errorf("expected error symbol in output, got %q", out)
+	}
+	if !strings.Contains(out, "already exists") {
+		t.Errorf("expected 'already exists' in output, got %q", out)
 	}
 }
