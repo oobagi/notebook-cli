@@ -415,17 +415,19 @@ func TestTopLevelConfig(t *testing.T) {
 	}
 }
 
-// --- No args shows help ---
+// --- No args launches browser ---
 
-func TestNoArgsPrintsHelp(t *testing.T) {
+func TestNoArgsLaunchesBrowser(t *testing.T) {
 	dir := setupTestStore(t)
 
-	out, err := executeCapture([]string{"--dir", dir})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Without a TTY the browser cannot open, so we expect a TTY-related error.
+	// This confirms the root command dispatches to the browser rather than help.
+	_, err := executeCapture([]string{"--dir", dir})
+	if err == nil {
+		t.Fatal("expected TTY error when launching browser without a terminal")
 	}
-	if !strings.Contains(out, "notebook") {
-		t.Errorf("expected help output, got %q", out)
+	if !strings.Contains(err.Error(), "TTY") {
+		t.Errorf("expected TTY error, got %q", err.Error())
 	}
 }
 

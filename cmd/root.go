@@ -49,7 +49,7 @@ var rootCmd = &cobra.Command{
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			return cmd.Help()
+			return runBrowser()
 		}
 		return dispatch(cmd, args)
 	},
