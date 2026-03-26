@@ -35,5 +35,12 @@ func RenderMarkdown(content string, width int) string {
 		return content
 	}
 
+	// Add clickable hyperlinks via OSC 8 when outputting to a TTY.
+	// Skip when NO_COLOR is set to keep output free of escape sequences.
+	_, noColor := os.LookupEnv("NO_COLOR")
+	if term.IsTerminal(int(os.Stdout.Fd())) && !noColor {
+		out = LinkifyMarkdown(out)
+	}
+
 	return out
 }
