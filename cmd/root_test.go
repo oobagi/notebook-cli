@@ -182,8 +182,59 @@ func TestDispatchNoteView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	if !strings.Contains(out, "Hello") {
+		t.Errorf("expected rendered output to contain 'Hello', got %q", out)
+	}
+}
+
+func TestDispatchNoteViewNotFound(t *testing.T) {
+	dir := setupTestStore(t)
+	_ = storage.NewStore(dir)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "nonexistent"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "\u2717") {
+		t.Errorf("expected error symbol in output, got %q", out)
+	}
+	if !strings.Contains(out, "not found") {
+		t.Errorf("expected 'not found' in output, got %q", out)
+	}
+}
+
+func TestDispatchNoteViewEmpty(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "blank", "")
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "blank"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "empty") {
+		t.Errorf("expected 'empty' info message, got %q", out)
+	}
+}
+
+func TestDispatchNoteViewRendersMarkdown(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	md := "# Project\n\n- task one\n- task two\n\n```go\nfmt.Println(\"hi\")\n```"
+	_ = st.CreateNote("dev", "notes", md)
+
+	out, err := executeCapture([]string{"--dir", dir, "dev", "notes"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Project") {
+		t.Errorf("expected 'Project' in output, got %q", out)
+	}
+	if !strings.Contains(out, "task one") {
+		t.Errorf("expected 'task one' in output, got %q", out)
+	}
+	if !strings.Contains(out, "Println") {
+		t.Errorf("expected 'Println' in output, got %q", out)
 	}
 }
 
