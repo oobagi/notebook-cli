@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
+  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
 </p>
@@ -67,7 +67,11 @@ notebook <book> new "Note Title"       # Create a note (auto-creates notebook)
 notebook <book> <note>                 # View a note (rendered markdown)
 notebook <book> <note> edit            # Open editor with live markdown preview
 notebook <book> <note> delete          # Delete a note
+notebook <book> <note> copy            # Copy note content to clipboard
 notebook <book> delete                 # Delete a notebook and all its notes
+notebook search "query"                # Search across all notebooks
+notebook config                        # Show current configuration
+notebook completion bash               # Generate shell completions
 ```
 
 ## License
