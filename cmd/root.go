@@ -22,6 +22,7 @@ var (
 var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
+	Version:       Version,
 	Use:           "notebook",
 	Short:         "A dead-simple CLI note manager with live markdown preview",
 	Long:          "Notebook is a CLI tool for managing markdown notes organized into notebooks, with a live-preview editor mode right in your terminal.",
@@ -69,6 +70,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVar(&dirFlag, "dir", "", "root directory for notebook storage (default ~/.notebook)")
 	rootCmd.PersistentFlags().StringVar(&themeFlag, "theme", "auto", "color theme (auto, dark, light)")
+	rootCmd.SetVersionTemplate("notebook {{.Version}}\n")
 }
 
 // Execute runs the root command.
