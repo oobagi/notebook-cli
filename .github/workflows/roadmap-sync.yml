@@ -1,0 +1,44 @@
+name: Sync Roadmap Checkboxes
+
+on:
+  issues:
+    types: [closed, reopened]
+
+jobs:
+  update-roadmap:
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_STATE: ${{ github.event.action }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ROADMAP_PAT }}
+
+      - name: Update ROADMAP.md checkbox
+        run: |
+          if [ "$ISSUE_STATE" = "closed" ]; then
+            sed -i "s/^- \[ \] \[#${ISSUE_NUMBER} /- [x] [#${ISSUE_NUMBER} /" ROADMAP.md
+          else
+            sed -i "s/^- \[x\] \[#${ISSUE_NUMBER} /- [ ] [#${ISSUE_NUMBER} /" ROADMAP.md
+          fi
+
+      - name: Commit and push
+        env:
+          GH_TOKEN: ${{ secrets.ROADMAP_PAT }}
+        run: |
+          git diff --quiet ROADMAP.md && exit 0
+          BRANCH="roadmap/mark-${ISSUE_NUMBER}-${ISSUE_STATE}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add ROADMAP.md
+          git commit -m "roadmap: mark #${ISSUE_NUMBER} as ${ISSUE_STATE}"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create \
+            --title "roadmap: mark #${ISSUE_NUMBER} as ${ISSUE_STATE}" \
+            --body "Auto-generated: update ROADMAP.md checkbox for #${ISSUE_NUMBER}." \
+            --head "$BRANCH" \
+            --base main)
+          gh pr merge "$PR_URL" --auto --merge --delete-branch
