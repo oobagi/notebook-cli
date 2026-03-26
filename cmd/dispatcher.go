@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -86,10 +87,34 @@ func dispatch(cmd *cobra.Command, args []string) error {
 func listNotesInBook(w io.Writer, book string) error {
 	notes, err := store.ListNotes(book)
 	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") ||
+			strings.Contains(err.Error(), "does not exist") {
+			printError(w, fmt.Sprintf("Notebook %q not found", book))
+			return nil
+		}
 		return fmt.Errorf("list notes in %q: %w", book, err)
 	}
+
+	if len(notes) == 0 {
+		fmt.Fprintln(w, "  No notes yet.")
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  Create one with:  notebook %s new \"My First Note\"\n", book)
+		return nil
+	}
+
+	var rows [][]string
 	for _, n := range notes {
-		fmt.Fprintf(w, "  %s\n", n.Name)
+		info, err := os.Stat(store.NotebookDir(book) + "/" + n.Name + ".md")
+		if err != nil {
+			return fmt.Errorf("stat note %q: %w", n.Name, err)
+		}
+		sizeStr := humanSize(info.Size())
+		timeStr := relativeTime(info.ModTime())
+		rows = append(rows, []string{n.Name, sizeStr, timeStr})
+	}
+
+	for _, line := range alignColumns(rows) {
+		fmt.Fprintln(w, line)
 	}
 	return nil
 }

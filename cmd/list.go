@@ -11,13 +11,43 @@ var listCmd = &cobra.Command{
 	Short: "List all notebooks",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		w := cmd.OutOrStdout()
 		notebooks, err := store.ListNotebooks()
 		if err != nil {
 			return err
 		}
-		w := cmd.OutOrStdout()
+
+		if len(notebooks) == 0 {
+			fmt.Fprintln(w, "  No books yet.")
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "  Create one with:  notebook new \"My First Book\"")
+			return nil
+		}
+
+		var rows [][]string
 		for _, name := range notebooks {
-			fmt.Fprintf(w, "  %s\n", name)
+			count, err := store.NoteCount(name)
+			if err != nil {
+				return err
+			}
+			modTime, err := store.NotebookModTime(name)
+			if err != nil {
+				return err
+			}
+
+			countStr := pluralize(count, "note", "notes")
+			var timeStr string
+			if modTime.IsZero() {
+				timeStr = "empty"
+			} else {
+				timeStr = relativeTime(modTime)
+			}
+
+			rows = append(rows, []string{name, countStr, timeStr})
+		}
+
+		for _, line := range alignColumns(rows) {
+			fmt.Fprintln(w, line)
 		}
 		return nil
 	},

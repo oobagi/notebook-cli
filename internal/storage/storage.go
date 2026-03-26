@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/oobagi/notebook/internal/model"
 )
@@ -169,6 +170,64 @@ func (s *Store) ListNotes(notebook string) ([]model.Note, error) {
 		notes = append(notes, note)
 	}
 	return notes, nil
+}
+
+// NoteCount returns the number of markdown notes in a notebook directory
+// without reading their content.
+func (s *Store) NoteCount(notebook string) (int, error) {
+	if err := validName(notebook); err != nil {
+		return 0, err
+	}
+	dir := s.notebookPath(notebook)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("count notes in %q: %w", notebook, err)
+	}
+
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// NotebookModTime returns the most recent modification time of any note
+// in the notebook. If the notebook is empty or does not exist, it returns
+// the zero time.
+func (s *Store) NotebookModTime(notebook string) (time.Time, error) {
+	if err := validName(notebook); err != nil {
+		return time.Time{}, err
+	}
+	dir := s.notebookPath(notebook)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("notebook mod time %q: %w", notebook, err)
+	}
+
+	var latest time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return time.Time{}, fmt.Errorf("stat %q in %q: %w", e.Name(), notebook, err)
+		}
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+	}
+	return latest, nil
 }
 
 // DeleteNote removes a single note file.
