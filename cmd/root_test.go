@@ -238,15 +238,18 @@ func TestDispatchNoteViewRendersMarkdown(t *testing.T) {
 	}
 }
 
-func TestDispatchNoteEdit(t *testing.T) {
+func TestDispatchNoteEditNotFound(t *testing.T) {
 	dir := setupTestStore(t)
 
 	out, err := executeCapture([]string{"--dir", dir, "work", "readme", "edit"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	if !strings.Contains(out, "\u2717") {
+		t.Errorf("expected error symbol in output, got %q", out)
+	}
+	if !strings.Contains(out, "not found") {
+		t.Errorf("expected 'not found' in output, got %q", out)
 	}
 }
 

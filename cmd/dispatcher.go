@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/oobagi/notebook/internal/editor"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -180,7 +182,28 @@ func viewNote(w io.Writer, book, note string) error {
 }
 
 func editNote(w io.Writer, book, note string) error {
-	fmt.Fprintln(w, "edit: not implemented yet")
+	n, err := store.GetNote(book, note)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			return nil
+		}
+		return fmt.Errorf("edit note %q/%q: %w", book, note, err)
+	}
+
+	cfg := editor.Config{
+		Title:   book + " \u203A " + note,
+		Content: n.Content,
+		Save: func(content string) error {
+			return store.UpdateNote(book, note, content)
+		},
+	}
+
+	m := editor.New(cfg)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("run editor: %w", err)
+	}
 	return nil
 }
 
