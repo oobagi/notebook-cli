@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/spf13/cobra"
@@ -225,6 +226,19 @@ func editNote(w io.Writer, book, note string) error {
 }
 
 func copyNote(w io.Writer, book, note string) error {
-	fmt.Fprintln(w, "copy: not implemented yet")
+	n, err := store.GetNote(book, note)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			return nil
+		}
+		return fmt.Errorf("copy note %q/%q: %w", book, note, err)
+	}
+
+	if err := clipboard.Copy(n.Content); err != nil {
+		printError(w, fmt.Sprintf("Could not copy to clipboard: %s", err))
+		return nil
+	}
+	printSuccess(w, fmt.Sprintf("Copied %q to clipboard", note))
 	return nil
 }
