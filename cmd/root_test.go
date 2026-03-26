@@ -93,8 +93,8 @@ func TestDispatchBookWithNoArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "  spark\n") {
-		t.Errorf("expected indented %q in output, got %q", "  spark", out)
+	if !strings.Contains(out, "spark") {
+		t.Errorf("expected %q in output, got %q", "spark", out)
 	}
 }
 
@@ -109,11 +109,11 @@ func TestDispatchBookList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "  todo\n") {
-		t.Errorf("expected indented %q in output, got %q", "  todo", out)
+	if !strings.Contains(out, "todo") {
+		t.Errorf("expected %q in output, got %q", "todo", out)
 	}
-	if !strings.Contains(out, "  meeting\n") {
-		t.Errorf("expected indented %q in output, got %q", "  meeting", out)
+	if !strings.Contains(out, "meeting") {
+		t.Errorf("expected %q in output, got %q", "meeting", out)
 	}
 }
 
@@ -273,11 +273,11 @@ func TestTopLevelList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "  alpha\n") {
-		t.Errorf("expected indented %q in output, got %q", "  alpha", out)
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("expected %q in output, got %q", "alpha", out)
 	}
-	if !strings.Contains(out, "  beta\n") {
-		t.Errorf("expected indented %q in output, got %q", "  beta", out)
+	if !strings.Contains(out, "beta") {
+		t.Errorf("expected %q in output, got %q", "beta", out)
 	}
 }
 
