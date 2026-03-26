@@ -40,7 +40,7 @@ func TestCtrlQQuitsWhenClean(t *testing.T) {
 	}
 }
 
-func TestCtrlQShowsWarningWhenModified(t *testing.T) {
+func TestCtrlQShowsPromptWhenModified(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -53,22 +53,76 @@ func TestCtrlQShowsWarningWhenModified(t *testing.T) {
 		t.Fatal("editor should be modified after typing")
 	}
 
-	// First Ctrl+Q should show warning, not quit.
+	// Ctrl+Q should show prompt, not quit.
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
 	m = updated.(Model)
 
 	if cmd != nil {
-		t.Fatal("first Ctrl+Q on modified content should not quit")
+		t.Fatal("Ctrl+Q on modified content should show prompt, not quit")
 	}
-	if !m.quitWarning {
-		t.Fatal("should show quit warning")
+	if !m.quitPrompt {
+		t.Fatal("should show quit prompt")
 	}
 	if m.status == "" {
-		t.Fatal("status should contain warning message")
+		t.Fatal("status should contain prompt message")
 	}
 }
 
-func TestCtrlQTwiceQuitsWhenModified(t *testing.T) {
+func TestQuitPromptSaveAndQuit(t *testing.T) {
+	saved := false
+	var savedContent string
+	saveFn := func(content string) error {
+		saved = true
+		savedContent = content
+		return nil
+	}
+
+	m := New(Config{Title: "test", Content: "hello", Save: saveFn})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Modify content.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(Model)
+
+	// Ctrl+Q: shows prompt.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	m = updated.(Model)
+
+	if !m.quitPrompt {
+		t.Fatal("should show quit prompt")
+	}
+
+	// Press 'y' to save and quit.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("pressing 'y' should return a save-then-quit command")
+	}
+
+	// Execute the command to trigger save.
+	msg := cmd()
+	if !saved {
+		t.Fatal("save function should have been called")
+	}
+	if savedContent == "" {
+		t.Fatal("saved content should not be empty")
+	}
+
+	// Process the savedQuitMsg.
+	updated, quitCmd := m.Update(msg)
+	m = updated.(Model)
+
+	if !m.quitting {
+		t.Fatal("model should be in quitting state after save-then-quit")
+	}
+	if quitCmd == nil {
+		t.Fatal("should return tea.Quit command")
+	}
+}
+
+func TestQuitPromptDiscardAndQuit(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -77,19 +131,54 @@ func TestCtrlQTwiceQuitsWhenModified(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	m = updated.(Model)
 
-	// First Ctrl+Q: warning.
+	// Ctrl+Q: shows prompt.
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
 	m = updated.(Model)
 
-	// Second Ctrl+Q: quit.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	// Press 'n' to quit without saving.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	m = updated.(Model)
 
 	if cmd == nil {
-		t.Fatal("second Ctrl+Q should return tea.Quit command")
+		t.Fatal("pressing 'n' should return tea.Quit command")
 	}
 	if !m.quitting {
 		t.Fatal("model should be in quitting state")
+	}
+}
+
+func TestQuitPromptCancel(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Modify content.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(Model)
+
+	// Ctrl+Q: shows prompt.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	m = updated.(Model)
+
+	if !m.quitPrompt {
+		t.Fatal("should show quit prompt")
+	}
+
+	// Press Esc to cancel.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.quitPrompt {
+		t.Fatal("quit prompt should be dismissed after Esc")
+	}
+	if m.quitting {
+		t.Fatal("should not be quitting after Esc")
+	}
+	if cmd != nil {
+		t.Fatal("Esc should not return a command")
+	}
+	if m.status != "" {
+		t.Fatal("status should be cleared after cancelling prompt")
 	}
 }
 
@@ -177,7 +266,7 @@ func TestCtrlSSaveError(t *testing.T) {
 	}
 }
 
-func TestOtherKeyResetsQuitWarning(t *testing.T) {
+func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -186,20 +275,26 @@ func TestOtherKeyResetsQuitWarning(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	m = updated.(Model)
 
-	// First Ctrl+Q: warning.
+	// Ctrl+Q: shows prompt.
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
 	m = updated.(Model)
 
-	if !m.quitWarning {
-		t.Fatal("quit warning should be set")
+	if !m.quitPrompt {
+		t.Fatal("quit prompt should be set")
 	}
 
-	// Type another character — should reset the warning.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	// Type an unrelated character — should stay in prompt.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	m = updated.(Model)
 
-	if m.quitWarning {
-		t.Fatal("quit warning should be reset after typing")
+	if !m.quitPrompt {
+		t.Fatal("quit prompt should remain active after pressing unrelated key")
+	}
+	if m.quitting {
+		t.Fatal("should not be quitting")
+	}
+	if cmd != nil {
+		t.Fatal("unrelated key in prompt should not return a command")
 	}
 }
 
@@ -391,12 +486,186 @@ func TestPreviewAutoHidesWhenNarrow(t *testing.T) {
 
 func TestStatusBarContainsPreviewHint(t *testing.T) {
 	m := New(Config{Title: "test", Content: ""})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m = updated.(Model)
 
 	view := m.View()
 	if !containsPlainText(view, "Ctrl+P preview") {
 		t.Fatal("status bar should contain Ctrl+P preview hint")
+	}
+}
+
+func TestStatusBarContainsHelpHint(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = updated.(Model)
+
+	view := m.View()
+	if !containsPlainText(view, "Ctrl+G help") {
+		t.Fatal("status bar should contain Ctrl+G help hint")
+	}
+}
+
+func TestCtrlGTogglesHelp(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.showHelp {
+		t.Fatal("help should not be visible initially")
+	}
+
+	// Press Ctrl+G to show help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	if !m.showHelp {
+		t.Fatal("Ctrl+G should show help overlay")
+	}
+
+	// Press Ctrl+G again to hide help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	if m.showHelp {
+		t.Fatal("Ctrl+G should hide help overlay")
+	}
+}
+
+func TestHelpDismissedByEsc(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Show help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	if !m.showHelp {
+		t.Fatal("help should be visible")
+	}
+
+	// Press Esc to dismiss.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.showHelp {
+		t.Fatal("Esc should dismiss help overlay")
+	}
+}
+
+func TestHelpViewContainsKeybindings(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Show help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+
+	keybindings := []string{
+		"Ctrl+S", "Save",
+		"Ctrl+Q", "Quit",
+		"Ctrl+C", "Force quit",
+		"Ctrl+P", "Toggle preview",
+		"Ctrl+G", "Toggle this help",
+		"Ctrl+K", "Cut line",
+		"Ctrl+U", "Paste line",
+	}
+	for _, kb := range keybindings {
+		if !containsPlainText(view, kb) {
+			t.Fatalf("help overlay should contain %q", kb)
+		}
+	}
+}
+
+func TestHelpBlocksOtherKeys(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	contentBefore := m.Content()
+
+	// Show help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	// Try to type — should be blocked.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(Model)
+
+	if m.Content() != contentBefore {
+		t.Fatal("typing should be blocked while help is showing")
+	}
+	if !m.showHelp {
+		t.Fatal("help should still be showing")
+	}
+}
+
+func TestCtrlKCutsLine(t *testing.T) {
+	m := New(Config{Title: "test", Content: "line1\nline2\nline3"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// The textarea cursor starts at the end of the content (last line).
+	// Cut the last line.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	if m.clipboard != "line3" {
+		t.Fatalf("clipboard should be %q, got %q", "line3", m.clipboard)
+	}
+
+	content := m.Content()
+	if strings.Contains(content, "line3") {
+		t.Fatal("line3 should be removed from content after cut")
+	}
+	if !strings.Contains(content, "line1") || !strings.Contains(content, "line2") {
+		t.Fatal("other lines should remain after cut")
+	}
+}
+
+func TestCtrlUPastesLine(t *testing.T) {
+	m := New(Config{Title: "test", Content: "line1\nline2\nline3"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Cursor is at the end (line3). Cut it.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	if m.clipboard != "line3" {
+		t.Fatalf("clipboard should be %q, got %q", "line3", m.clipboard)
+	}
+
+	// Now paste — should re-insert line3.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+
+	content := m.Content()
+	if !strings.Contains(content, "line3") {
+		t.Fatal("pasted line should appear in content")
+	}
+	if !strings.Contains(content, "line1") || !strings.Contains(content, "line2") {
+		t.Fatal("other lines should remain after paste")
+	}
+}
+
+func TestCtrlUNopWithEmptyClipboard(t *testing.T) {
+	m := New(Config{Title: "test", Content: "line1\nline2"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	contentBefore := m.Content()
+
+	// Paste with empty clipboard — should be a no-op.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+
+	if m.Content() != contentBefore {
+		t.Fatal("paste with empty clipboard should not change content")
 	}
 }
 
