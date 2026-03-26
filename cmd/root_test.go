@@ -362,7 +362,7 @@ func TestTopLevelDelete(t *testing.T) {
 	st := storage.NewStore(dir)
 	_ = st.CreateNotebook("trash")
 
-	out, err := executeCapture([]string{"--dir", dir, "delete", "trash"})
+	out, err := executeCapture([]string{"--dir", dir, "delete", "--force", "trash"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
