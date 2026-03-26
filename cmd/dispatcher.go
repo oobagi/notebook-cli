@@ -6,7 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/oobagi/notebook/internal/render"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // dispatch handles the noun-verb routing for commands like:
@@ -150,7 +152,26 @@ func searchInBook(w io.Writer, book, query string) error {
 // --- Note-scoped operations ---
 
 func viewNote(w io.Writer, book, note string) error {
-	fmt.Fprintln(w, "view: not implemented yet")
+	n, err := store.GetNote(book, note)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			return nil
+		}
+		return fmt.Errorf("view note %q/%q: %w", book, note, err)
+	}
+
+	if n.Content == "" {
+		printInfo(w, fmt.Sprintf("Note %q in %q is empty", note, book))
+		return nil
+	}
+
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 {
+		width = 80
+	}
+
+	fmt.Fprint(w, render.RenderMarkdown(n.Content, width))
 	return nil
 }
 
