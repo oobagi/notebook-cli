@@ -32,8 +32,10 @@ assets/        Icons and media
 
 ## Conventions
 
-- Commands follow `notebook <verb> [args]` pattern (e.g., `notebook new my-notebook/my-note`)
+- Commands follow a noun-verb pattern: `notebook [resource] [sub-resource] [verb]` (e.g., `notebook ideas new "My Note"`)
+- Bare commands do useful things: `notebook` opens TUI, `notebook ideas` scopes to that book, `notebook ideas "My Note"` views the note
 - Notebook auto-creation: if a note targets a non-existent notebook, create it silently
 - Notes are plain markdown files on disk — no proprietary format
-- Error messages should be concise and actionable
+- Error messages should be concise and actionable — always suggest a next action
 - Use Go standard library where possible; minimize dependencies
+- See `docs/design.md` for the full CLI design system (colors, symbols, output formatting)

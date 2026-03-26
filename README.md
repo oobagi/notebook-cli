@@ -46,25 +46,28 @@ Notebook is a CLI tool for people who think in markdown. Organize notes into not
 # Install
 go install github.com/oobagi/notebook@latest
 
-# Create your first note
-notebook new ideas/first-thought
+# Create your first note (auto-creates the "ideas" notebook)
+notebook ideas new "First Thought"
 
 # List your notebooks
 notebook list
 
 # Open a note in editor mode (live preview)
-notebook edit ideas/first-thought
+notebook ideas "First Thought" edit
 ```
 
 ## Usage
 
 ```bash
-notebook new <notebook>/<note>     # Create a new note (auto-creates notebook)
-notebook list [notebook]           # List notebooks, or notes in a notebook
-notebook view <notebook>/<note>    # Render a note as markdown in the terminal
-notebook edit <notebook>/<note>    # Open editor with live markdown preview
-notebook rm <notebook>/<note>      # Delete a note
-notebook rm <notebook>             # Delete a notebook and all its notes
+notebook                               # Launch interactive TUI browser
+notebook list                          # List all notebooks
+notebook new "Book Name"               # Create a notebook
+notebook <book> list                   # List notes in a notebook
+notebook <book> new "Note Title"       # Create a note (auto-creates notebook)
+notebook <book> <note>                 # View a note (rendered markdown)
+notebook <book> <note> edit            # Open editor with live markdown preview
+notebook <book> <note> delete          # Delete a note
+notebook <book> delete                 # Delete a notebook and all its notes
 ```
 
 ## License
