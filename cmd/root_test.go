@@ -407,8 +407,11 @@ func TestTopLevelConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "not implemented") {
-		t.Errorf("expected stub message, got %q", out)
+	if !strings.Contains(out, "storage_dir") {
+		t.Errorf("expected 'storage_dir' in output, got %q", out)
+	}
+	if !strings.Contains(out, "Config file:") {
+		t.Errorf("expected 'Config file:' in output, got %q", out)
 	}
 }
 
