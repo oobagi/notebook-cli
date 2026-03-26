@@ -1,7 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/oobagi/notebook/internal/storage"
 )
 
 func TestRootCommandUseField(t *testing.T) {
@@ -16,8 +21,342 @@ func TestRootCommandSilenceErrors(t *testing.T) {
 	}
 }
 
-func TestExecuteReturnsNoError(t *testing.T) {
-	if err := Execute(); err != nil {
-		t.Errorf("Execute() returned unexpected error: %v", err)
+// setupTestStore creates a temporary store and configures the package-level
+// store variable. It returns the temp dir path.
+func setupTestStore(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	store = storage.NewStore(dir)
+	return dir
+}
+
+// executeCapture runs the root command with the given args and captures stdout.
+func executeCapture(args []string) (string, error) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs(args)
+	err := rootCmd.Execute()
+	return buf.String(), err
+}
+
+// --- Flag tests ---
+
+func TestDirFlagRegistered(t *testing.T) {
+	f := rootCmd.PersistentFlags().Lookup("dir")
+	if f == nil {
+		t.Fatal("--dir flag not registered")
+	}
+	if f.DefValue != "" {
+		t.Errorf("--dir default should be empty string, got %q", f.DefValue)
+	}
+}
+
+func TestDirFlagDefaultsToHomeNotebook(t *testing.T) {
+	// Reset dirFlag to empty to simulate no --dir passed.
+	dirFlag = ""
+	rootCmd.SetArgs([]string{"version"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	if store == nil {
+		t.Fatal("store should be initialized after Execute")
+	}
+	if store.Root != home+"/.notebook" {
+		t.Errorf("store.Root = %q, want %q", store.Root, home+"/.notebook")
+	}
+}
+
+func TestDirFlagCustomPath(t *testing.T) {
+	dir := t.TempDir()
+	dirFlag = dir
+	rootCmd.SetArgs([]string{"version"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if store.Root != dir {
+		t.Errorf("store.Root = %q, want %q", store.Root, dir)
+	}
+	dirFlag = "" // reset
+}
+
+// --- Dispatcher routing tests ---
+
+func TestDispatchBookWithNoArgs(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("ideas")
+	_ = st.CreateNote("ideas", "spark", "content")
+
+	out, err := executeCapture([]string{"--dir", dir, "ideas"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "spark") {
+		t.Errorf("expected output to contain %q, got %q", "spark", out)
+	}
+}
+
+func TestDispatchBookList(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("work")
+	_ = st.CreateNote("work", "todo", "stuff")
+	_ = st.CreateNote("work", "meeting", "notes")
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "list"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "todo") {
+		t.Errorf("expected %q in output, got %q", "todo", out)
+	}
+	if !strings.Contains(out, "meeting") {
+		t.Errorf("expected %q in output, got %q", "meeting", out)
+	}
+}
+
+func TestDispatchBookNew(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "journal", "new", "day1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Created") {
+		t.Errorf("expected 'Created' in output, got %q", out)
+	}
+
+	// Verify the note was actually created.
+	st := storage.NewStore(dir)
+	note, err := st.GetNote("journal", "day1")
+	if err != nil {
+		t.Fatalf("note should exist: %v", err)
+	}
+	if note.Name != "day1" {
+		t.Errorf("note name = %q, want %q", note.Name, "day1")
+	}
+}
+
+func TestDispatchBookDelete(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "temp", "data")
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "delete", "temp"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Deleted") {
+		t.Errorf("expected 'Deleted' in output, got %q", out)
+	}
+
+	// Verify the note is gone.
+	_, err = st.GetNote("work", "temp")
+	if err == nil {
+		t.Fatal("note should have been deleted")
+	}
+}
+
+func TestDispatchBookSearch(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "search", "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+func TestDispatchNoteView(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "readme", "# Hello")
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "readme"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+func TestDispatchNoteEdit(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "readme", "edit"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+func TestDispatchNoteDelete(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "doomed", "bye")
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "doomed", "delete"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Deleted") {
+		t.Errorf("expected 'Deleted' in output, got %q", out)
+	}
+
+	_, err = st.GetNote("work", "doomed")
+	if err == nil {
+		t.Fatal("note should have been deleted")
+	}
+}
+
+func TestDispatchNoteCopy(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "readme", "copy"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+func TestDispatchUnknownNoteVerb(t *testing.T) {
+	dir := setupTestStore(t)
+
+	_, err := executeCapture([]string{"--dir", dir, "work", "readme", "frobnicate"})
+	if err == nil {
+		t.Fatal("expected error for unknown note verb")
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("expected 'unknown command' in error, got %q", err.Error())
+	}
+}
+
+func TestDispatchBookNewMissingTitle(t *testing.T) {
+	dir := setupTestStore(t)
+
+	_, err := executeCapture([]string{"--dir", dir, "work", "new"})
+	if err == nil {
+		t.Fatal("expected error when note title is missing")
+	}
+}
+
+func TestDispatchBookDeleteMissingTitle(t *testing.T) {
+	dir := setupTestStore(t)
+
+	_, err := executeCapture([]string{"--dir", dir, "work", "delete"})
+	if err == nil {
+		t.Fatal("expected error when delete target is missing")
+	}
+}
+
+// --- Top-level command tests ---
+
+func TestTopLevelList(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("alpha")
+	_ = st.CreateNotebook("beta")
+
+	out, err := executeCapture([]string{"--dir", dir, "list"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("expected %q in output, got %q", "alpha", out)
+	}
+	if !strings.Contains(out, "beta") {
+		t.Errorf("expected %q in output, got %q", "beta", out)
+	}
+}
+
+func TestTopLevelNew(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "new", "Projects"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Created") {
+		t.Errorf("expected 'Created' in output, got %q", out)
+	}
+
+	st := storage.NewStore(dir)
+	nbs, _ := st.ListNotebooks()
+	found := false
+	for _, n := range nbs {
+		if n == "Projects" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("notebook 'Projects' should exist after creation")
+	}
+}
+
+func TestTopLevelDelete(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("trash")
+
+	out, err := executeCapture([]string{"--dir", dir, "delete", "trash"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Deleted") {
+		t.Errorf("expected 'Deleted' in output, got %q", out)
+	}
+
+	nbs, _ := st.ListNotebooks()
+	for _, n := range nbs {
+		if n == "trash" {
+			t.Error("notebook 'trash' should be deleted")
+		}
+	}
+}
+
+func TestTopLevelSearch(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "search", "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+func TestTopLevelConfig(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir, "config"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "not implemented") {
+		t.Errorf("expected stub message, got %q", out)
+	}
+}
+
+// --- No args shows help ---
+
+func TestNoArgsPrintsHelp(t *testing.T) {
+	dir := setupTestStore(t)
+
+	out, err := executeCapture([]string{"--dir", dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "notebook") {
+		t.Errorf("expected help output, got %q", out)
 	}
 }
