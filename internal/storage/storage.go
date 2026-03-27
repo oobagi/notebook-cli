@@ -240,6 +240,53 @@ func (s *Store) NotebookModTime(notebook string) (time.Time, error) {
 	return latest, nil
 }
 
+// RenameNotebook renames a notebook directory atomically.
+func (s *Store) RenameNotebook(oldName, newName string) error {
+	if err := validName(oldName); err != nil {
+		return err
+	}
+	if err := validName(newName); err != nil {
+		return err
+	}
+	oldDir := s.notebookPath(oldName)
+	if _, err := os.Stat(oldDir); err != nil {
+		return fmt.Errorf("rename notebook %q to %q: %w", oldName, newName, err)
+	}
+	newDir := s.notebookPath(newName)
+	if _, err := os.Stat(newDir); err == nil {
+		return fmt.Errorf("notebook %q already exists", newName)
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return fmt.Errorf("rename notebook %q to %q: %w", oldName, newName, err)
+	}
+	return nil
+}
+
+// RenameNote renames a note file within a notebook atomically.
+func (s *Store) RenameNote(notebook, oldName, newName string) error {
+	if err := validName(notebook); err != nil {
+		return err
+	}
+	if err := validName(oldName); err != nil {
+		return err
+	}
+	if err := validName(newName); err != nil {
+		return err
+	}
+	oldPath := s.notePath(notebook, oldName)
+	if _, err := os.Stat(oldPath); err != nil {
+		return fmt.Errorf("rename note %q/%q to %q: %w", notebook, oldName, newName, err)
+	}
+	newPath := s.notePath(notebook, newName)
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("note %q already exists in %q", newName, notebook)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("rename note %q/%q to %q: %w", notebook, oldName, newName, err)
+	}
+	return nil
+}
+
 // DeleteNote removes a single note file.
 func (s *Store) DeleteNote(notebook, name string) error {
 	if err := validName(notebook); err != nil {

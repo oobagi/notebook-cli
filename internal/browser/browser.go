@@ -54,6 +54,9 @@ type Model struct {
 	inputValue  string
 	inputAction func(typed string) tea.Cmd
 
+	// After a rename, this holds the new name so the cursor repositions to it.
+	selectAfterReload string
+
 	// Temporary status message shown in the status bar.
 	statusText string
 
@@ -149,6 +152,9 @@ type errMsg struct{ err error }
 // reloadMsg triggers a reload of the current list after a mutation.
 type reloadMsg struct{}
 
+// reloadAndSelectMsg triggers a reload and repositions the cursor on the named item.
+type reloadAndSelectMsg struct{ name string }
+
 // statusMsg carries a temporary status message for the status bar.
 type statusMsg struct{ text string }
 
@@ -170,11 +176,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notebooksLoadedMsg:
 		m.notebooks = msg.notebooks
 		m.resetFilter()
+		if m.selectAfterReload != "" {
+			for i, fi := range m.filtered {
+				if m.notebooks[fi].name == m.selectAfterReload {
+					m.cursor = i
+					break
+				}
+			}
+			m.selectAfterReload = ""
+		}
 		return m, nil
 
 	case notesLoadedMsg:
 		m.notes = msg.notes
 		m.resetFilter()
+		if m.selectAfterReload != "" {
+			for i, fi := range m.filtered {
+				if m.notes[fi].Name == m.selectAfterReload {
+					m.cursor = i
+					break
+				}
+			}
+			m.selectAfterReload = ""
+		}
 		return m, nil
 
 	case reloadMsg:
@@ -319,6 +343,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == "d" {
 			return m.startDelete()
 		}
+		if s == "r" {
+			return m.startRename()
+		}
 		if s == "v" && m.level == 1 {
 			return m.startView()
 		}
@@ -457,6 +484,63 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 				return reloadMsg{}
 			}
 		}
+	}
+	return m, nil
+}
+
+func (m Model) startRename() (tea.Model, tea.Cmd) {
+	if m.level == 0 {
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		name := m.notebooks[idx].name
+		m.inputMode = true
+		m.inputPrompt = "Rename notebook:"
+		m.inputValue = name
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed == "" {
+				return func() tea.Msg {
+					return statusMsg{"Name must not be empty"}
+				}
+			}
+			if typed == name {
+				return nil
+			}
+			return func() tea.Msg {
+				if err := m.store.RenameNotebook(name, typed); err != nil {
+					return statusMsg{err.Error()}
+				}
+				return reloadMsg{}
+			}
+		}
+		m.selectAfterReload = ""
+	} else {
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		name := m.notes[idx].Name
+		m.inputMode = true
+		m.inputPrompt = "Rename note:"
+		m.inputValue = name
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed == "" {
+				return func() tea.Msg {
+					return statusMsg{"Name must not be empty"}
+				}
+			}
+			if typed == name {
+				return nil
+			}
+			return func() tea.Msg {
+				if err := m.store.RenameNote(m.currentBook, name, typed); err != nil {
+					return statusMsg{err.Error()}
+				}
+				return reloadMsg{}
+			}
+		}
+		m.selectAfterReload = ""
 	}
 	return m, nil
 }
