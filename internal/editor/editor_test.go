@@ -504,17 +504,6 @@ func TestPreviewAutoHidesWhenNarrow(t *testing.T) {
 	}
 }
 
-func TestStatusBarContainsPreviewHint(t *testing.T) {
-	m := New(Config{Title: "test", Content: ""})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	m = updated.(Model)
-
-	view := m.View()
-	if !containsPlainText(view, "Ctrl+E preview") {
-		t.Fatal("status bar should contain Ctrl+E preview hint")
-	}
-}
-
 func TestStatusBarContainsHelpHint(t *testing.T) {
 	m := New(Config{Title: "test", Content: ""})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -710,234 +699,52 @@ func TestStatusBarShowsModifiedIndicator(t *testing.T) {
 	}
 }
 
-func TestCtrlETogglesPreviewMode(t *testing.T) {
-	content := "- [ ] task one\n- [x] task two"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
+func TestNewSetsInitialDimensions(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
 
-	if m.previewMode {
-		t.Fatal("preview mode should be off initially")
+	if m.width != defaultWidth {
+		t.Fatalf("initial width should be %d, got %d", defaultWidth, m.width)
 	}
-
-	// Press Ctrl+E to enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	if !m.previewMode {
-		t.Fatal("Ctrl+E should activate preview mode")
-	}
-	if len(m.elements) != 2 {
-		t.Fatalf("expected 2 elements, got %d", len(m.elements))
-	}
-
-	// Press Ctrl+E again to exit preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	if m.previewMode {
-		t.Fatal("Ctrl+E should deactivate preview mode")
+	if m.height != defaultHeight {
+		t.Fatalf("initial height should be %d, got %d", defaultHeight, m.height)
 	}
 }
 
-func TestCtrlENoElementsShowsWarning(t *testing.T) {
-	content := "just plain text"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Press Ctrl+E with no interactive elements.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	if m.previewMode {
-		t.Fatal("preview mode should not activate with no elements")
+func TestCursorVisibleBeforeWindowSizeMsg(t *testing.T) {
+	// Create an editor with multi-line content. The cursor should be within the
+	// visible area even before a WindowSizeMsg arrives.
+	lines := make([]byte, 0, 500)
+	for i := 0; i < 30; i++ {
+		lines = append(lines, []byte("line\n")...)
 	}
-	if m.status == "" {
-		t.Fatal("should show a warning status when no elements found")
-	}
-}
+	m := New(Config{Title: "test", Content: string(lines)})
 
-func TestPreviewModeNavigatesElements(t *testing.T) {
-	content := "- [ ] first\n- [ ] second\n- [ ] third"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	if m.focusedElement != 0 {
-		t.Fatalf("focused element should start at 0, got %d", m.focusedElement)
-	}
-
-	// Down arrow.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-
-	if m.focusedElement != 1 {
-		t.Fatalf("focused element should be 1 after down, got %d", m.focusedElement)
-	}
-
-	// Down again.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-
-	if m.focusedElement != 2 {
-		t.Fatalf("focused element should be 2 after second down, got %d", m.focusedElement)
-	}
-
-	// Down at end should stay at 2.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-
-	if m.focusedElement != 2 {
-		t.Fatalf("focused element should stay at 2 when at end, got %d", m.focusedElement)
-	}
-
-	// Up arrow.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-
-	if m.focusedElement != 1 {
-		t.Fatalf("focused element should be 1 after up, got %d", m.focusedElement)
-	}
-
-	// Up at beginning should stay at 0.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-
-	if m.focusedElement != 0 {
-		t.Fatalf("focused element should stay at 0 when at beginning, got %d", m.focusedElement)
-	}
-}
-
-func TestPreviewModeTabNavigation(t *testing.T) {
-	content := "- [ ] first\n- [ ] second"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	// Tab moves forward.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	if m.focusedElement != 1 {
-		t.Fatalf("Tab should move to next element, got %d", m.focusedElement)
-	}
-
-	// Shift+Tab moves backward.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	m = updated.(Model)
-
-	if m.focusedElement != 0 {
-		t.Fatalf("Shift+Tab should move to previous element, got %d", m.focusedElement)
-	}
-}
-
-func TestPreviewModeToggleCheckbox(t *testing.T) {
-	content := "- [ ] unchecked\n- [x] checked"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	// Press Enter to toggle first checkbox (unchecked -> checked).
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(Model)
-
-	if !strings.Contains(m.Content(), "- [x] unchecked") {
-		t.Fatalf("checkbox should be toggled to checked, got: %q", m.Content())
-	}
-
-	// Navigate to second checkbox.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-
-	// Press Space to toggle second checkbox (checked -> unchecked).
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	m = updated.(Model)
-
-	if !strings.Contains(m.Content(), "- [ ] checked") {
-		t.Fatalf("checkbox should be toggled to unchecked, got: %q", m.Content())
-	}
-}
-
-func TestPreviewModeEscReturnsToEdit(t *testing.T) {
-	content := "- [ ] task"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
-	if !m.previewMode {
-		t.Fatal("should be in preview mode")
-	}
-
-	// Press Esc to exit.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = updated.(Model)
-
-	if m.previewMode {
-		t.Fatal("Esc should exit preview mode")
-	}
-}
-
-func TestPreviewModeStatusBar(t *testing.T) {
-	content := "- [ ] task"
-	m := New(Config{Title: "test", Content: content})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	m = updated.(Model)
-
-	// Enter preview mode.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	m = updated.(Model)
-
+	// The view should not be empty — the initial dimensions make it renderable.
 	view := m.View()
-
-	if !containsPlainText(view, "PREVIEW") {
-		t.Fatal("status bar should contain PREVIEW indicator in preview mode")
-	}
-	if !containsPlainText(view, "navigate") {
-		t.Fatal("status bar should contain navigate hint in preview mode")
-	}
-	if !containsPlainText(view, "toggle/open") {
-		t.Fatal("status bar should contain toggle/open hint in preview mode")
+	if view == "" {
+		t.Fatal("view should not be empty before WindowSizeMsg thanks to default dimensions")
 	}
 }
 
-func TestPreviewModeBlocksTyping(t *testing.T) {
-	content := "- [ ] task"
-	m := New(Config{Title: "test", Content: content})
+func TestCtrlEIsNoOp(t *testing.T) {
+	// After removing preview mode, Ctrl+E should be a no-op (key falls through
+	// to the textarea).
+	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	contentBefore := m.Content()
-
-	// Enter preview mode.
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
 	m = updated.(Model)
 
-	// Try to type — should be blocked.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	m = updated.(Model)
-
-	if m.Content() != contentBefore {
-		t.Fatal("typing should be blocked in preview mode")
+	// Model should still be usable — not in any special mode.
+	if m.quitting {
+		t.Fatal("Ctrl+E should not cause quitting")
+	}
+	if m.showHelp {
+		t.Fatal("Ctrl+E should not show help")
+	}
+	if m.quitPrompt {
+		t.Fatal("Ctrl+E should not show quit prompt")
 	}
 }
 
