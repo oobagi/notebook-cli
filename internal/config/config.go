@@ -11,28 +11,31 @@ import (
 
 // Config holds all user-configurable settings.
 type Config struct {
-	StorageDir string `toml:"storage_dir"`
-	Editor     string `toml:"editor"`
-	Theme      string `toml:"theme"`       // "auto", "dark", "light"
-	DateFormat string `toml:"date_format"` // "relative" or Go time format
+	StorageDir   string `toml:"storage_dir"`
+	Editor       string `toml:"editor"`
+	Theme        string `toml:"theme"`         // "auto", "dark", "light"
+	DateFormat   string `toml:"date_format"`   // "relative" or Go time format
+	GlamourStyle string `toml:"glamour_style"` // "auto", "dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink", or JSON file path
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		StorageDir: "~/.notebook",
-		Editor:     "",
-		Theme:      "auto",
-		DateFormat: "relative",
+		StorageDir:   "~/.notebook",
+		Editor:       "",
+		Theme:        "auto",
+		DateFormat:   "relative",
+		GlamourStyle: "auto",
 	}
 }
 
 // ValidKeys returns the set of keys that can be set via "config set".
 var ValidKeys = map[string]bool{
-	"storage_dir": true,
-	"editor":      true,
-	"theme":       true,
-	"date_format": true,
+	"storage_dir":   true,
+	"editor":        true,
+	"theme":         true,
+	"date_format":   true,
+	"glamour_style": true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -109,6 +112,8 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Theme = value
 	case "date_format":
 		cfg.DateFormat = value
+	case "glamour_style":
+		cfg.GlamourStyle = value
 	default:
 		return fmt.Errorf("unknown config key: %q", key)
 	}
@@ -126,6 +131,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Theme, nil
 	case "date_format":
 		return cfg.DateFormat, nil
+	case "glamour_style":
+		return cfg.GlamourStyle, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/oobagi/notebook/internal/config"
+	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
 	"github.com/spf13/cobra"
@@ -38,6 +39,9 @@ var rootCmd = &cobra.Command{
 			themeName = "auto"
 		}
 		theme.SetTheme(theme.FromName(themeName))
+
+		// Pass the glamour style config to the render package.
+		render.SetGlamourStyle(cfg.GlamourStyle)
 
 		root := dirFlag
 		if root == "" {

@@ -1,6 +1,11 @@
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Theme holds color values tuned for a specific terminal background.
 type Theme struct {
@@ -72,4 +77,46 @@ func FromName(name string) Theme {
 	default:
 		return Dark
 	}
+}
+
+// builtinGlamourStyles lists the style names that glamour ships with.
+// "auto" is handled separately before this map is consulted.
+var builtinGlamourStyles = map[string]bool{
+	"dark":        true,
+	"light":       true,
+	"dracula":     true,
+	"tokyo-night": true,
+	"notty":       true,
+	"ascii":       true,
+	"pink":        true,
+}
+
+// ResolveGlamourStyle determines the glamour style to use based on the
+// user's glamour_style config value and the active theme. The returned
+// string is either a built-in style name or an absolute path to a JSON
+// style file. The boolean indicates whether the result is a file path.
+//
+// When glamourCfg is empty or "auto", the theme's own GlamourStyle is used
+// (which is "dark" or "light" depending on terminal detection).
+func ResolveGlamourStyle(glamourCfg string) (style string, isFilePath bool) {
+	glamourCfg = strings.TrimSpace(glamourCfg)
+
+	// Empty or "auto" — defer to the active theme's default glamour style.
+	if glamourCfg == "" || glamourCfg == "auto" {
+		return current.GlamourStyle, false
+	}
+
+	// A known built-in style name.
+	if builtinGlamourStyles[glamourCfg] {
+		return glamourCfg, false
+	}
+
+	// Treat as a file path to a custom JSON style. If the file exists,
+	// return the path; otherwise fall back to the theme default.
+	if _, err := os.Stat(glamourCfg); err == nil {
+		return glamourCfg, true
+	}
+
+	// Unknown value — fall back to theme default.
+	return current.GlamourStyle, false
 }
