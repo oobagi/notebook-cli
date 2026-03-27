@@ -41,8 +41,27 @@ func TestFromNameInvalid(t *testing.T) {
 	}
 }
 
+func TestFromNamePresets(t *testing.T) {
+	names := []string{"ocean", "forest", "sunset", "monochrome", "rose"}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			got := FromName(name)
+			if got.Name != name {
+				t.Errorf("FromName(%q) returned Name=%q, want %q", name, got.Name, name)
+			}
+		})
+	}
+}
+
+func TestFromNameCaseInsensitive(t *testing.T) {
+	got := FromName("Ocean")
+	if got.Name != "ocean" {
+		t.Errorf("FromName(\"Ocean\") returned Name=%q, want \"ocean\"", got.Name)
+	}
+}
+
 func TestThemeHasAllColors(t *testing.T) {
-	for _, th := range []Theme{Dark, Light} {
+	for _, th := range Presets() {
 		t.Run(th.Name, func(t *testing.T) {
 			if th.Primary == "" {
 				t.Error("Primary is empty")
@@ -59,10 +78,69 @@ func TestThemeHasAllColors(t *testing.T) {
 			if th.Muted == "" {
 				t.Error("Muted is empty")
 			}
+			if th.Border == "" {
+				t.Error("Border is empty")
+			}
+			if th.Accent == "" {
+				t.Error("Accent is empty")
+			}
+			if th.StatusBg == "" {
+				t.Error("StatusBg is empty")
+			}
+			if th.StatusFg == "" {
+				t.Error("StatusFg is empty")
+			}
+			if th.Background == "" {
+				t.Error("Background is empty")
+			}
 			if th.GlamourStyle == "" {
 				t.Error("GlamourStyle is empty")
 			}
 		})
+	}
+}
+
+func TestPresetsOrder(t *testing.T) {
+	presets := Presets()
+	if len(presets) < 7 {
+		t.Fatalf("Presets() returned %d presets, want at least 7", len(presets))
+	}
+	if presets[0].Name != "dark" {
+		t.Errorf("Presets()[0].Name = %q, want \"dark\"", presets[0].Name)
+	}
+	if presets[1].Name != "light" {
+		t.Errorf("Presets()[1].Name = %q, want \"light\"", presets[1].Name)
+	}
+}
+
+func TestPresetsUniqueNames(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, p := range Presets() {
+		if seen[p.Name] {
+			t.Errorf("duplicate preset name: %q", p.Name)
+		}
+		seen[p.Name] = true
+	}
+}
+
+func TestPresetByName(t *testing.T) {
+	for _, p := range Presets() {
+		t.Run(p.Name, func(t *testing.T) {
+			got, ok := PresetByName(p.Name)
+			if !ok {
+				t.Fatalf("PresetByName(%q) returned ok=false", p.Name)
+			}
+			if got.Name != p.Name {
+				t.Errorf("PresetByName(%q).Name = %q", p.Name, got.Name)
+			}
+		})
+	}
+}
+
+func TestPresetByNameNotFound(t *testing.T) {
+	_, ok := PresetByName("nonexistent")
+	if ok {
+		t.Error("PresetByName(\"nonexistent\") returned ok=true, want false")
 	}
 }
 
