@@ -40,9 +40,9 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 6: TUI as Complete App
 
-- [ ] [#49 Strip TUI pickers from CLI commands](https://github.com/oobagi/notebook/issues/49)
-- [ ] [#50 TUI help overlay](https://github.com/oobagi/notebook/issues/50)
-- [ ] [#51 TUI inline text input and create operation](https://github.com/oobagi/notebook/issues/51)
-- [ ] [#52 TUI delete with type-to-confirm](https://github.com/oobagi/notebook/issues/52)
-- [ ] [#53 TUI rename notebooks and notes](https://github.com/oobagi/notebook/issues/53)
-- [ ] [#54 TUI view rendered markdown and copy to clipboard](https://github.com/oobagi/notebook/issues/54)
+- [x] [#49 Strip TUI pickers from CLI commands](https://github.com/oobagi/notebook/issues/49)
+- [x] [#50 TUI help overlay](https://github.com/oobagi/notebook/issues/50)
+- [x] [#51 TUI inline text input and create operation](https://github.com/oobagi/notebook/issues/51)
+- [x] [#52 TUI delete with type-to-confirm](https://github.com/oobagi/notebook/issues/52)
+- [x] [#53 TUI rename notebooks and notes](https://github.com/oobagi/notebook/issues/53)
+- [x] [#54 TUI view rendered markdown and copy to clipboard](https://github.com/oobagi/notebook/issues/54)
