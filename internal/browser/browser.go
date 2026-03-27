@@ -1235,6 +1235,16 @@ func (m Model) visibleRange(total, maxLines int) []int {
 	return indices
 }
 
+// padRight pads s with trailing spaces to reach width, using lipgloss.Width
+// to measure display width (ignoring ANSI escape sequences).
+func padRight(s string, width int) string {
+	display := lipgloss.Width(s)
+	if display >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-display)
+}
+
 func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 	bullet := "  "
 	display := storage.DisplayName(nb.name)
@@ -1248,9 +1258,9 @@ func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 		name = nameStyle.Render(display)
 	}
 
-	return fmt.Sprintf("%s%-*s    %-*s    %s",
-		bullet,
-		m.nameColWidth(0), name,
+	return fmt.Sprintf("%s%s    %-*s    %s",
+		padRight(bullet, 2),
+		padRight(name, m.nameColWidth(0)),
 		10, countStr,
 		nb.modTime,
 	)
@@ -1277,9 +1287,9 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 		name = nameStyle.Render(display)
 	}
 
-	return fmt.Sprintf("%s%-*s    %-*s    %s",
-		bullet,
-		m.nameColWidth(1), name,
+	return fmt.Sprintf("%s%s    %-*s    %s",
+		padRight(bullet, 2),
+		padRight(name, m.nameColWidth(1)),
 		8, sizeStr,
 		timeStr,
 	)
