@@ -398,6 +398,36 @@ func TestListNotesRejectsTraversal(t *testing.T) {
 	}
 }
 
+// --- Slugify tests ---
+
+func TestSlugify(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Meeting Notes", "meeting-notes"},
+		{"  My Book  ", "my-book"},
+		{"already-clean", "already-clean"},
+		{"UPPER CASE", "upper-case"},
+		{"multiple   spaces", "multiple-spaces"},
+		{"under_score", "under-score"},
+		{"  ", ""},
+		{"", ""},
+		{"hello", "hello"},
+		{"a  b  c", "a-b-c"},
+		{"trailing space ", "trailing-space"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := Slugify(tt.input)
+			if got != tt.want {
+				t.Errorf("Slugify(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- Rename tests ---
 
 func TestRenameNotebook(t *testing.T) {
