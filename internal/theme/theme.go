@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/oobagi/notebook/styles"
 )
 
 // allPresets holds every named preset in display order.
@@ -217,32 +218,50 @@ var builtinGlamourStyles = map[string]bool{
 	"pink":        true,
 }
 
+// StyleSource indicates how a resolved glamour style should be loaded.
+type StyleSource int
+
+const (
+	// StyleBuiltin means the style is a glamour built-in name (e.g. "dark", "dracula").
+	StyleBuiltin StyleSource = iota
+	// StyleFile means the style is an absolute file path to a JSON style file.
+	StyleFile
+	// StyleCommunity means the style is an embedded community style name.
+	StyleCommunity
+)
+
 // ResolveGlamourStyle determines the glamour style to use based on the
 // user's glamour_style config value and the active theme. The returned
-// string is either a built-in style name or an absolute path to a JSON
-// style file. The boolean indicates whether the result is a file path.
+// string is either a built-in style name, an embedded community style
+// name, or an absolute path to a JSON style file. The StyleSource
+// indicates which kind of value was returned.
 //
 // When glamourCfg is empty or "auto", the theme's own GlamourStyle is used
 // (which is "dark" or "light" depending on terminal detection).
-func ResolveGlamourStyle(glamourCfg string) (style string, isFilePath bool) {
+func ResolveGlamourStyle(glamourCfg string) (style string, source StyleSource) {
 	glamourCfg = strings.TrimSpace(glamourCfg)
 
 	// Empty or "auto" — defer to the active theme's default glamour style.
 	if glamourCfg == "" || glamourCfg == "auto" {
-		return current.GlamourStyle, false
+		return current.GlamourStyle, StyleBuiltin
 	}
 
 	// A known built-in style name.
 	if builtinGlamourStyles[glamourCfg] {
-		return glamourCfg, false
+		return glamourCfg, StyleBuiltin
+	}
+
+	// An embedded community style.
+	if styles.Has(glamourCfg) {
+		return glamourCfg, StyleCommunity
 	}
 
 	// Treat as a file path to a custom JSON style. If the file exists,
 	// return the path; otherwise fall back to the theme default.
 	if _, err := os.Stat(glamourCfg); err == nil {
-		return glamourCfg, true
+		return glamourCfg, StyleFile
 	}
 
 	// Unknown value — fall back to theme default.
-	return current.GlamourStyle, false
+	return current.GlamourStyle, StyleBuiltin
 }

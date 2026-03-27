@@ -146,23 +146,23 @@ func TestPresetByNameNotFound(t *testing.T) {
 
 func TestResolveGlamourStyleAuto(t *testing.T) {
 	SetTheme(Dark)
-	style, isFile := ResolveGlamourStyle("auto")
+	style, source := ResolveGlamourStyle("auto")
 	if style != "dark" {
 		t.Errorf("ResolveGlamourStyle(\"auto\") = %q, want %q", style, "dark")
 	}
-	if isFile {
-		t.Error("expected isFile=false for auto")
+	if source != StyleBuiltin {
+		t.Errorf("expected source=StyleBuiltin for auto, got %d", source)
 	}
 }
 
 func TestResolveGlamourStyleEmpty(t *testing.T) {
 	SetTheme(Light)
-	style, isFile := ResolveGlamourStyle("")
+	style, source := ResolveGlamourStyle("")
 	if style != "light" {
 		t.Errorf("ResolveGlamourStyle(\"\") = %q, want %q", style, "light")
 	}
-	if isFile {
-		t.Error("expected isFile=false for empty")
+	if source != StyleBuiltin {
+		t.Errorf("expected source=StyleBuiltin for empty, got %d", source)
 	}
 }
 
@@ -172,14 +172,26 @@ func TestResolveGlamourStyleBuiltin(t *testing.T) {
 	builtins := []string{"dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink"}
 	for _, name := range builtins {
 		t.Run(name, func(t *testing.T) {
-			style, isFile := ResolveGlamourStyle(name)
+			style, source := ResolveGlamourStyle(name)
 			if style != name {
 				t.Errorf("ResolveGlamourStyle(%q) = %q, want %q", name, style, name)
 			}
-			if isFile {
-				t.Errorf("expected isFile=false for built-in %q", name)
+			if source != StyleBuiltin {
+				t.Errorf("expected source=StyleBuiltin for built-in %q, got %d", name, source)
 			}
 		})
+	}
+}
+
+func TestResolveGlamourStyleCommunity(t *testing.T) {
+	SetTheme(Dark)
+
+	style, source := ResolveGlamourStyle("gruvbox")
+	if style != "gruvbox" {
+		t.Errorf("ResolveGlamourStyle(\"gruvbox\") = %q, want %q", style, "gruvbox")
+	}
+	if source != StyleCommunity {
+		t.Errorf("expected source=StyleCommunity for gruvbox, got %d", source)
 	}
 }
 
@@ -192,35 +204,35 @@ func TestResolveGlamourStyleCustomFile(t *testing.T) {
 		t.Fatalf("write custom style: %v", err)
 	}
 
-	style, isFile := ResolveGlamourStyle(jsonPath)
+	style, source := ResolveGlamourStyle(jsonPath)
 	if style != jsonPath {
 		t.Errorf("ResolveGlamourStyle(%q) = %q, want file path", jsonPath, style)
 	}
-	if !isFile {
-		t.Error("expected isFile=true for custom JSON file")
+	if source != StyleFile {
+		t.Errorf("expected source=StyleFile for custom JSON file, got %d", source)
 	}
 }
 
 func TestResolveGlamourStyleMissingFile(t *testing.T) {
 	SetTheme(Dark)
 
-	style, isFile := ResolveGlamourStyle("/nonexistent/style.json")
+	style, source := ResolveGlamourStyle("/nonexistent/style.json")
 	if style != "dark" {
 		t.Errorf("ResolveGlamourStyle with missing file = %q, want theme default %q", style, "dark")
 	}
-	if isFile {
-		t.Error("expected isFile=false for missing file")
+	if source != StyleBuiltin {
+		t.Errorf("expected source=StyleBuiltin for missing file, got %d", source)
 	}
 }
 
 func TestResolveGlamourStyleUnknownValue(t *testing.T) {
 	SetTheme(Light)
 
-	style, isFile := ResolveGlamourStyle("nonexistent-style")
+	style, source := ResolveGlamourStyle("nonexistent-style")
 	if style != "light" {
 		t.Errorf("ResolveGlamourStyle(\"nonexistent-style\") = %q, want theme default %q", style, "light")
 	}
-	if isFile {
-		t.Error("expected isFile=false for unknown value")
+	if source != StyleBuiltin {
+		t.Errorf("expected source=StyleBuiltin for unknown value, got %d", source)
 	}
 }
