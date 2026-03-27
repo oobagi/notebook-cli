@@ -77,6 +77,11 @@ type Model struct {
 	themeCursor  int      // current selection in theme list
 	themePreview string   // rendered preview for currently highlighted style
 	darkTerminal bool     // true when terminal has dark background
+
+	// Theme picker tab fields (0=glamour style, 1=UI theme).
+	themeTab       int    // active tab in theme picker
+	uiThemeCursor  int    // cursor in UI theme preset list
+	uiThemePreview string // preview for highlighted UI preset
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -750,10 +755,11 @@ var styleHints = map[string]string{
 
 func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	m.themeMode = true
+	m.themeTab = 0
 	m.themeStyles = availableThemeStyles
 	m.themeCursor = 0
 	m.darkTerminal = lipgloss.HasDarkBackground()
-	// Pre-select the currently active style if set.
+	// Pre-select the currently active glamour style if set.
 	if cfg, err := config.Load(); err == nil && cfg.GlamourStyle != "" {
 		for i, s := range availableThemeStyles {
 			if s == cfg.GlamourStyle {
@@ -763,6 +769,21 @@ func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+
+	// Initialize UI theme cursor to match current config value.
+	m.uiThemeCursor = 0
+	presets := theme.Presets()
+	if cfg, err := config.Load(); err == nil && cfg.UITheme != "" {
+		for i, p := range presets {
+			if p.Name == cfg.UITheme {
+				m.uiThemeCursor = i
+				break
+			}
+		}
+	}
+	if len(presets) > 0 {
+		m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
+	}
 	return m, nil
 }
 
@@ -772,40 +793,93 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.themeMode = false
 		return m, nil
 
+	case tea.KeyTab:
+		// Toggle between glamour (0) and UI theme (1) tabs.
+		if m.themeTab == 0 {
+			m.themeTab = 1
+		} else {
+			m.themeTab = 0
+		}
+		return m, nil
+
 	case tea.KeyUp:
-		if m.themeCursor > 0 {
-			m.themeCursor--
-			m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+		if m.themeTab == 0 {
+			if m.themeCursor > 0 {
+				m.themeCursor--
+				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+			}
+		} else {
+			if m.uiThemeCursor > 0 {
+				m.uiThemeCursor--
+				presets := theme.Presets()
+				if len(presets) > 0 {
+					m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
+				}
+			}
 		}
 		return m, nil
 
 	case tea.KeyDown:
-		if m.themeCursor < len(m.themeStyles)-1 {
-			m.themeCursor++
-			m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+		if m.themeTab == 0 {
+			if m.themeCursor < len(m.themeStyles)-1 {
+				m.themeCursor++
+				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+			}
+		} else {
+			presets := theme.Presets()
+			if m.uiThemeCursor < len(presets)-1 {
+				m.uiThemeCursor++
+				m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
+			}
 		}
 		return m, nil
 
 	case tea.KeyEnter:
-		selected := m.themeStyles[m.themeCursor]
-		m.themeMode = false
+		if m.themeTab == 0 {
+			selected := m.themeStyles[m.themeCursor]
+			m.themeMode = false
 
-		// Persist to config and apply.
-		cfg, err := config.Load()
-		if err != nil {
-			m.statusText = fmt.Sprintf("Config load error: %s", err)
-			return m, nil
+			// Persist to config and apply.
+			cfg, err := config.Load()
+			if err != nil {
+				m.statusText = fmt.Sprintf("Config load error: %s", err)
+				return m, nil
+			}
+			if err := config.Set(&cfg, "glamour_style", selected); err != nil {
+				m.statusText = fmt.Sprintf("Config error: %s", err)
+				return m, nil
+			}
+			if err := config.Save(cfg); err != nil {
+				m.statusText = fmt.Sprintf("Config save error: %s", err)
+				return m, nil
+			}
+			render.SetGlamourStyle(selected)
+			m.statusText = fmt.Sprintf("Theme set to %q", selected)
+		} else {
+			presets := theme.Presets()
+			if len(presets) == 0 {
+				return m, nil
+			}
+			selected := presets[m.uiThemeCursor]
+			m.themeMode = false
+
+			// Persist to config and apply.
+			cfg, err := config.Load()
+			if err != nil {
+				m.statusText = fmt.Sprintf("Config load error: %s", err)
+				return m, nil
+			}
+			if err := config.Set(&cfg, "ui_theme", selected.Name); err != nil {
+				m.statusText = fmt.Sprintf("Config error: %s", err)
+				return m, nil
+			}
+			if err := config.Save(cfg); err != nil {
+				m.statusText = fmt.Sprintf("Config save error: %s", err)
+				return m, nil
+			}
+			theme.SetTheme(selected)
+			m.statusText = fmt.Sprintf("UI theme set to %s", selected.Name)
 		}
-		if err := config.Set(&cfg, "glamour_style", selected); err != nil {
-			m.statusText = fmt.Sprintf("Config error: %s", err)
-			return m, nil
-		}
-		if err := config.Save(cfg); err != nil {
-			m.statusText = fmt.Sprintf("Config save error: %s", err)
-			return m, nil
-		}
-		render.SetGlamourStyle(selected)
-		m.statusText = fmt.Sprintf("Theme set to %q", selected)
 		return m, nil
 
 	case tea.KeyRunes:
@@ -831,6 +905,35 @@ func (m Model) renderThemePreview(styleName string) string {
 	return render.RenderMarkdownWithStyle(themePreviewSample, previewWidth, styleName)
 }
 
+// renderUIThemePreview generates a mock TUI chrome preview for a UI theme preset.
+func (m Model) renderUIThemePreview(presetName string) string {
+	preset, ok := theme.PresetByName(presetName)
+	if !ok {
+		return "(unknown preset)"
+	}
+
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(preset.Accent))
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color(preset.Border))
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(preset.StatusFg)).
+		Background(lipgloss.Color(preset.StatusBg))
+
+	var b strings.Builder
+	b.WriteString(border.Render("\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"))
+	b.WriteString("\n")
+	b.WriteString(border.Render("\u2502") + " " + accent.Render("\u25cf") + " My notebook   " + border.Render("\u2502"))
+	b.WriteString("\n")
+	b.WriteString(border.Render("\u2502") + "   Another note   " + border.Render("\u2502"))
+	b.WriteString("\n")
+	b.WriteString(border.Render("\u2502") + "   Third item     " + border.Render("\u2502"))
+	b.WriteString("\n")
+	b.WriteString(border.Render("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"))
+	b.WriteString("\n")
+	b.WriteString("  " + statusStyle.Render(" Status: saved \u2713 "))
+
+	return b.String()
+}
+
 // renderThemeOverlay builds the theme picker overlay with style list and preview.
 func (m Model) renderThemeOverlay() string {
 	w := m.width
@@ -842,54 +945,92 @@ func (m Model) renderThemeOverlay() string {
 		h = 24
 	}
 
-	// Left pane: style list.
-	listWidth := 30
-	var left strings.Builder
 	bold := lipgloss.NewStyle().Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
-	left.WriteString(bold.Render("  Glamour Style"))
-	left.WriteString("\n")
-	left.WriteString("  ─────────────────\n")
 
-	for i, s := range m.themeStyles {
-		hint := styleHints[s]
-		hintStr := ""
-		if hint != "" {
-			hintStr = " " + dim.Render(hint)
+	// Tab bar.
+	var tabBar strings.Builder
+	glamourTab := "Glamour Style"
+	uiTab := "UI Theme"
+	if m.themeTab == 0 {
+		tabBar.WriteString("  " + bold.Render("["+glamourTab+"]"))
+		tabBar.WriteString("  " + dim.Render("["+uiTab+"]"))
+	} else {
+		tabBar.WriteString("  " + dim.Render("["+glamourTab+"]"))
+		tabBar.WriteString("  " + bold.Render("["+uiTab+"]"))
+	}
+	tabBar.WriteString("\n")
+	tabBar.WriteString("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n")
+
+	// Left pane: list for active tab.
+	listWidth := 30
+	var left strings.Builder
+	left.WriteString(tabBar.String())
+
+	if m.themeTab == 0 {
+		// Glamour style list.
+		for i, s := range m.themeStyles {
+			hint := styleHints[s]
+			hintStr := ""
+			if hint != "" {
+				hintStr = " " + dim.Render(hint)
+			}
+			if i == m.themeCursor {
+				sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+				left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(s), hintStr))
+			} else {
+				left.WriteString(fmt.Sprintf("    %s%s\n", s, hintStr))
+			}
 		}
-		if i == m.themeCursor {
-			sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-			left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("●"), sel.Render(s), hintStr))
-		} else {
-			left.WriteString(fmt.Sprintf("    %s%s\n", s, hintStr))
+
+		// Show warning when highlighted style conflicts with terminal background.
+		if cur := m.themeStyles[m.themeCursor]; cur != "auto" {
+			curHint := styleHints[cur]
+			conflict := false
+			if m.darkTerminal && curHint == "(light bg)" {
+				conflict = true
+			}
+			if !m.darkTerminal && curHint == "(dark bg)" {
+				conflict = true
+			}
+			if conflict {
+				left.WriteString("\n")
+				left.WriteString(dim.Render("  \u26a0 May be hard to read\n    on your terminal"))
+				left.WriteString("\n")
+			}
+		}
+	} else {
+		// UI theme preset list.
+		presets := theme.Presets()
+		for i, p := range presets {
+			bgHint := ""
+			if p.Background != "" {
+				bgHint = " " + dim.Render("("+p.Background+" bg)")
+			}
+			if i == m.uiThemeCursor {
+				sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+				left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(p.Name), bgHint))
+			} else {
+				left.WriteString(fmt.Sprintf("    %s%s\n", p.Name, bgHint))
+			}
 		}
 	}
 
-	// Show warning when highlighted style conflicts with terminal background.
-	if cur := m.themeStyles[m.themeCursor]; cur != "auto" {
-		curHint := styleHints[cur]
-		conflict := false
-		if m.darkTerminal && curHint == "(light bg)" {
-			conflict = true
-		}
-		if !m.darkTerminal && curHint == "(dark bg)" {
-			conflict = true
-		}
-		if conflict {
-			left.WriteString("\n")
-			left.WriteString(dim.Render("  \u26a0 May be hard to read\n    on your terminal"))
-			left.WriteString("\n")
-		}
-	}
-
-	// Right pane: markdown preview.
+	// Right pane: preview for active tab.
 	previewWidth := w - listWidth - 10
 	if previewWidth < 20 {
 		previewWidth = 20
 	}
 
+	var previewContent string
+	if m.themeTab == 0 {
+		previewContent = m.themePreview
+	} else {
+		previewContent = m.uiThemePreview
+	}
+
 	// Clamp preview lines to fit the overlay height.
-	previewLines := strings.Split(m.themePreview, "\n")
+	previewLines := strings.Split(previewContent, "\n")
 	maxPreview := h - 8
 	if maxPreview < 1 {
 		maxPreview = 1
@@ -926,7 +1067,7 @@ func (m Model) renderThemeOverlay() string {
 	rendered := outer.Render(combined)
 
 	// Status hint.
-	statusHint := dim.Render("  ↑/↓ navigate · Enter apply · Esc cancel")
+	statusHint := dim.Render("  \u2191/\u2193 navigate \u00b7 Tab switch \u00b7 Enter apply \u00b7 Esc cancel")
 
 	full := rendered + "\n" + statusHint
 
