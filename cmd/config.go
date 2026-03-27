@@ -27,6 +27,7 @@ var configCmd = &cobra.Command{
 		displayValue("theme", cfg.Theme)
 		displayValue("date_format", cfg.DateFormat)
 		displayValue("glamour_style", cfg.GlamourStyle)
+		displayValue("ui_theme", cfg.UITheme)
 
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  Config file: %s\n", config.Path())
@@ -44,7 +45,7 @@ var configSetCmd = &cobra.Command{
 		key, value := args[0], args[1]
 
 		if !config.ValidKeys[key] {
-			return fmt.Errorf("unknown config key: %q (valid keys: storage_dir, editor, theme, date_format, glamour_style)", key)
+			return fmt.Errorf("unknown config key: %q (valid keys: storage_dir, editor, theme, date_format, glamour_style, ui_theme)", key)
 		}
 
 		// Load current config, apply change, save.

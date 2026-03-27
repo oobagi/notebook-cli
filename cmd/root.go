@@ -34,7 +34,12 @@ var rootCmd = &cobra.Command{
 		}
 
 		// Resolve the active theme from config (or auto-detect).
-		themeName := cfg.Theme
+		// ui_theme takes precedence over theme when set to a non-auto value,
+		// allowing users to control the TUI color palette independently.
+		themeName := cfg.UITheme
+		if themeName == "" || themeName == "auto" {
+			themeName = cfg.Theme
+		}
 		if themeName == "" {
 			themeName = "auto"
 		}
