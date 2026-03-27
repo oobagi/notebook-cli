@@ -1484,3 +1484,107 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 		t.Errorf("L1 help should mention 'Theme picker', got:\n%s", view)
 	}
 }
+
+func TestStyleHintsMap(t *testing.T) {
+	// Every entry in availableThemeStyles must have an entry in styleHints.
+	for _, s := range availableThemeStyles {
+		if _, ok := styleHints[s]; !ok {
+			t.Errorf("styleHints missing entry for %q", s)
+		}
+	}
+
+	// "auto" should have an empty hint.
+	if styleHints["auto"] != "" {
+		t.Errorf("expected empty hint for auto, got %q", styleHints["auto"])
+	}
+
+	// Dark-background styles should have "(dark bg)" hint.
+	for _, s := range []string{"dark", "dracula", "tokyo-night", "pink"} {
+		if styleHints[s] != "(dark bg)" {
+			t.Errorf("expected %q hint to be \"(dark bg)\", got %q", s, styleHints[s])
+		}
+	}
+
+	// Light-background style should have "(light bg)" hint.
+	if styleHints["light"] != "(light bg)" {
+		t.Errorf("expected light hint to be \"(light bg)\", got %q", styleHints["light"])
+	}
+}
+
+func TestThemePickerShowsHints(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	view := m.View()
+	if !containsStr(view, "(dark bg)") {
+		t.Errorf("view should contain '(dark bg)' hint, got:\n%s", view)
+	}
+	if !containsStr(view, "(light bg)") {
+		t.Errorf("view should contain '(light bg)' hint, got:\n%s", view)
+	}
+}
+
+func TestThemePickerDarkTerminalField(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	// darkTerminal should be set without panicking.
+	_ = m.darkTerminal
+}
+
+func TestThemePickerConflictWarning(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	// Move cursor to "light" (index 2).
+	for i := 0; i < 2; i++ {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(Model)
+	}
+	if m.themeStyles[m.themeCursor] != "light" {
+		t.Fatalf("expected cursor on 'light', got %q", m.themeStyles[m.themeCursor])
+	}
+
+	view := m.View()
+	if m.darkTerminal {
+		if !containsStr(view, "May be hard to read") {
+			t.Errorf("expected conflict warning for light style on dark terminal, got:\n%s", view)
+		}
+	}
+
+	// Move cursor to "dark" (index 1).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if m.themeStyles[m.themeCursor] != "dark" {
+		t.Fatalf("expected cursor on 'dark', got %q", m.themeStyles[m.themeCursor])
+	}
+	view = m.View()
+	if !m.darkTerminal {
+		if !containsStr(view, "May be hard to read") {
+			t.Errorf("expected conflict warning for dark style on light terminal, got:\n%s", view)
+		}
+	}
+
+	// Move cursor to "auto" (index 0) — no conflict ever.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if m.themeStyles[m.themeCursor] != "auto" {
+		t.Fatalf("expected cursor on 'auto', got %q", m.themeStyles[m.themeCursor])
+	}
+	view = m.View()
+	if containsStr(view, "May be hard to read") {
+		t.Errorf("auto style should never show conflict warning, got:\n%s", view)
+	}
+}

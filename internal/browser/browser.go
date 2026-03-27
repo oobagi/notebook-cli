@@ -74,6 +74,7 @@ type Model struct {
 	themeStyles  []string // available glamour style names
 	themeCursor  int      // current selection in theme list
 	themePreview string   // rendered preview for currently highlighted style
+	darkTerminal bool     // true when terminal has dark background
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -712,10 +713,21 @@ var availableThemeStyles = []string{
 	"pink",
 }
 
+// styleHints maps each style name to its intended background compatibility.
+var styleHints = map[string]string{
+	"auto":        "",
+	"dark":        "(dark bg)",
+	"light":       "(light bg)",
+	"dracula":     "(dark bg)",
+	"tokyo-night": "(dark bg)",
+	"pink":        "(dark bg)",
+}
+
 func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	m.themeMode = true
 	m.themeStyles = availableThemeStyles
 	m.themeCursor = 0
+	m.darkTerminal = lipgloss.HasDarkBackground()
 	// Pre-select the currently active style if set.
 	if cfg, err := config.Load(); err == nil && cfg.GlamourStyle != "" {
 		for i, s := range availableThemeStyles {
@@ -806,19 +818,42 @@ func (m Model) renderThemeOverlay() string {
 	}
 
 	// Left pane: style list.
-	listWidth := 22
+	listWidth := 30
 	var left strings.Builder
 	bold := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
 	left.WriteString(bold.Render("  Glamour Style"))
 	left.WriteString("\n")
 	left.WriteString("  ─────────────────\n")
 
 	for i, s := range m.themeStyles {
+		hint := styleHints[s]
+		hintStr := ""
+		if hint != "" {
+			hintStr = " " + dim.Render(hint)
+		}
 		if i == m.themeCursor {
 			sel := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-			left.WriteString(fmt.Sprintf("  %s %s\n", sel.Render("●"), sel.Render(s)))
+			left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("●"), sel.Render(s), hintStr))
 		} else {
-			left.WriteString(fmt.Sprintf("    %s\n", s))
+			left.WriteString(fmt.Sprintf("    %s%s\n", s, hintStr))
+		}
+	}
+
+	// Show warning when highlighted style conflicts with terminal background.
+	if cur := m.themeStyles[m.themeCursor]; cur != "auto" {
+		curHint := styleHints[cur]
+		conflict := false
+		if m.darkTerminal && curHint == "(light bg)" {
+			conflict = true
+		}
+		if !m.darkTerminal && curHint == "(dark bg)" {
+			conflict = true
+		}
+		if conflict {
+			left.WriteString("\n")
+			left.WriteString(dim.Render("  \u26a0 May be hard to read\n    on your terminal"))
+			left.WriteString("\n")
 		}
 	}
 
@@ -866,10 +901,9 @@ func (m Model) renderThemeOverlay() string {
 	rendered := outer.Render(combined)
 
 	// Status hint.
-	dim := lipgloss.NewStyle().Faint(true)
-	hint := dim.Render("  ↑/↓ navigate · Enter apply · Esc cancel")
+	statusHint := dim.Render("  ↑/↓ navigate · Enter apply · Esc cancel")
 
-	full := rendered + "\n" + hint
+	full := rendered + "\n" + statusHint
 
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
 }
