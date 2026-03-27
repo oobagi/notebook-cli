@@ -1125,7 +1125,7 @@ func (m Model) renderStatusBar() string {
 			cursorChar = string(m.inputValue[m.inputCursor])
 			after = after[1:]
 		}
-		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + underline.Render(cursorChar) + dim.Render(after)
+		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + underline.Render(cursorChar) + dim.Render(after) + dim.Render(" · Enter confirm · Esc cancel")
 	}
 
 	if m.statusText != "" {
