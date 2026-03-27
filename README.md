@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/notebook-icon.png" width="128" height="128" alt="notebook icon">
-</p>
-
 <h1 align="center">Notebook</h1>
 
 <p align="center">
@@ -71,9 +67,10 @@ notebook <book> <note> edit            # Open editor with live markdown preview
 notebook <book> <note> delete          # Delete a note
 notebook <book> <note> copy            # Copy note content to clipboard
 notebook <book> delete                 # Delete a notebook and all its notes
+notebook <book> search "query"         # Search within a notebook
 notebook search "query"                # Search across all notebooks
 notebook config                        # Show current configuration
-notebook completion bash               # Generate shell completions
+notebook config set <key> <value>      # Set a config value
 ```
 
 ## License
