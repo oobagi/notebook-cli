@@ -488,10 +488,10 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 		idx := m.filtered[m.cursor]
 		name := m.notebooks[idx].name
 		m.inputMode = true
-		m.inputPrompt = fmt.Sprintf("Delete %q? Type the name to confirm:", name)
+		m.inputPrompt = fmt.Sprintf("Delete %q? Type the name to confirm:", storage.DisplayName(name))
 		m.inputValue = ""
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed != name {
+			if typed != storage.DisplayName(name) {
 				return func() tea.Msg {
 					return statusMsg{"Name doesn't match \u2014 cancelled"}
 				}
@@ -511,10 +511,10 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 		idx := m.filtered[m.cursor]
 		name := m.notes[idx].Name
 		m.inputMode = true
-		m.inputPrompt = fmt.Sprintf("Delete %q from %s? Type the name to confirm:", name, m.currentBook)
+		m.inputPrompt = fmt.Sprintf("Delete %q from %s? Type the name to confirm:", storage.DisplayName(name), storage.DisplayName(m.currentBook))
 		m.inputValue = ""
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed != name {
+			if typed != storage.DisplayName(name) {
 				return func() tea.Msg {
 					return statusMsg{"Name doesn't match \u2014 cancelled"}
 				}
@@ -539,8 +539,8 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		name := m.notebooks[idx].name
 		m.inputMode = true
 		m.inputPrompt = "Rename notebook:"
-		m.inputValue = name
-		m.inputCursor = len(name)
+		m.inputValue = storage.DisplayName(name)
+		m.inputCursor = len(m.inputValue)
 		m.inputAction = func(typed string) tea.Cmd {
 			slug := storage.Slugify(typed)
 			if slug == "" {
@@ -566,8 +566,8 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		name := m.notes[idx].Name
 		m.inputMode = true
 		m.inputPrompt = "Rename note:"
-		m.inputValue = name
-		m.inputCursor = len(name)
+		m.inputValue = storage.DisplayName(name)
+		m.inputCursor = len(m.inputValue)
 		m.inputAction = func(typed string) tea.Cmd {
 			slug := storage.Slugify(typed)
 			if slug == "" {
@@ -610,7 +610,7 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 		}
 	} else {
 		m.inputMode = true
-		m.inputPrompt = fmt.Sprintf("New note in %s:", m.currentBook)
+		m.inputPrompt = fmt.Sprintf("New note in %s:", storage.DisplayName(m.currentBook))
 		m.inputValue = ""
 		m.inputAction = func(typed string) tea.Cmd {
 			slug := storage.Slugify(typed)
@@ -642,7 +642,7 @@ func (m Model) startView() (tea.Model, tea.Cmd) {
 			return errMsg{err}
 		}
 		return viewLoadedMsg{
-			title:   fmt.Sprintf("%s \u203A %s", m.currentBook, note.Name),
+			title:   fmt.Sprintf("%s \u203A %s", storage.DisplayName(m.currentBook), storage.DisplayName(note.Name)),
 			content: n.Content,
 		}
 	}
@@ -662,7 +662,7 @@ func (m Model) copyNote() (tea.Model, tea.Cmd) {
 		if err := clipboard.Copy(n.Content); err != nil {
 			return statusMsg{fmt.Sprintf("Could not copy: %s", err)}
 		}
-		return statusMsg{fmt.Sprintf("Copied %q to clipboard", note.Name)}
+		return statusMsg{fmt.Sprintf("Copied %q to clipboard", storage.DisplayName(note.Name))}
 	}
 }
 
@@ -672,13 +672,13 @@ func (m *Model) applyFilter() {
 
 	if m.level == 0 {
 		for i, nb := range m.notebooks {
-			if query == "" || strings.Contains(strings.ToLower(nb.name), query) {
+			if query == "" || strings.Contains(storage.DisplayName(nb.name), query) {
 				m.filtered = append(m.filtered, i)
 			}
 		}
 	} else {
 		for i, n := range m.notes {
-			if query == "" || strings.Contains(strings.ToLower(n.Name), query) {
+			if query == "" || strings.Contains(storage.DisplayName(n.Name), query) {
 				m.filtered = append(m.filtered, i)
 			}
 		}
@@ -925,7 +925,7 @@ func (m Model) renderBreadcrumb() string {
 	if m.level == 0 {
 		return style.Render("notebook")
 	}
-	return style.Render(fmt.Sprintf("notebook \u203A %s", m.currentBook))
+	return style.Render(fmt.Sprintf("notebook \u203A %s", storage.DisplayName(m.currentBook)))
 }
 
 func (m Model) renderContent(maxLines int) string {
@@ -1018,14 +1018,15 @@ func (m Model) visibleRange(total, maxLines int) []int {
 
 func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 	bullet := "  "
-	name := nb.name
+	display := storage.DisplayName(nb.name)
+	name := display
 	countStr := pluralize(nb.noteCount, "note", "notes")
 
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
 		bullet = bulletStyle.Render("\u25CF") + " "
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-		name = nameStyle.Render(nb.name)
+		name = nameStyle.Render(display)
 	}
 
 	return fmt.Sprintf("%s%-*s    %-*s    %s",
@@ -1038,7 +1039,8 @@ func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 
 func (m Model) formatNoteLine(n model.Note, selected bool) string {
 	bullet := "  "
-	name := n.Name
+	display := storage.DisplayName(n.Name)
+	name := display
 
 	// Get file size.
 	p := m.store.NotebookDir(m.currentBook) + "/" + n.Name + ".md"
@@ -1053,7 +1055,7 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 		bullet = bulletStyle.Render("\u25CF") + " "
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-		name = nameStyle.Render(n.Name)
+		name = nameStyle.Render(display)
 	}
 
 	return fmt.Sprintf("%s%-*s    %-*s    %s",
@@ -1068,14 +1070,14 @@ func (m Model) nameColWidth(level int) int {
 	maxLen := 0
 	if level == 0 {
 		for _, nb := range m.notebooks {
-			if len(nb.name) > maxLen {
-				maxLen = len(nb.name)
+			if dl := len(storage.DisplayName(nb.name)); dl > maxLen {
+				maxLen = dl
 			}
 		}
 	} else {
 		for _, n := range m.notes {
-			if len(n.Name) > maxLen {
-				maxLen = len(n.Name)
+			if dl := len(storage.DisplayName(n.Name)); dl > maxLen {
+				maxLen = dl
 			}
 		}
 	}
@@ -1109,7 +1111,7 @@ func (m Model) renderEmptyNotes() string {
 		h = 1
 	}
 	dim := lipgloss.NewStyle().Faint(true)
-	msg := fmt.Sprintf("No notes in %s.\n\nPress n to create one.", m.currentBook)
+	msg := fmt.Sprintf("No notes in %s.\n\nPress n to create one.", storage.DisplayName(m.currentBook))
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
 }
 
@@ -1119,13 +1121,13 @@ func (m Model) renderStatusBar() string {
 	if m.inputMode {
 		before := m.inputValue[:m.inputCursor]
 		after := m.inputValue[m.inputCursor:]
-		underline := lipgloss.NewStyle().Underline(true)
+		cursor := lipgloss.NewStyle().Reverse(true)
 		cursorChar := " "
 		if m.inputCursor < len(m.inputValue) {
 			cursorChar = string(m.inputValue[m.inputCursor])
 			after = after[1:]
 		}
-		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + underline.Render(cursorChar) + dim.Render(after) + dim.Render(" · Enter confirm · Esc cancel")
+		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + cursor.Render(cursorChar) + dim.Render(after) + dim.Render(" · Enter confirm · Esc cancel")
 	}
 
 	if m.statusText != "" {
