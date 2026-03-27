@@ -58,10 +58,10 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 9: TUI Fixes
 
-- [ ] [#84 Fix theme picker overlay top cut off](https://github.com/oobagi/notebook/issues/84)
-- [ ] [#85 Remove notty and ascii from theme picker](https://github.com/oobagi/notebook/issues/85)
-- [ ] [#86 Show dark/light background hints in theme picker](https://github.com/oobagi/notebook/issues/86)
-- [ ] [#91 Fix filter search spaces and cursor movement](https://github.com/oobagi/notebook/issues/91)
+- [x] [#84 Fix theme picker overlay top cut off](https://github.com/oobagi/notebook/issues/84)
+- [x] [#85 Remove notty and ascii from theme picker](https://github.com/oobagi/notebook/issues/85)
+- [x] [#86 Show dark/light background hints in theme picker](https://github.com/oobagi/notebook/issues/86)
+- [x] [#91 Fix filter search spaces and cursor movement](https://github.com/oobagi/notebook/issues/91)
 
 ## Phase 10: CLI Color Theming
 
