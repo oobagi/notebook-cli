@@ -69,3 +69,11 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 - [ ] [#88 Add ui_theme config key](https://github.com/oobagi/notebook/issues/88)
 - [ ] [#89 Wire theme colors into all lipgloss styles](https://github.com/oobagi/notebook/issues/89)
 - [ ] [#90 Add UI theme tab to theme picker overlay](https://github.com/oobagi/notebook/issues/90)
+
+## Phase 11: Community Glamour Styles
+
+- [ ] [#94 Embed community Glamour styles into the binary](https://github.com/oobagi/notebook/issues/94)
+- [ ] [#95 Wire community styles into ResolveGlamourStyle](https://github.com/oobagi/notebook/issues/95)
+- [ ] [#96 Show community styles in theme picker](https://github.com/oobagi/notebook/issues/96)
+- [ ] [#97 CI validation for community style JSON files](https://github.com/oobagi/notebook/issues/97)
+- [ ] [#98 Contributing guide for community styles](https://github.com/oobagi/notebook/issues/98)
