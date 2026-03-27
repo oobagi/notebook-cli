@@ -19,8 +19,9 @@ type EditFunc func(book, note string) error
 
 // Config holds the dependencies needed by the browser.
 type Config struct {
-	Store    *storage.Store
-	EditNote EditFunc
+	Store       *storage.Store
+	EditNote    EditFunc
+	InitialBook string // if set, start at L1 in this notebook
 }
 
 // Selection represents a note the user chose to open.
@@ -76,10 +77,15 @@ type notebookItem struct {
 
 // New creates a new browser model.
 func New(cfg Config) Model {
-	return Model{
+	m := Model{
 		store:    cfg.Store,
 		editNote: cfg.EditNote,
 	}
+	if cfg.InitialBook != "" {
+		m.level = 1
+		m.currentBook = cfg.InitialBook
+	}
+	return m
 }
 
 // Selected returns the note selection if the user chose one, or nil.
@@ -99,6 +105,9 @@ type notesLoadedMsg struct {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
+	if m.level == 1 {
+		return m.loadNotes(m.currentBook)
+	}
 	return m.loadNotebooks()
 }
 
