@@ -49,10 +49,11 @@ type Model struct {
 	selected    *Selection // set when user picks a note to edit
 	err         error
 
-	// Input mode fields (used by delete type-to-confirm).
+	// Input mode fields (used by create, rename, delete type-to-confirm).
 	inputMode   bool
 	inputPrompt string
 	inputValue  string
+	inputCursor int // cursor position within inputValue
 	inputAction func(typed string) tea.Cmd
 
 	// After a rename, this holds the new name so the cursor repositions to it.
@@ -427,6 +428,7 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputMode = false
 		m.inputPrompt = ""
 		m.inputValue = ""
+		m.inputCursor = 0
 		m.inputAction = nil
 		return m, nil
 
@@ -436,24 +438,41 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputMode = false
 		m.inputPrompt = ""
 		m.inputValue = ""
+		m.inputCursor = 0
 		m.inputAction = nil
 		if action != nil {
 			return m, action(value)
 		}
 		return m, nil
 
+	case tea.KeyLeft:
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+		return m, nil
+
+	case tea.KeyRight:
+		if m.inputCursor < len(m.inputValue) {
+			m.inputCursor++
+		}
+		return m, nil
+
 	case tea.KeyBackspace:
-		if len(m.inputValue) > 0 {
-			m.inputValue = m.inputValue[:len(m.inputValue)-1]
+		if m.inputCursor > 0 {
+			m.inputValue = m.inputValue[:m.inputCursor-1] + m.inputValue[m.inputCursor:]
+			m.inputCursor--
 		}
 		return m, nil
 
 	case tea.KeySpace:
-		m.inputValue += " "
+		m.inputValue = m.inputValue[:m.inputCursor] + " " + m.inputValue[m.inputCursor:]
+		m.inputCursor++
 		return m, nil
 
 	case tea.KeyRunes:
-		m.inputValue += string(msg.Runes)
+		ch := string(msg.Runes)
+		m.inputValue = m.inputValue[:m.inputCursor] + ch + m.inputValue[m.inputCursor:]
+		m.inputCursor += len(ch)
 		return m, nil
 	}
 
@@ -521,6 +540,7 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		m.inputMode = true
 		m.inputPrompt = "Rename notebook:"
 		m.inputValue = name
+		m.inputCursor = len(name)
 		m.inputAction = func(typed string) tea.Cmd {
 			slug := storage.Slugify(typed)
 			if slug == "" {
@@ -547,6 +567,7 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		m.inputMode = true
 		m.inputPrompt = "Rename note:"
 		m.inputValue = name
+		m.inputCursor = len(name)
 		m.inputAction = func(typed string) tea.Cmd {
 			slug := storage.Slugify(typed)
 			if slug == "" {
@@ -1096,7 +1117,9 @@ func (m Model) renderStatusBar() string {
 	dim := lipgloss.NewStyle().Faint(true)
 
 	if m.inputMode {
-		return dim.Render(fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputValue))
+		before := m.inputValue[:m.inputCursor]
+		after := m.inputValue[m.inputCursor:]
+		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + "█" + dim.Render(after)
 	}
 
 	if m.statusText != "" {
