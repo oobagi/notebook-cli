@@ -448,6 +448,10 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeySpace:
+		m.inputValue += " "
+		return m, nil
+
 	case tea.KeyRunes:
 		m.inputValue += string(msg.Runes)
 		return m, nil
