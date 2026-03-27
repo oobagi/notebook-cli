@@ -45,6 +45,15 @@ type Model struct {
 	quitting    bool
 	selected    *Selection // set when user picks a note to edit
 	err         error
+
+	// Input mode fields (used by delete type-to-confirm).
+	inputMode   bool
+	inputPrompt string
+	inputValue  string
+	inputAction func(typed string) tea.Cmd
+
+	// Temporary status message shown in the status bar.
+	statusText string
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -129,6 +138,12 @@ func (m Model) loadNotes(book string) tea.Cmd {
 
 type errMsg struct{ err error }
 
+// reloadMsg triggers a reload of the current list after a mutation.
+type reloadMsg struct{}
+
+// statusMsg carries a temporary status message for the status bar.
+type statusMsg struct{ text string }
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -148,6 +163,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resetFilter()
 		return m, nil
 
+	case reloadMsg:
+		if m.level == 0 {
+			return m, m.loadNotebooks()
+		}
+		return m, m.loadNotes(m.currentBook)
+
+	case statusMsg:
+		m.statusText = msg.text
+		return m, nil
+
 	case errMsg:
 		m.err = msg.err
 		return m, nil
@@ -160,6 +185,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Clear any lingering status text on next keypress.
+	m.statusText = ""
+
 	// Global quit keys.
 	switch msg.Type {
 	case tea.KeyCtrlC:
@@ -180,6 +208,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	// When in input mode, delegate to input handler.
+	if m.inputMode {
+		return m.handleInputKey(msg)
 	}
 
 	// When filtering, handle text input first.
@@ -225,6 +258,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filter = ""
 			m.applyFilter()
 			return m, nil
+		}
+		if s == "d" {
+			return m.startDelete()
 		}
 		return m, nil
 	}
@@ -273,6 +309,92 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m, nil
+}
+
+func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.inputMode = false
+		m.inputPrompt = ""
+		m.inputValue = ""
+		m.inputAction = nil
+		return m, nil
+
+	case tea.KeyEnter:
+		action := m.inputAction
+		value := m.inputValue
+		m.inputMode = false
+		m.inputPrompt = ""
+		m.inputValue = ""
+		m.inputAction = nil
+		if action != nil {
+			return m, action(value)
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		if len(m.inputValue) > 0 {
+			m.inputValue = m.inputValue[:len(m.inputValue)-1]
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		m.inputValue += string(msg.Runes)
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) startDelete() (tea.Model, tea.Cmd) {
+	if m.level == 0 {
+		// Delete notebook.
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		name := m.notebooks[idx].name
+		m.inputMode = true
+		m.inputPrompt = fmt.Sprintf("Delete %q? Type the name to confirm:", name)
+		m.inputValue = ""
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed != name {
+				return func() tea.Msg {
+					return statusMsg{"Name doesn't match \u2014 cancelled"}
+				}
+			}
+			return func() tea.Msg {
+				if err := m.store.DeleteNotebook(name); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	} else {
+		// Delete note.
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		name := m.notes[idx].Name
+		m.inputMode = true
+		m.inputPrompt = fmt.Sprintf("Delete %q from %s? Type the name to confirm:", name, m.currentBook)
+		m.inputValue = ""
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed != name {
+				return func() tea.Msg {
+					return statusMsg{"Name doesn't match \u2014 cancelled"}
+				}
+			}
+			return func() tea.Msg {
+				if err := m.store.DeleteNote(m.currentBook, name); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	}
 	return m, nil
 }
 
@@ -650,6 +772,14 @@ func (m Model) renderEmptyNotes() string {
 
 func (m Model) renderStatusBar() string {
 	dim := lipgloss.NewStyle().Faint(true)
+
+	if m.inputMode {
+		return dim.Render(fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputValue))
+	}
+
+	if m.statusText != "" {
+		return dim.Render(fmt.Sprintf("  %s", m.statusText))
+	}
 
 	if m.filtering {
 		return dim.Render(fmt.Sprintf("  Filter: %s_ \u00B7 Esc clear \u00B7 Enter select", m.filter))
