@@ -6,21 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/browser"
-	"github.com/spf13/cobra"
 )
-
-var browseCmd = &cobra.Command{
-	Use:   "browse",
-	Short: "Browse notebooks and notes in a fullscreen TUI",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBrowser()
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(browseCmd)
-}
 
 // runBrowser launches the TUI browser in a loop. When the user selects
 // a note, the browser quits, the editor launches, and the browser

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/picker"
 	"github.com/oobagi/notebook/internal/theme"
 	"github.com/spf13/cobra"
 )
@@ -17,19 +16,7 @@ var themeCmd = &cobra.Command{
 		w := cmd.OutOrStdout()
 
 		if len(args) == 0 {
-			// No arg: show a picker to choose a theme.
-			picked, err := picker.Run(picker.Config{
-				Title: "Pick a theme",
-				Items: []string{"auto", "dark", "light"},
-			})
-			if err != nil {
-				return err
-			}
-			if picked == "" {
-				printInfo(w, "Cancelled")
-				return nil
-			}
-			args = []string{picked}
+			return fmt.Errorf("Missing theme. Try: notebook theme dark|light|auto")
 		}
 
 		// Set theme.

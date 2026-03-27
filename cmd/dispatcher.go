@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
-	"github.com/oobagi/notebook/internal/picker"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -50,70 +49,14 @@ func dispatch(cmd *cobra.Command, args []string) error {
 		return createNoteInBook(w, book, rest[1])
 	case "delete":
 		if len(rest) < 2 {
-			// No note specified: show a picker.
-			notes, err := store.ListNotes(book)
-			if err != nil {
-				if strings.Contains(err.Error(), "no such file or directory") ||
-					strings.Contains(err.Error(), "does not exist") {
-					printError(w, fmt.Sprintf("Notebook %q doesn't exist. See your notebooks with: notebook list", book))
-					return nil
-				}
-				return fmt.Errorf("list notes in %q: %w", book, err)
-			}
-			if len(notes) == 0 {
-				printInfo(w, fmt.Sprintf("No notes to delete in %q.", book))
-				return nil
-			}
-			items := make([]string, len(notes))
-			for i, n := range notes {
-				items[i] = n.Name
-			}
-			picked, err := picker.Run(picker.Config{
-				Title: fmt.Sprintf("Pick a note to delete from %s", book),
-				Items: items,
-			})
-			if err != nil {
-				return err
-			}
-			if picked == "" {
-				printInfo(w, "Cancelled")
-				return nil
-			}
-			return deleteNoteFromBook(w, cmd.InOrStdin(), book, picked, false)
+			printError(w, fmt.Sprintf("Missing note title. Try: notebook %s delete \"Note Title\"", book))
+			return nil
 		}
 		return deleteNoteFromBook(w, cmd.InOrStdin(), book, rest[1], false)
 	case "edit":
 		if len(rest) < 2 {
-			// No note specified: show a picker.
-			notes, err := store.ListNotes(book)
-			if err != nil {
-				if strings.Contains(err.Error(), "no such file or directory") ||
-					strings.Contains(err.Error(), "does not exist") {
-					printError(w, fmt.Sprintf("Notebook %q doesn't exist. See your notebooks with: notebook list", book))
-					return nil
-				}
-				return fmt.Errorf("list notes in %q: %w", book, err)
-			}
-			if len(notes) == 0 {
-				printInfo(w, fmt.Sprintf("No notes to edit in %q.", book))
-				return nil
-			}
-			items := make([]string, len(notes))
-			for i, n := range notes {
-				items[i] = n.Name
-			}
-			picked, err := picker.Run(picker.Config{
-				Title: fmt.Sprintf("Pick a note to edit in %s", book),
-				Items: items,
-			})
-			if err != nil {
-				return err
-			}
-			if picked == "" {
-				printInfo(w, "Cancelled")
-				return nil
-			}
-			return editNote(w, book, picked)
+			printError(w, fmt.Sprintf("Missing note title. Try: notebook %s edit \"Note Title\"", book))
+			return nil
 		}
 		return editNote(w, book, rest[1])
 	case "search":
