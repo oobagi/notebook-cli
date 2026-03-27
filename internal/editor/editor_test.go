@@ -182,7 +182,7 @@ func TestQuitPromptCancel(t *testing.T) {
 	}
 }
 
-func TestCtrlCForcesQuit(t *testing.T) {
+func TestCtrlCPromptsWhenModified(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -191,7 +191,27 @@ func TestCtrlCForcesQuit(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	m = updated.(Model)
 
-	// Ctrl+C should quit without warning.
+	// Ctrl+C with unsaved changes should prompt, not quit.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("Ctrl+C with unsaved changes should not return a command")
+	}
+	if !m.quitPrompt {
+		t.Fatal("expected quitPrompt to be true")
+	}
+	if m.quitting {
+		t.Fatal("should not be quitting yet")
+	}
+}
+
+func TestCtrlCQuitsWhenClean(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Ctrl+C with no changes should quit immediately.
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	m = updated.(Model)
 
