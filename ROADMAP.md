@@ -55,3 +55,16 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 - [x] [#79 Add glamour markdown styles to theme system](https://github.com/oobagi/notebook/issues/79)
 - [x] [#80 TUI theme picker with live markdown preview](https://github.com/oobagi/notebook/issues/80)
+
+## Phase 9: Theme Picker Fixes
+
+- [ ] [#84 Fix theme picker overlay top cut off](https://github.com/oobagi/notebook/issues/84)
+- [ ] [#85 Remove notty and ascii from theme picker](https://github.com/oobagi/notebook/issues/85)
+- [ ] [#86 Show dark/light background hints in theme picker](https://github.com/oobagi/notebook/issues/86)
+
+## Phase 10: CLI Color Theming
+
+- [ ] [#87 Add named UI color presets to theme package](https://github.com/oobagi/notebook/issues/87)
+- [ ] [#88 Add ui_theme config key](https://github.com/oobagi/notebook/issues/88)
+- [ ] [#89 Wire theme colors into all lipgloss styles](https://github.com/oobagi/notebook/issues/89)
+- [ ] [#90 Add UI theme tab to theme picker overlay](https://github.com/oobagi/notebook/issues/90)
