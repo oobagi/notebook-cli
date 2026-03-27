@@ -33,6 +33,9 @@ func TestConfigShowsDefaults(t *testing.T) {
 	if !strings.Contains(out, "Config file:") {
 		t.Errorf("expected 'Config file:' in output, got %q", out)
 	}
+	if !strings.Contains(out, "glamour_style") {
+		t.Errorf("expected 'glamour_style' in config output, got %q", out)
+	}
 }
 
 func TestConfigSetKey(t *testing.T) {
@@ -98,10 +101,11 @@ func TestCLIFlagOverridesConfig(t *testing.T) {
 	configPath := filepath.Join(configDir, "config.toml")
 
 	cfg := config.Config{
-		StorageDir: "/config/notes",
-		Editor:     "",
-		Theme:      "auto",
-		DateFormat: "relative",
+		StorageDir:   "/config/notes",
+		Editor:       "",
+		Theme:        "auto",
+		DateFormat:   "relative",
+		GlamourStyle: "auto",
 	}
 	if err := config.SaveTo(cfg, configPath); err != nil {
 		t.Fatalf("SaveTo: %v", err)

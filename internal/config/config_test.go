@@ -21,6 +21,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want %q", cfg.DateFormat, "relative")
 	}
+	if cfg.GlamourStyle != "auto" {
+		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "auto")
+	}
 }
 
 func TestLoadNoFile(t *testing.T) {
@@ -45,6 +48,7 @@ func TestLoadFromFile(t *testing.T) {
 editor = "nano"
 theme = "dark"
 date_format = "2006-01-02"
+glamour_style = "dracula"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write test config: %v", err)
@@ -67,6 +71,9 @@ date_format = "2006-01-02"
 	if cfg.DateFormat != "2006-01-02" {
 		t.Errorf("DateFormat = %q, want %q", cfg.DateFormat, "2006-01-02")
 	}
+	if cfg.GlamourStyle != "dracula" {
+		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "dracula")
+	}
 }
 
 func TestSaveAndLoad(t *testing.T) {
@@ -74,10 +81,11 @@ func TestSaveAndLoad(t *testing.T) {
 	path := filepath.Join(dir, "sub", "config.toml")
 
 	cfg := Config{
-		StorageDir: "/my/notes",
-		Editor:     "vim",
-		Theme:      "light",
-		DateFormat: "relative",
+		StorageDir:   "/my/notes",
+		Editor:       "vim",
+		Theme:        "light",
+		DateFormat:   "relative",
+		GlamourStyle: "tokyo-night",
 	}
 
 	if err := SaveTo(cfg, path); err != nil {
@@ -117,6 +125,7 @@ func TestSetValidKeys(t *testing.T) {
 		{"editor", "nano", func() string { return cfg.Editor }},
 		{"theme", "dark", func() string { return cfg.Theme }},
 		{"date_format", "2006-01-02", func() string { return cfg.DateFormat }},
+		{"glamour_style", "dracula", func() string { return cfg.GlamourStyle }},
 	}
 
 	for _, tt := range tests {
@@ -139,10 +148,11 @@ func TestSetUnknownKey(t *testing.T) {
 
 func TestGetValidKeys(t *testing.T) {
 	cfg := Config{
-		StorageDir: "/notes",
-		Editor:     "nano",
-		Theme:      "dark",
-		DateFormat: "relative",
+		StorageDir:   "/notes",
+		Editor:       "nano",
+		Theme:        "dark",
+		DateFormat:   "relative",
+		GlamourStyle: "dracula",
 	}
 
 	tests := []struct {
@@ -153,6 +163,7 @@ func TestGetValidKeys(t *testing.T) {
 		{"editor", "nano"},
 		{"theme", "dark"},
 		{"date_format", "relative"},
+		{"glamour_style", "dracula"},
 	}
 
 	for _, tt := range tests {
@@ -228,5 +239,8 @@ func TestLoadPartialConfig(t *testing.T) {
 	}
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want default %q", cfg.DateFormat, "relative")
+	}
+	if cfg.GlamourStyle != "auto" {
+		t.Errorf("GlamourStyle = %q, want default %q", cfg.GlamourStyle, "auto")
 	}
 }

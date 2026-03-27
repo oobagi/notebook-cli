@@ -9,13 +9,14 @@ import (
 )
 
 // RenderMarkdown renders a markdown string for terminal display using Glamour.
-// When running on a TTY, the glamour style is derived from the active theme.
+// When running on a TTY, the glamour style is resolved from the user's
+// glamour_style config (which may be a built-in name or a JSON file path).
 // When output is not a terminal, glamour's NoTTY style is used via
 // WithAutoStyle to keep output free of ANSI escape codes.
 func RenderMarkdown(content string, width int) string {
 	var styleOpt glamour.TermRendererOption
 	if term.IsTerminal(int(os.Stdout.Fd())) {
-		styleOpt = glamour.WithStandardStyle(theme.Current().GlamourStyle)
+		styleOpt = resolveStyleOption()
 	} else {
 		styleOpt = glamour.WithAutoStyle()
 	}
@@ -49,4 +50,25 @@ func RenderMarkdown(content string, width int) string {
 	}
 
 	return out
+}
+
+// glamourStyleOverride holds the user's glamour_style config value.
+// It is set during initialization via SetGlamourStyle.
+var glamourStyleOverride string
+
+// SetGlamourStyle stores the user's glamour_style config value so that
+// RenderMarkdown can resolve it at render time.
+func SetGlamourStyle(style string) {
+	glamourStyleOverride = style
+}
+
+// resolveStyleOption returns the appropriate glamour TermRendererOption
+// based on the user's glamour_style config. It supports built-in style
+// names and custom JSON file paths.
+func resolveStyleOption() glamour.TermRendererOption {
+	style, isFile := theme.ResolveGlamourStyle(glamourStyleOverride)
+	if isFile {
+		return glamour.WithStylesFromJSONFile(style)
+	}
+	return glamour.WithStandardStyle(style)
 }
