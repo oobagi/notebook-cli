@@ -946,6 +946,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.filter = ""
 		m.filtering = false
+		m.notes = nil
+		m.filtered = nil
 		return m, m.loadNotes(m.currentBook)
 	}
 
@@ -965,6 +967,8 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.filter = ""
 		m.filtering = false
+		m.notebooks = nil
+		m.filtered = nil
 		return m, m.loadNotebooks()
 	}
 	m.quitting = true
