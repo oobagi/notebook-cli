@@ -1032,6 +1032,43 @@ func TestBrowserRenameSameName(t *testing.T) {
 	}
 }
 
+func TestBrowserInitialBook(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo", "meeting-notes"},
+	})
+
+	m := New(Config{
+		Store:       s,
+		EditNote:    func(book, note string) error { return nil },
+		InitialBook: "work",
+	})
+
+	cmd := m.Init()
+	if cmd != nil {
+		msg := cmd()
+		updated, _ := m.Update(msg)
+		m = updated.(Model)
+	}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.level != 1 {
+		t.Errorf("expected level 1 with InitialBook, got %d", m.level)
+	}
+	if m.currentBook != "work" {
+		t.Errorf("expected currentBook 'work', got %q", m.currentBook)
+	}
+	if len(m.notes) != 2 {
+		t.Errorf("expected 2 notes loaded, got %d", len(m.notes))
+	}
+
+	// Pressing Esc should go back to L0.
+	m = sendKey(t, m, tea.KeyEsc)
+	if m.level != 0 {
+		t.Errorf("expected level 0 after Esc, got %d", m.level)
+	}
+}
+
 func TestBrowserViewAtL0IsNoop(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},

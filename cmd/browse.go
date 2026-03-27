@@ -12,12 +12,14 @@ import (
 // a note, the browser quits, the editor launches, and the browser
 // re-enters after the editor exits.
 func runBrowser() error {
+	var lastBook string
 	for {
 		m := browser.New(browser.Config{
 			Store: store,
 			EditNote: func(book, note string) error {
 				return editNote(nil, book, note)
 			},
+			InitialBook: lastBook,
 		})
 
 		p := tea.NewProgram(m, tea.WithAltScreen())
@@ -34,6 +36,7 @@ func runBrowser() error {
 		}
 
 		// Launch editor for the selected note.
+		lastBook = sel.Book
 		if err := editNote(os.Stderr, sel.Book, sel.Note); err != nil {
 			return fmt.Errorf("edit note: %w", err)
 		}
