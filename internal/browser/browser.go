@@ -832,7 +832,7 @@ func (m Model) renderThemeOverlay() string {
 
 	// Clamp preview lines to fit the overlay height.
 	previewLines := strings.Split(m.themePreview, "\n")
-	maxPreview := h - 6
+	maxPreview := h - 8
 	if maxPreview < 1 {
 		maxPreview = 1
 	}
@@ -862,7 +862,8 @@ func (m Model) renderThemeOverlay() string {
 	outer := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("8")).
-		Padding(0, 1)
+		Padding(0, 1).
+		MaxHeight(h - 2)
 
 	rendered := outer.Render(combined)
 
