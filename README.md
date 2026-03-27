@@ -77,6 +77,10 @@ notebook config                        # Show current configuration
 notebook config set <key> <value>      # Set a config value
 ```
 
+## Community Styles
+
+The theme picker includes community-contributed Glamour styles for markdown rendering. See [styles/community/CONTRIBUTING.md](styles/community/CONTRIBUTING.md) to add your own.
+
 ## License
 
 MIT
