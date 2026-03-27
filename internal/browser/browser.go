@@ -40,8 +40,9 @@ type Model struct {
 	notes       []model.Note
 	currentBook string // selected notebook name
 	cursor      int    // current selection index
-	filter      string // fuzzy search filter text
-	filtering   bool   // whether filter mode is active
+	filter       string // fuzzy search filter text
+	filtering    bool   // whether filter mode is active
+	filterCursor int    // cursor position within filter
 	filtered    []int  // indices into notebooks/notes after filtering
 	width       int
 	height      int
@@ -367,6 +368,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == "/" {
 			m.filtering = true
 			m.filter = ""
+			m.filterCursor = 0
 			m.applyFilter()
 			return m, nil
 		}
@@ -399,6 +401,7 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.filtering = false
 		m.filter = ""
+		m.filterCursor = 0
 		m.resetFilter()
 		return m, nil
 
@@ -406,9 +409,22 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filtering = false
 		return m.handleEnter()
 
+	case tea.KeyLeft:
+		if m.filterCursor > 0 {
+			m.filterCursor--
+		}
+		return m, nil
+
+	case tea.KeyRight:
+		if m.filterCursor < len(m.filter) {
+			m.filterCursor++
+		}
+		return m, nil
+
 	case tea.KeyBackspace:
-		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
+		if m.filterCursor > 0 {
+			m.filter = m.filter[:m.filterCursor-1] + m.filter[m.filterCursor:]
+			m.filterCursor--
 			m.applyFilter()
 		}
 		return m, nil
@@ -429,8 +445,16 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeySpace:
+		m.filter = m.filter[:m.filterCursor] + " " + m.filter[m.filterCursor:]
+		m.filterCursor++
+		m.applyFilter()
+		return m, nil
+
 	case tea.KeyRunes:
-		m.filter += string(msg.Runes)
+		ch := string(msg.Runes)
+		m.filter = m.filter[:m.filterCursor] + ch + m.filter[m.filterCursor:]
+		m.filterCursor += len(ch)
 		m.applyFilter()
 		return m, nil
 	}
@@ -1397,7 +1421,15 @@ func (m Model) renderStatusBar() string {
 	}
 
 	if m.filtering {
-		return dim.Render(fmt.Sprintf("  Filter: %s_ \u00B7 Esc clear \u00B7 Enter select", m.filter))
+		before := m.filter[:m.filterCursor]
+		after := m.filter[m.filterCursor:]
+		cursor := lipgloss.NewStyle().Reverse(true)
+		cursorChar := " "
+		if m.filterCursor < len(m.filter) {
+			cursorChar = string(m.filter[m.filterCursor])
+			after = after[1:]
+		}
+		return dim.Render("  Filter: "+before) + cursor.Render(cursorChar) + dim.Render(after+" \u00B7 Esc clear \u00B7 Enter select")
 	}
 
 	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help")
