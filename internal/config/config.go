@@ -16,6 +16,7 @@ type Config struct {
 	Theme        string `toml:"theme"`         // "auto", "dark", "light"
 	DateFormat   string `toml:"date_format"`   // "relative" or Go time format
 	GlamourStyle string `toml:"glamour_style"` // "auto", "dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink", or JSON file path
+	UITheme      string `toml:"ui_theme"`      // "auto" or any theme preset name; overrides TUI palette independently from glamour_style
 }
 
 // DefaultConfig returns the default configuration.
@@ -26,6 +27,7 @@ func DefaultConfig() Config {
 		Theme:        "auto",
 		DateFormat:   "relative",
 		GlamourStyle: "auto",
+		UITheme:      "auto",
 	}
 }
 
@@ -36,6 +38,7 @@ var ValidKeys = map[string]bool{
 	"theme":         true,
 	"date_format":   true,
 	"glamour_style": true,
+	"ui_theme":      true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -114,6 +117,8 @@ func Set(cfg *Config, key, value string) error {
 		cfg.DateFormat = value
 	case "glamour_style":
 		cfg.GlamourStyle = value
+	case "ui_theme":
+		cfg.UITheme = value
 	default:
 		return fmt.Errorf("unknown config key: %q", key)
 	}
@@ -133,6 +138,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.DateFormat, nil
 	case "glamour_style":
 		return cfg.GlamourStyle, nil
+	case "ui_theme":
+		return cfg.UITheme, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}

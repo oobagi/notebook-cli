@@ -24,6 +24,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.GlamourStyle != "auto" {
 		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "auto")
 	}
+	if cfg.UITheme != "auto" {
+		t.Errorf("UITheme = %q, want %q", cfg.UITheme, "auto")
+	}
 }
 
 func TestLoadNoFile(t *testing.T) {
@@ -49,6 +52,7 @@ editor = "nano"
 theme = "dark"
 date_format = "2006-01-02"
 glamour_style = "dracula"
+ui_theme = "ocean"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write test config: %v", err)
@@ -74,6 +78,9 @@ glamour_style = "dracula"
 	if cfg.GlamourStyle != "dracula" {
 		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "dracula")
 	}
+	if cfg.UITheme != "ocean" {
+		t.Errorf("UITheme = %q, want %q", cfg.UITheme, "ocean")
+	}
 }
 
 func TestSaveAndLoad(t *testing.T) {
@@ -86,6 +93,7 @@ func TestSaveAndLoad(t *testing.T) {
 		Theme:        "light",
 		DateFormat:   "relative",
 		GlamourStyle: "tokyo-night",
+		UITheme:      "forest",
 	}
 
 	if err := SaveTo(cfg, path); err != nil {
@@ -126,6 +134,7 @@ func TestSetValidKeys(t *testing.T) {
 		{"theme", "dark", func() string { return cfg.Theme }},
 		{"date_format", "2006-01-02", func() string { return cfg.DateFormat }},
 		{"glamour_style", "dracula", func() string { return cfg.GlamourStyle }},
+		{"ui_theme", "ocean", func() string { return cfg.UITheme }},
 	}
 
 	for _, tt := range tests {
@@ -153,6 +162,7 @@ func TestGetValidKeys(t *testing.T) {
 		Theme:        "dark",
 		DateFormat:   "relative",
 		GlamourStyle: "dracula",
+		UITheme:      "sunset",
 	}
 
 	tests := []struct {
@@ -164,6 +174,7 @@ func TestGetValidKeys(t *testing.T) {
 		{"theme", "dark"},
 		{"date_format", "relative"},
 		{"glamour_style", "dracula"},
+		{"ui_theme", "sunset"},
 	}
 
 	for _, tt := range tests {
@@ -242,5 +253,38 @@ func TestLoadPartialConfig(t *testing.T) {
 	}
 	if cfg.GlamourStyle != "auto" {
 		t.Errorf("GlamourStyle = %q, want default %q", cfg.GlamourStyle, "auto")
+	}
+	if cfg.UITheme != "auto" {
+		t.Errorf("UITheme = %q, want default %q", cfg.UITheme, "auto")
+	}
+}
+
+func TestUIThemeSetGetRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := DefaultConfig()
+	if err := Set(&cfg, "ui_theme", "ocean"); err != nil {
+		t.Fatalf("Set ui_theme: %v", err)
+	}
+
+	got, err := Get(cfg, "ui_theme")
+	if err != nil {
+		t.Fatalf("Get ui_theme: %v", err)
+	}
+	if got != "ocean" {
+		t.Errorf("Get ui_theme = %q, want %q", got, "ocean")
+	}
+
+	if err := SaveTo(cfg, path); err != nil {
+		t.Fatalf("SaveTo: %v", err)
+	}
+
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if loaded.UITheme != "ocean" {
+		t.Errorf("after round-trip UITheme = %q, want %q", loaded.UITheme, "ocean")
 	}
 }
