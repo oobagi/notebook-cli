@@ -361,6 +361,78 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 }
 
 
+func TestBrowserHelpToggle(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Help should be hidden initially.
+	if m.showHelp {
+		t.Fatal("expected showHelp to be false initially")
+	}
+
+	// Press '?' to open help.
+	m = sendRune(t, m, '?')
+
+	if !m.showHelp {
+		t.Fatal("expected showHelp to be true after pressing '?'")
+	}
+
+	view := m.View()
+	if !containsStr(view, "Keybindings") {
+		t.Errorf("help overlay should contain 'Keybindings', got:\n%s", view)
+	}
+	if !containsStr(view, "Navigate") {
+		t.Errorf("help overlay should contain 'Navigate', got:\n%s", view)
+	}
+
+	// Press '?' again to dismiss.
+	m = sendRune(t, m, '?')
+
+	if m.showHelp {
+		t.Fatal("expected showHelp to be false after pressing '?' again")
+	}
+
+	view = m.View()
+	if containsStr(view, "Keybindings") {
+		t.Error("help overlay should not be visible after dismissing")
+	}
+}
+
+func TestBrowserHelpEscDismisses(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook so we're at level 1.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Open help.
+	m = sendRune(t, m, '?')
+	if !m.showHelp {
+		t.Fatal("expected showHelp to be true")
+	}
+
+	// Press Esc to dismiss help.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.showHelp {
+		t.Fatal("expected showHelp to be false after Esc")
+	}
+
+	// Esc should NOT navigate back -- still at level 1.
+	if m.level != 1 {
+		t.Errorf("expected level 1 after Esc dismisses help, got %d", m.level)
+	}
+}
+
 func containsStr(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && contains(s, substr)
 }
