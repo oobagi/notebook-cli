@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oobagi/notebook/internal/render"
+	"github.com/oobagi/notebook/internal/theme"
 )
 
 // Config holds the configuration for the editor.
@@ -425,7 +426,7 @@ func (m Model) renderHelpOverlay() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
 		Width(36).
 		Align(lipgloss.Left)
@@ -516,11 +517,11 @@ func (m Model) renderStatusBar() string {
 	style := lipgloss.NewStyle().Width(width)
 	switch m.statusStyle {
 	case statusSuccess:
-		style = style.Foreground(lipgloss.Color("2")) // green
+		style = style.Foreground(lipgloss.Color(theme.Current().Success))
 	case statusError:
-		style = style.Foreground(lipgloss.Color("1")) // red
+		style = style.Foreground(lipgloss.Color(theme.Current().Error))
 	case statusWarning:
-		style = style.Foreground(lipgloss.Color("3")) // yellow
+		style = style.Foreground(lipgloss.Color(theme.Current().Warning))
 	default:
 		style = style.Faint(true)
 	}
