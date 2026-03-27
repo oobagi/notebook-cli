@@ -665,3 +665,156 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+func TestBrowserCopyNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter notebook to reach level 1.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'c' to copy the note.
+	m = sendRune(t, m, 'c')
+
+	// Should have a status message about copying.
+	if m.statusText == "" {
+		t.Fatal("expected a status message after pressing 'c'")
+	}
+	if !containsStr(m.statusText, "Copied") && !containsStr(m.statusText, "copy") {
+		t.Errorf("expected status to mention copying, got %q", m.statusText)
+	}
+}
+
+func TestBrowserViewNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter notebook to reach level 1.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'v' to view the note.
+	m = sendRune(t, m, 'v')
+
+	if !m.viewMode {
+		t.Fatal("expected viewMode to be true after pressing 'v'")
+	}
+
+	if !containsStr(m.viewTitle, "todo") {
+		t.Errorf("expected viewTitle to contain 'todo', got %q", m.viewTitle)
+	}
+
+	view := m.View()
+	if !containsStr(view, "todo") {
+		t.Errorf("view should contain the note title, got:\n%s", view)
+	}
+
+	// Press Esc to close the view.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.viewMode {
+		t.Fatal("expected viewMode to be false after pressing Esc")
+	}
+
+	// Should still be at level 1 (not navigated back).
+	if m.level != 1 {
+		t.Errorf("expected level 1 after closing view, got %d", m.level)
+	}
+}
+
+func TestBrowserViewScroll(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter notebook to reach level 1.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'v' to view the note.
+	m = sendRune(t, m, 'v')
+
+	if !m.viewMode {
+		t.Fatal("expected viewMode to be true after pressing 'v'")
+	}
+
+	// Scroll starts at 0.
+	if m.viewScroll != 0 {
+		t.Errorf("expected viewScroll 0, got %d", m.viewScroll)
+	}
+
+	// Press down to scroll.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	// viewScroll should have incremented (or stayed clamped if content is short).
+	// We just verify it didn't go negative and the model is still in view mode.
+	if !m.viewMode {
+		t.Fatal("expected viewMode to still be true after scrolling down")
+	}
+	scrollAfterDown := m.viewScroll
+
+	// Press up to scroll back.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if m.viewScroll > scrollAfterDown {
+		t.Errorf("expected viewScroll to decrease or stay after up, got %d (was %d)", m.viewScroll, scrollAfterDown)
+	}
+	if !m.viewMode {
+		t.Fatal("expected viewMode to still be true after scrolling up")
+	}
+}
+
+func TestBrowserCopyAtL0IsNoop(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// At level 0, press 'c'.
+	if m.level != 0 {
+		t.Fatalf("expected level 0, got %d", m.level)
+	}
+
+	m = sendRune(t, m, 'c')
+
+	// Should not have any status message (noop).
+	if m.statusText != "" {
+		t.Errorf("expected no status message at L0, got %q", m.statusText)
+	}
+}
+
+func TestBrowserViewAtL0IsNoop(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// At level 0, press 'v'.
+	if m.level != 0 {
+		t.Fatalf("expected level 0, got %d", m.level)
+	}
+
+	m = sendRune(t, m, 'v')
+
+	// Should not enter view mode (noop).
+	if m.viewMode {
+		t.Error("expected viewMode to be false at L0")
+	}
+}

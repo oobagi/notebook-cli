@@ -8,7 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/model"
+	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 )
 
@@ -54,6 +56,12 @@ type Model struct {
 
 	// Temporary status message shown in the status bar.
 	statusText string
+
+	// View mode fields (rendered markdown overlay).
+	viewMode    bool   // viewing a note's rendered markdown
+	viewContent string // rendered markdown content
+	viewScroll  int    // scroll offset for the view
+	viewTitle   string // breadcrumb title for the view
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -144,6 +152,12 @@ type reloadMsg struct{}
 // statusMsg carries a temporary status message for the status bar.
 type statusMsg struct{ text string }
 
+// viewLoadedMsg carries the note content to display in the view overlay.
+type viewLoadedMsg struct {
+	title   string
+	content string
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -173,6 +187,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusText = msg.text
 		return m, nil
 
+	case viewLoadedMsg:
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		m.viewMode = true
+		m.viewTitle = msg.title
+		m.viewContent = render.RenderMarkdown(msg.content, w-4)
+		m.viewScroll = 0
+		return m, nil
+
 	case errMsg:
 		m.err = msg.err
 		return m, nil
@@ -193,6 +218,38 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	// When view overlay is showing, handle scroll/dismiss keys.
+	if m.viewMode {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.viewMode = false
+			return m, nil
+		case tea.KeyRunes:
+			if string(msg.Runes) == "q" {
+				m.viewMode = false
+				return m, nil
+			}
+		case tea.KeyUp:
+			if m.viewScroll > 0 {
+				m.viewScroll--
+			}
+			return m, nil
+		case tea.KeyDown:
+			m.viewScroll++
+			return m, nil
+		case tea.KeyPgUp:
+			m.viewScroll -= 10
+			if m.viewScroll < 0 {
+				m.viewScroll = 0
+			}
+			return m, nil
+		case tea.KeyPgDown:
+			m.viewScroll += 10
+			return m, nil
+		}
+		return m, nil
 	}
 
 	// When help overlay is showing, only ? and Esc dismiss it.
@@ -261,6 +318,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "d" {
 			return m.startDelete()
+		}
+		if s == "v" && m.level == 1 {
+			return m.startView()
+		}
+		if s == "c" && m.level == 1 {
+			return m.copyNote()
 		}
 		return m, nil
 	}
@@ -396,6 +459,42 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) startView() (tea.Model, tea.Cmd) {
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	idx := m.filtered[m.cursor]
+	note := m.notes[idx]
+	return m, func() tea.Msg {
+		n, err := m.store.GetNote(m.currentBook, note.Name)
+		if err != nil {
+			return errMsg{err}
+		}
+		return viewLoadedMsg{
+			title:   fmt.Sprintf("%s \u203A %s", m.currentBook, note.Name),
+			content: n.Content,
+		}
+	}
+}
+
+func (m Model) copyNote() (tea.Model, tea.Cmd) {
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	idx := m.filtered[m.cursor]
+	note := m.notes[idx]
+	return m, func() tea.Msg {
+		n, err := m.store.GetNote(m.currentBook, note.Name)
+		if err != nil {
+			return errMsg{err}
+		}
+		if err := clipboard.Copy(n.Content); err != nil {
+			return statusMsg{fmt.Sprintf("Could not copy: %s", err)}
+		}
+		return statusMsg{fmt.Sprintf("Copied %q to clipboard", note.Name)}
+	}
 }
 
 func (m *Model) applyFilter() {
@@ -551,6 +650,58 @@ func (m Model) renderHelpOverlay() string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
 }
 
+// renderViewOverlay builds the scrollable rendered markdown view.
+func (m Model) renderViewOverlay() string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+
+	// Split content into lines and apply scroll.
+	lines := strings.Split(m.viewContent, "\n")
+	viewHeight := h - 4 // space for title + status
+
+	// Clamp scroll.
+	maxScroll := len(lines) - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.viewScroll > maxScroll {
+		m.viewScroll = maxScroll
+	}
+
+	start := m.viewScroll
+	end := start + viewHeight
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	visible := strings.Join(lines[start:end], "\n")
+
+	var b strings.Builder
+	// Title bar.
+	bold := lipgloss.NewStyle().Bold(true)
+	b.WriteString("\n  ")
+	b.WriteString(bold.Render(m.viewTitle))
+	b.WriteString("\n\n")
+	b.WriteString(visible)
+	b.WriteString("\n\n")
+
+	// Status bar.
+	dim := lipgloss.NewStyle().Faint(true)
+	scrollInfo := ""
+	if len(lines) > viewHeight {
+		scrollInfo = fmt.Sprintf(" (%d/%d)", m.viewScroll+1, len(lines))
+	}
+	b.WriteString(dim.Render(fmt.Sprintf("  \u2191/\u2193 scroll \u00B7 Esc close%s", scrollInfo)))
+
+	return b.String()
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
@@ -559,6 +710,10 @@ func (m Model) View() string {
 
 	if m.showHelp {
 		return m.renderHelpOverlay()
+	}
+
+	if m.viewMode {
+		return m.renderViewOverlay()
 	}
 
 	if m.err != nil {
