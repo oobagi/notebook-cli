@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook/styles"
 )
 
 // setupTestStore creates a temp directory with optional notebooks and notes.
@@ -1428,7 +1429,16 @@ func TestBrowserThemePickerStyles(t *testing.T) {
 	m := initModel(t, s)
 	m = sendRune(t, m, 't')
 
-	expected := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
+	// Built-in styles come first, then "---" divider, then community styles.
+	builtin := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
+	community := styles.List()
+	expected := make([]string, 0, len(builtin)+1+len(community))
+	expected = append(expected, builtin...)
+	if len(community) > 0 {
+		expected = append(expected, "---")
+		expected = append(expected, community...)
+	}
+
 	if len(m.themeStyles) != len(expected) {
 		t.Fatalf("expected %d styles, got %d", len(expected), len(m.themeStyles))
 	}
@@ -1486,8 +1496,11 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 }
 
 func TestStyleHintsMap(t *testing.T) {
-	// Every entry in availableThemeStyles must have an entry in styleHints.
-	for _, s := range availableThemeStyles {
+	// Every entry in buildThemeStyles must have an entry in styleHints (except the divider).
+	for _, s := range buildThemeStyles() {
+		if s == "---" {
+			continue
+		}
 		if _, ok := styleHints[s]; !ok {
 			t.Errorf("styleHints missing entry for %q", s)
 		}
@@ -1502,6 +1515,13 @@ func TestStyleHintsMap(t *testing.T) {
 	for _, s := range []string{"dark", "dracula", "tokyo-night", "pink"} {
 		if styleHints[s] != "(dark bg)" {
 			t.Errorf("expected %q hint to be \"(dark bg)\", got %q", s, styleHints[s])
+		}
+	}
+
+	// Community styles should also have "(dark bg)" hint.
+	for _, s := range styles.List() {
+		if styleHints[s] != "(dark bg)" {
+			t.Errorf("expected community style %q hint to be \"(dark bg)\", got %q", s, styleHints[s])
 		}
 	}
 

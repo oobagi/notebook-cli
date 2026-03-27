@@ -14,6 +14,7 @@ import (
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook/styles"
 )
 
 // EditFunc is called when the user selects a note to edit.
@@ -733,35 +734,53 @@ fmt.Println("hello world")
 > This is an admonition note.
 `
 
-// availableThemeStyles lists the glamour style names shown in the picker.
-var availableThemeStyles = []string{
-	"auto",
-	"dark",
-	"light",
-	"dracula",
-	"tokyo-night",
-	"pink",
+// buildThemeStyles returns the glamour style names shown in the picker,
+// combining built-in styles with community styles separated by a divider.
+func buildThemeStyles() []string {
+	builtin := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
+	community := styles.List() // returns sorted community names
+
+	result := make([]string, 0, len(builtin)+1+len(community))
+	result = append(result, builtin...)
+	if len(community) > 0 {
+		result = append(result, "---") // divider marker
+		result = append(result, community...)
+	}
+	return result
+}
+
+// buildStyleHints returns background compatibility hints for all styles.
+func buildStyleHints() map[string]string {
+	hints := map[string]string{
+		"auto":        "",
+		"dark":        "(dark bg)",
+		"light":       "(light bg)",
+		"dracula":     "(dark bg)",
+		"tokyo-night": "(dark bg)",
+		"pink":        "(dark bg)",
+	}
+	// All community styles are designed for dark backgrounds.
+	for _, name := range styles.List() {
+		hints[name] = "(dark bg)"
+	}
+	return hints
 }
 
 // styleHints maps each style name to its intended background compatibility.
-var styleHints = map[string]string{
-	"auto":        "",
-	"dark":        "(dark bg)",
-	"light":       "(light bg)",
-	"dracula":     "(dark bg)",
-	"tokyo-night": "(dark bg)",
-	"pink":        "(dark bg)",
-}
+var styleHints = buildStyleHints()
 
 func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	m.themeMode = true
 	m.themeTab = 0
-	m.themeStyles = availableThemeStyles
+	m.themeStyles = buildThemeStyles()
 	m.themeCursor = 0
 	m.darkTerminal = lipgloss.HasDarkBackground()
 	// Pre-select the currently active glamour style if set.
 	if cfg, err := config.Load(); err == nil && cfg.GlamourStyle != "" {
-		for i, s := range availableThemeStyles {
+		for i, s := range m.themeStyles {
+			if s == "---" {
+				continue
+			}
 			if s == cfg.GlamourStyle {
 				m.themeCursor = i
 				break
@@ -806,6 +825,10 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.themeTab == 0 {
 			if m.themeCursor > 0 {
 				m.themeCursor--
+				// Skip the divider.
+				if m.themeStyles[m.themeCursor] == "---" && m.themeCursor > 0 {
+					m.themeCursor--
+				}
 				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
 			}
 		} else {
@@ -823,6 +846,10 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.themeTab == 0 {
 			if m.themeCursor < len(m.themeStyles)-1 {
 				m.themeCursor++
+				// Skip the divider.
+				if m.themeStyles[m.themeCursor] == "---" && m.themeCursor < len(m.themeStyles)-1 {
+					m.themeCursor++
+				}
 				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
 			}
 		} else {
@@ -970,6 +997,10 @@ func (m Model) renderThemeOverlay() string {
 	if m.themeTab == 0 {
 		// Glamour style list.
 		for i, s := range m.themeStyles {
+			if s == "---" {
+				left.WriteString(dim.Render("  ── community ──") + "\n")
+				continue
+			}
 			hint := styleHints[s]
 			hintStr := ""
 			if hint != "" {
