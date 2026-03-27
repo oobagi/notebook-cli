@@ -1588,3 +1588,202 @@ func TestThemePickerConflictWarning(t *testing.T) {
 		t.Errorf("auto style should never show conflict warning, got:\n%s", view)
 	}
 }
+
+func TestThemeTabSwitching(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
+	}
+
+	// Should start on tab 0 (glamour).
+	if m.themeTab != 0 {
+		t.Errorf("expected themeTab 0, got %d", m.themeTab)
+	}
+
+	// Press Tab to switch to UI theme tab.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	if m.themeTab != 1 {
+		t.Errorf("expected themeTab 1 after Tab, got %d", m.themeTab)
+	}
+
+	// Press Tab again to switch back.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	if m.themeTab != 0 {
+		t.Errorf("expected themeTab 0 after second Tab, got %d", m.themeTab)
+	}
+}
+
+func TestUIThemeCursorNavigation(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker and switch to UI theme tab.
+	m = sendRune(t, m, 't')
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	if m.themeTab != 1 {
+		t.Fatalf("expected themeTab 1, got %d", m.themeTab)
+	}
+
+	// Initial cursor should be at 0.
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor 0, got %d", m.uiThemeCursor)
+	}
+
+	// Move down.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+
+	if m.uiThemeCursor != 1 {
+		t.Errorf("expected uiThemeCursor 1 after down, got %d", m.uiThemeCursor)
+	}
+
+	// Move up back to 0.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor 0 after up, got %d", m.uiThemeCursor)
+	}
+
+	// Move up at top should clamp.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor to stay at 0, got %d", m.uiThemeCursor)
+	}
+}
+
+func TestUIThemeSelectDoesNotPanic(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker, switch to UI theme tab, press Enter.
+	m = sendRune(t, m, 't')
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	// Press Enter to select UI theme — should not panic.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.themeMode {
+		t.Error("expected themeMode to be false after Enter")
+	}
+
+	if !containsStr(m.statusText, "UI theme set to") {
+		t.Errorf("expected status to contain 'UI theme set to', got %q", m.statusText)
+	}
+}
+
+func TestThemePickerTabBarInView(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	view := m.View()
+	if !containsStr(view, "Glamour Style") {
+		t.Errorf("view should contain 'Glamour Style' tab, got:\n%s", view)
+	}
+	if !containsStr(view, "UI Theme") {
+		t.Errorf("view should contain 'UI Theme' tab, got:\n%s", view)
+	}
+	if !containsStr(view, "Tab switch") {
+		t.Errorf("view should contain 'Tab switch' hint, got:\n%s", view)
+	}
+}
+
+func TestThemePickerUIThemeTabView(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	// Switch to UI theme tab.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	view := m.View()
+	// Should show preset names (dark, light, ocean, etc.).
+	if !containsStr(view, "dark") {
+		t.Errorf("UI theme tab should show 'dark' preset, got:\n%s", view)
+	}
+	if !containsStr(view, "ocean") {
+		t.Errorf("UI theme tab should show 'ocean' preset, got:\n%s", view)
+	}
+}
+
+func TestThemePickerUIThemePreviewContent(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	// Switch to UI theme tab.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	view := m.View()
+	// The mock TUI preview should contain these elements.
+	if !containsStr(view, "My notebook") {
+		t.Errorf("UI theme preview should contain 'My notebook', got:\n%s", view)
+	}
+	if !containsStr(view, "Status: saved") {
+		t.Errorf("UI theme preview should contain 'Status: saved', got:\n%s", view)
+	}
+}
+
+func TestGlamourTabNavigationUnaffectedByUIThemeCursor(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	// Move glamour cursor down.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	glamourPos := m.themeCursor
+
+	// Switch to UI theme tab and move.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+
+	// Switch back to glamour tab.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+
+	// Glamour cursor should be preserved.
+	if m.themeCursor != glamourPos {
+		t.Errorf("expected glamour themeCursor to be %d, got %d", glamourPos, m.themeCursor)
+	}
+}
