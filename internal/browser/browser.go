@@ -1119,7 +1119,13 @@ func (m Model) renderStatusBar() string {
 	if m.inputMode {
 		before := m.inputValue[:m.inputCursor]
 		after := m.inputValue[m.inputCursor:]
-		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + "█" + dim.Render(after)
+		underline := lipgloss.NewStyle().Underline(true)
+		cursorChar := " "
+		if m.inputCursor < len(m.inputValue) {
+			cursorChar = string(m.inputValue[m.inputCursor])
+			after = after[1:]
+		}
+		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + underline.Render(cursorChar) + dim.Render(after)
 	}
 
 	if m.statusText != "" {
