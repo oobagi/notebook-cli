@@ -131,8 +131,8 @@ func TestBrowserEnterOpensNotebook(t *testing.T) {
 	}
 
 	view := m.View()
-	if !containsStr(view, "meeting-notes") {
-		t.Errorf("view should contain 'meeting-notes', got:\n%s", view)
+	if !containsStr(view, "meeting notes") {
+		t.Errorf("view should contain 'meeting notes', got:\n%s", view)
 	}
 	if !containsStr(view, "todo") {
 		t.Errorf("view should contain 'todo', got:\n%s", view)
@@ -440,7 +440,11 @@ func TestBrowserHelpEscDismisses(t *testing.T) {
 func sendString(t *testing.T, m Model, s string) Model {
 	t.Helper()
 	for _, r := range s {
-		m = sendRune(t, m, r)
+		if r == ' ' {
+			m = sendKey(t, m, tea.KeySpace)
+		} else {
+			m = sendRune(t, m, r)
+		}
 	}
 	return m
 }
@@ -517,8 +521,8 @@ func TestBrowserDeleteNote(t *testing.T) {
 		t.Fatal("expected inputMode to be true after pressing 'd'")
 	}
 
-	// Type the correct note name.
-	m = sendString(t, m, name)
+	// Type the correct note name (display name with spaces).
+	m = sendString(t, m, storage.DisplayName(name))
 
 	// Press Enter to confirm.
 	m = sendKey(t, m, tea.KeyEnter)
@@ -830,8 +834,8 @@ func TestBrowserRenameNotebook(t *testing.T) {
 	if !m.inputMode {
 		t.Fatal("expected inputMode to be true after pressing 'r'")
 	}
-	if m.inputValue != "old-name" {
-		t.Errorf("expected inputValue pre-populated with 'old-name', got %q", m.inputValue)
+	if m.inputValue != "old name" {
+		t.Errorf("expected inputValue pre-populated with 'old name', got %q", m.inputValue)
 	}
 
 	// Clear the pre-populated value and type a new name.
@@ -897,8 +901,8 @@ func TestBrowserRenameNote(t *testing.T) {
 	if !m.inputMode {
 		t.Fatal("expected inputMode to be true after pressing 'r'")
 	}
-	if m.inputValue != "old-note" {
-		t.Errorf("expected inputValue pre-populated with 'old-note', got %q", m.inputValue)
+	if m.inputValue != "old note" {
+		t.Errorf("expected inputValue pre-populated with 'old note', got %q", m.inputValue)
 	}
 
 	// Clear and type new name.

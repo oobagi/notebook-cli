@@ -25,6 +25,12 @@ type SearchResult struct {
 // path-traversal sequences or is otherwise unsafe for use as a filename.
 var ErrInvalidName = errors.New("invalid name")
 
+// DisplayName converts a slug back to a human-readable name for UI display.
+// "meeting-notes" → "meeting notes".
+func DisplayName(slug string) string {
+	return strings.ReplaceAll(slug, "-", " ")
+}
+
 // Slugify converts a user-provided name into a clean filesystem-safe slug.
 // "Meeting Notes" → "meeting-notes", "  My Book  " → "my-book".
 func Slugify(name string) string {
