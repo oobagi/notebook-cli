@@ -27,7 +27,6 @@ internal/
   config/      TOML configuration file (~/.config/notebook/config.toml)
   editor/      Terminal editor with live markdown preview (Bubble Tea)
   model/       Core types: Notebook, Note
-  picker/      TUI selection prompt for choosing from a list (Bubble Tea)
   render/      Markdown rendering, OSC 8 links, admonition blocks (Glamour)
   storage/     Filesystem-based notebook/note CRUD operations
   theme/       Auto light/dark theme detection

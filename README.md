@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/notebook-icon.png" width="128" height="128" alt="notebook icon">
+</p>
+
 <h1 align="center">Notebook</h1>
 
 <p align="center">
