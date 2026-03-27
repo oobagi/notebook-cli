@@ -44,5 +44,14 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 - [x] [#50 TUI help overlay](https://github.com/oobagi/notebook/issues/50)
 - [x] [#51 TUI inline text input and create operation](https://github.com/oobagi/notebook/issues/51)
 - [x] [#52 TUI delete with type-to-confirm](https://github.com/oobagi/notebook/issues/52)
-- [ ] [#53 TUI rename notebooks and notes](https://github.com/oobagi/notebook/issues/53)
+- [x] [#53 TUI rename notebooks and notes](https://github.com/oobagi/notebook/issues/53)
 - [x] [#54 TUI view rendered markdown and copy to clipboard](https://github.com/oobagi/notebook/issues/54)
+
+## Phase 7: Editor Polish
+
+- [ ] [#78 Fix editor cursor viewport + Ctrl+E preview mode](https://github.com/oobagi/notebook/issues/78)
+
+## Phase 8: Theming
+
+- [ ] [#79 Add glamour markdown styles to theme system](https://github.com/oobagi/notebook/issues/79)
+- [ ] [#80 TUI theme picker with live markdown preview](https://github.com/oobagi/notebook/issues/80)
