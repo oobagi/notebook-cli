@@ -53,5 +53,5 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 8: Theming
 
-- [ ] [#79 Add glamour markdown styles to theme system](https://github.com/oobagi/notebook/issues/79)
-- [ ] [#80 TUI theme picker with live markdown preview](https://github.com/oobagi/notebook/issues/80)
+- [x] [#79 Add glamour markdown styles to theme system](https://github.com/oobagi/notebook/issues/79)
+- [x] [#80 TUI theme picker with live markdown preview](https://github.com/oobagi/notebook/issues/80)

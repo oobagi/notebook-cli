@@ -40,7 +40,7 @@ Notebook is a terminal-native note editor that renders markdown as you type — 
 - **[Full-text search](#usage)** — `notebook search "query"` across every note, with highlighted matches and context.
 - **[TUI browser](#usage)** — Fuzzy-searchable notebook/note browser. Arrow keys + Enter. No commands to memorize.
 - **[GitHub admonitions](#usage)** — `[!NOTE]`, `[!WARNING]`, and friends render with colored borders and icons.
-- **[Auto theming](#usage)** — Detects your terminal's light/dark background. No config needed.
+- **[Theme picker](#usage)** — Press `t` in the TUI to browse glamour styles with a live preview. Auto-detects light/dark by default.
 
 ## Quickstart
 
