@@ -29,14 +29,14 @@
 Notebook is a terminal-native note editor that renders markdown as you type — split-pane, real-time, no browser needed. Think Google Docs meets your terminal.
 
 - **Live split-pane editor** — write markdown on the left, see it rendered on the right, updated as you type
-- **Interactive preview** — toggle checkboxes, open links, and navigate elements right in the rendered view
+- **Live preview** — see your markdown rendered in real-time with a split-pane view as you type
 - **TUI browser** — launch `notebook` and browse everything with arrow keys and fuzzy search, like a GUI
 - **Clickable links** — URLs in your notes are actually clickable in supported terminals (OSC 8)
 
 ## Features
 
 - **[Split-pane editor](#usage)** — Real-time markdown rendering side-by-side with your text. Ctrl+P to toggle.
-- **[Interactive markdown](#usage)** — Toggle checkboxes, follow links, and navigate elements without leaving the editor.
+- **[Clipboard copy](#usage)** — `notebook <book> <note> copy` to copy note content to your clipboard.
 - **[Full-text search](#usage)** — `notebook search "query"` across every note, with highlighted matches and context.
 - **[TUI browser](#usage)** — Fuzzy-searchable notebook/note browser. Arrow keys + Enter. No commands to memorize.
 - **[GitHub admonitions](#usage)** — `[!NOTE]`, `[!WARNING]`, and friends render with colored borders and icons.

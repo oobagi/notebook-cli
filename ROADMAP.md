@@ -49,7 +49,7 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 7: Editor Polish
 
-- [ ] [#78 Fix editor cursor viewport + Ctrl+E preview mode](https://github.com/oobagi/notebook/issues/78)
+- [x] [#78 Fix editor cursor viewport + Ctrl+E preview mode](https://github.com/oobagi/notebook/issues/78)
 
 ## Phase 8: Theming
 
