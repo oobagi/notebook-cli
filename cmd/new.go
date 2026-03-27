@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
+	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ var newCmd = &cobra.Command{
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		w := cmd.OutOrStdout()
-		name := strings.TrimSpace(args[0])
+		name := storage.Slugify(args[0])
 		if name == "" {
 			printError(w, "Notebook name can't be empty.")
 			return nil

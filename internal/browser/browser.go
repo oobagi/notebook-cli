@@ -518,19 +518,20 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		m.inputPrompt = "Rename notebook:"
 		m.inputValue = name
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed == "" {
+			slug := storage.Slugify(typed)
+			if slug == "" {
 				return func() tea.Msg {
 					return statusMsg{"Name must not be empty"}
 				}
 			}
-			if typed == name {
+			if slug == name {
 				return func() tea.Msg { return statusMsg{"No change"} }
 			}
 			return func() tea.Msg {
-				if err := m.store.RenameNotebook(name, typed); err != nil {
+				if err := m.store.RenameNotebook(name, slug); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadAndSelectMsg{typed}
+				return reloadAndSelectMsg{slug}
 			}
 		}
 	} else {
@@ -543,19 +544,20 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		m.inputPrompt = "Rename note:"
 		m.inputValue = name
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed == "" {
+			slug := storage.Slugify(typed)
+			if slug == "" {
 				return func() tea.Msg {
 					return statusMsg{"Name must not be empty"}
 				}
 			}
-			if typed == name {
+			if slug == name {
 				return func() tea.Msg { return statusMsg{"No change"} }
 			}
 			return func() tea.Msg {
-				if err := m.store.RenameNote(m.currentBook, name, typed); err != nil {
+				if err := m.store.RenameNote(m.currentBook, name, slug); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadAndSelectMsg{typed}
+				return reloadAndSelectMsg{slug}
 			}
 		}
 	}
@@ -568,16 +570,17 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 		m.inputPrompt = "New notebook:"
 		m.inputValue = ""
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed == "" {
+			slug := storage.Slugify(typed)
+			if slug == "" {
 				return func() tea.Msg {
 					return statusMsg{"Name must not be empty"}
 				}
 			}
 			return func() tea.Msg {
-				if err := m.store.CreateNotebook(typed); err != nil {
+				if err := m.store.CreateNotebook(slug); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadAndSelectMsg{typed}
+				return reloadAndSelectMsg{slug}
 			}
 		}
 	} else {
@@ -585,16 +588,17 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 		m.inputPrompt = fmt.Sprintf("New note in %s:", m.currentBook)
 		m.inputValue = ""
 		m.inputAction = func(typed string) tea.Cmd {
-			if typed == "" {
+			slug := storage.Slugify(typed)
+			if slug == "" {
 				return func() tea.Msg {
 					return statusMsg{"Name must not be empty"}
 				}
 			}
 			return func() tea.Msg {
-				if err := m.store.CreateNote(m.currentBook, typed, ""); err != nil {
+				if err := m.store.CreateNote(m.currentBook, slug, ""); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadAndSelectMsg{typed}
+				return reloadAndSelectMsg{slug}
 			}
 		}
 	}

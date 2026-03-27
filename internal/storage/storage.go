@@ -25,6 +25,28 @@ type SearchResult struct {
 // path-traversal sequences or is otherwise unsafe for use as a filename.
 var ErrInvalidName = errors.New("invalid name")
 
+// Slugify converts a user-provided name into a clean filesystem-safe slug.
+// "Meeting Notes" → "meeting-notes", "  My Book  " → "my-book".
+func Slugify(name string) string {
+	s := strings.TrimSpace(name)
+	s = strings.ToLower(s)
+	// Replace runs of whitespace/underscores with a single hyphen.
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		if r == ' ' || r == '_' || r == '\t' {
+			if !prev && b.Len() > 0 {
+				b.WriteRune('-')
+			}
+			prev = true
+			continue
+		}
+		prev = false
+		b.WriteRune(r)
+	}
+	return strings.TrimRight(b.String(), "-")
+}
+
 // validName rejects names that could escape the storage root via path
 // traversal or that are degenerate filesystem entries.
 func validName(name string) error {

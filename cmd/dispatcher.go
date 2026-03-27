@@ -11,6 +11,7 @@ import (
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
 	"github.com/oobagi/notebook/internal/render"
+	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -136,7 +137,7 @@ func listNotesInBook(w io.Writer, book string) error {
 }
 
 func createNoteInBook(w io.Writer, book, title string) error {
-	title = strings.TrimSpace(title)
+	title = storage.Slugify(title)
 	if title == "" {
 		printError(w, "Note title can't be empty.")
 		return nil

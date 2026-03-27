@@ -394,7 +394,7 @@ func TestTopLevelNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "  \u2713 Created \"Projects\"\n"
+	want := "  \u2713 Created \"projects\"\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}
@@ -403,12 +403,12 @@ func TestTopLevelNew(t *testing.T) {
 	nbs, _ := st.ListNotebooks()
 	found := false
 	for _, n := range nbs {
-		if n == "Projects" {
+		if n == "projects" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("notebook 'Projects' should exist after creation")
+		t.Error("notebook 'projects' should exist after creation (slugified)")
 	}
 }
 
