@@ -1223,3 +1223,263 @@ func TestBrowserViewAtL0IsNoop(t *testing.T) {
 		t.Error("expected viewMode to be false at L0")
 	}
 }
+
+func TestBrowserThemePickerOpen(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 't' to open theme picker at L0.
+	m = sendRune(t, m, 't')
+
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true after pressing 't'")
+	}
+	if len(m.themeStyles) == 0 {
+		t.Fatal("expected themeStyles to be populated")
+	}
+	if m.themeCursor != 0 {
+		t.Errorf("expected themeCursor at 0, got %d", m.themeCursor)
+	}
+	if m.themePreview == "" {
+		t.Error("expected themePreview to be non-empty")
+	}
+
+	view := m.View()
+	if !containsStr(view, "Glamour Style") {
+		t.Errorf("view should contain 'Glamour Style', got:\n%s", view)
+	}
+}
+
+func TestBrowserThemePickerOpenAtL1(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter notebook to reach L1.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 't' to open theme picker at L1.
+	m = sendRune(t, m, 't')
+
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true after pressing 't' at L1")
+	}
+}
+
+func TestBrowserThemePickerNavigate(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
+	}
+
+	initialPreview := m.themePreview
+
+	// Move down.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+
+	if m.themeCursor != 1 {
+		t.Errorf("expected themeCursor at 1, got %d", m.themeCursor)
+	}
+
+	// Preview should update when cursor moves.
+	if m.themePreview == "" {
+		t.Error("expected themePreview to be non-empty after moving down")
+	}
+	// The preview for a different style may differ from the initial one.
+	_ = initialPreview // used to verify preview exists
+
+	// Move up back to first.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	if m.themeCursor != 0 {
+		t.Errorf("expected themeCursor at 0, got %d", m.themeCursor)
+	}
+
+	// Move up at top should not go negative.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	if m.themeCursor != 0 {
+		t.Errorf("expected themeCursor to stay at 0, got %d", m.themeCursor)
+	}
+}
+
+func TestBrowserThemePickerEscCancels(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
+	}
+
+	// Press Esc to cancel.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.themeMode {
+		t.Fatal("expected themeMode to be false after Esc")
+	}
+
+	// Should still be at same level (no navigation).
+	if m.level != 0 {
+		t.Errorf("expected level 0 after Esc, got %d", m.level)
+	}
+}
+
+func TestBrowserThemePickerQDismisses(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
+	}
+
+	// Press 'q' to dismiss (should not quit the app).
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = updated.(Model)
+
+	if m.themeMode {
+		t.Fatal("expected themeMode to be false after 'q'")
+	}
+	if m.quitting {
+		t.Error("'q' in theme picker should not quit the app")
+	}
+	if cmd != nil {
+		t.Error("expected no command from 'q' in theme picker")
+	}
+}
+
+func TestBrowserThemePickerTDismisses(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
+	}
+
+	// Press 't' again to dismiss (toggle).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(Model)
+
+	if m.themeMode {
+		t.Fatal("expected themeMode to be false after 't' toggle")
+	}
+}
+
+func TestBrowserThemePickerDownClamps(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open theme picker.
+	m = sendRune(t, m, 't')
+
+	// Move to last item.
+	for i := 0; i < len(m.themeStyles)+5; i++ {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(Model)
+	}
+
+	if m.themeCursor != len(m.themeStyles)-1 {
+		t.Errorf("expected themeCursor at %d, got %d", len(m.themeStyles)-1, m.themeCursor)
+	}
+}
+
+func TestBrowserThemePickerStyles(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	expected := []string{"auto", "dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink"}
+	if len(m.themeStyles) != len(expected) {
+		t.Fatalf("expected %d styles, got %d", len(expected), len(m.themeStyles))
+	}
+	for i, s := range expected {
+		if m.themeStyles[i] != s {
+			t.Errorf("expected style[%d] = %q, got %q", i, s, m.themeStyles[i])
+		}
+	}
+}
+
+func TestBrowserThemePickerViewContent(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, 't')
+
+	view := m.View()
+	// Should contain the overlay with style names.
+	if !containsStr(view, "dark") {
+		t.Errorf("view should list 'dark' style, got:\n%s", view)
+	}
+	if !containsStr(view, "dracula") {
+		t.Errorf("view should list 'dracula' style, got:\n%s", view)
+	}
+	// Should contain navigation hint.
+	if !containsStr(view, "navigate") {
+		t.Errorf("view should contain navigation hint, got:\n%s", view)
+	}
+}
+
+func TestBrowserHelpShowsThemeKey(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Open help at L0.
+	m = sendRune(t, m, '?')
+	view := m.View()
+	if !containsStr(view, "Theme picker") {
+		t.Errorf("L0 help should mention 'Theme picker', got:\n%s", view)
+	}
+
+	// Close help, enter notebook, open help at L1.
+	m = sendRune(t, m, '?')
+	m = sendKey(t, m, tea.KeyEnter)
+	m = sendRune(t, m, '?')
+	view = m.View()
+	if !containsStr(view, "Theme picker") {
+		t.Errorf("L1 help should mention 'Theme picker', got:\n%s", view)
+	}
+}

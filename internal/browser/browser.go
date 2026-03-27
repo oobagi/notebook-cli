@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oobagi/notebook/internal/clipboard"
+	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/model"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
@@ -67,6 +68,12 @@ type Model struct {
 	viewContent string // rendered markdown content
 	viewScroll  int    // scroll offset for the view
 	viewTitle   string // breadcrumb title for the view
+
+	// Theme picker fields.
+	themeMode    bool     // theme picker overlay visible
+	themeStyles  []string // available glamour style names
+	themeCursor  int      // current selection in theme list
+	themePreview string   // rendered preview for currently highlighted style
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -308,6 +315,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// When theme picker is showing, handle navigation/selection.
+	if m.themeMode {
+		return m.handleThemeKey(msg)
+	}
+
 	// When in input mode, delegate to input handler.
 	if m.inputMode {
 		return m.handleInputKey(msg)
@@ -371,6 +383,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "c" && m.level == 1 {
 			return m.copyNote()
+		}
+		if s == "t" {
+			return m.startThemePicker()
 		}
 		return m, nil
 	}
@@ -666,6 +681,200 @@ func (m Model) copyNote() (tea.Model, tea.Cmd) {
 	}
 }
 
+// themePreviewSample is the hardcoded markdown snippet used to preview glamour styles.
+const themePreviewSample = `# Heading
+
+**Bold text** and regular text.
+
+` + "```go" + `
+fmt.Println("hello world")
+` + "```" + `
+
+- Item one
+- Item two
+
+- [x] Completed task
+- [ ] Pending task
+
+> A blockquote for emphasis.
+
+> [!NOTE]
+> This is an admonition note.
+`
+
+// availableThemeStyles lists the glamour style names shown in the picker.
+var availableThemeStyles = []string{
+	"auto",
+	"dark",
+	"light",
+	"dracula",
+	"tokyo-night",
+	"notty",
+	"ascii",
+	"pink",
+}
+
+func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
+	m.themeMode = true
+	m.themeStyles = availableThemeStyles
+	m.themeCursor = 0
+	// Pre-select the currently active style if set.
+	if cfg, err := config.Load(); err == nil && cfg.GlamourStyle != "" {
+		for i, s := range availableThemeStyles {
+			if s == cfg.GlamourStyle {
+				m.themeCursor = i
+				break
+			}
+		}
+	}
+	m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+	return m, nil
+}
+
+func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.themeMode = false
+		return m, nil
+
+	case tea.KeyUp:
+		if m.themeCursor > 0 {
+			m.themeCursor--
+			m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		if m.themeCursor < len(m.themeStyles)-1 {
+			m.themeCursor++
+			m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		selected := m.themeStyles[m.themeCursor]
+		m.themeMode = false
+
+		// Persist to config and apply.
+		cfg, err := config.Load()
+		if err != nil {
+			m.statusText = fmt.Sprintf("Config load error: %s", err)
+			return m, nil
+		}
+		if err := config.Set(&cfg, "glamour_style", selected); err != nil {
+			m.statusText = fmt.Sprintf("Config error: %s", err)
+			return m, nil
+		}
+		if err := config.Save(cfg); err != nil {
+			m.statusText = fmt.Sprintf("Config save error: %s", err)
+			return m, nil
+		}
+		render.SetGlamourStyle(selected)
+		m.statusText = fmt.Sprintf("Theme set to %q", selected)
+		return m, nil
+
+	case tea.KeyRunes:
+		if string(msg.Runes) == "q" || string(msg.Runes) == "t" {
+			m.themeMode = false
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) renderThemePreview(styleName string) string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	// Use roughly half the width for the preview pane.
+	previewWidth := w/2 - 6
+	if previewWidth < 20 {
+		previewWidth = 20
+	}
+	return render.RenderMarkdownWithStyle(themePreviewSample, previewWidth, styleName)
+}
+
+// renderThemeOverlay builds the theme picker overlay with style list and preview.
+func (m Model) renderThemeOverlay() string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+
+	// Left pane: style list.
+	listWidth := 22
+	var left strings.Builder
+	bold := lipgloss.NewStyle().Bold(true)
+	left.WriteString(bold.Render("  Glamour Style"))
+	left.WriteString("\n")
+	left.WriteString("  ─────────────────\n")
+
+	for i, s := range m.themeStyles {
+		if i == m.themeCursor {
+			sel := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+			left.WriteString(fmt.Sprintf("  %s %s\n", sel.Render("●"), sel.Render(s)))
+		} else {
+			left.WriteString(fmt.Sprintf("    %s\n", s))
+		}
+	}
+
+	// Right pane: markdown preview.
+	previewWidth := w - listWidth - 10
+	if previewWidth < 20 {
+		previewWidth = 20
+	}
+
+	// Clamp preview lines to fit the overlay height.
+	previewLines := strings.Split(m.themePreview, "\n")
+	maxPreview := h - 6
+	if maxPreview < 1 {
+		maxPreview = 1
+	}
+	if len(previewLines) > maxPreview {
+		previewLines = previewLines[:maxPreview]
+	}
+
+	previewBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(0, 1).
+		Width(previewWidth)
+
+	preview := previewBox.Render(strings.Join(previewLines, "\n"))
+
+	// Combine left + right.
+	leftBox := lipgloss.NewStyle().
+		Width(listWidth).
+		Padding(1, 0)
+
+	rightBox := lipgloss.NewStyle().
+		Padding(1, 0)
+
+	combined := lipgloss.JoinHorizontal(lipgloss.Top, leftBox.Render(left.String()), rightBox.Render(preview))
+
+	// Outer container.
+	outer := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(0, 1)
+
+	rendered := outer.Render(combined)
+
+	// Status hint.
+	dim := lipgloss.NewStyle().Faint(true)
+	hint := dim.Render("  ↑/↓ navigate · Enter apply · Esc cancel")
+
+	full := rendered + "\n" + hint
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
+}
+
 func (m *Model) applyFilter() {
 	query := strings.ToLower(m.filter)
 	m.filtered = nil
@@ -774,6 +983,7 @@ func (m Model) renderHelpOverlay() string {
   n          New notebook
   d          Delete notebook
   r          Rename notebook
+  t          Theme picker
   /          Search
   q          Quit
   ?          Toggle help
@@ -790,6 +1000,7 @@ func (m Model) renderHelpOverlay() string {
   d          Delete note
   r          Rename note
   c          Copy to clipboard
+  t          Theme picker
   /          Search
   Esc        Back to notebooks
   q          Quit
@@ -883,6 +1094,10 @@ func (m Model) View() string {
 
 	if m.viewMode {
 		return m.renderViewOverlay()
+	}
+
+	if m.themeMode {
+		return m.renderThemeOverlay()
 	}
 
 	if m.err != nil {

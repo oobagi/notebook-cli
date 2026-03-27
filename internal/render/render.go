@@ -62,6 +62,37 @@ func SetGlamourStyle(style string) {
 	glamourStyleOverride = style
 }
 
+// RenderMarkdownWithStyle renders markdown using a specific named glamour style.
+// This is used by the theme picker to preview different styles without
+// changing the global glamour_style setting.
+func RenderMarkdownWithStyle(content string, width int, styleName string) string {
+	style, isFile := theme.ResolveGlamourStyle(styleName)
+	var styleOpt glamour.TermRendererOption
+	if isFile {
+		styleOpt = glamour.WithStylesFromJSONFile(style)
+	} else {
+		styleOpt = glamour.WithStandardStyle(style)
+	}
+
+	opts := []glamour.TermRendererOption{styleOpt}
+	if width > 0 {
+		opts = append(opts, glamour.WithWordWrap(width))
+	}
+
+	renderer, err := glamour.NewTermRenderer(opts...)
+	if err != nil {
+		return content
+	}
+
+	out, err := renderer.Render(content)
+	if err != nil {
+		return content
+	}
+
+	out = RenderAdmonitions(out)
+	return out
+}
+
 // resolveStyleOption returns the appropriate glamour TermRendererOption
 // based on the user's glamour_style config. It supports built-in style
 // names and custom JSON file paths.
