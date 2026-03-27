@@ -433,6 +433,226 @@ func TestBrowserHelpEscDismisses(t *testing.T) {
 	}
 }
 
+// sendString types a sequence of runes into the model, processing commands after each.
+func sendString(t *testing.T, m Model, s string) Model {
+	t.Helper()
+	for _, r := range s {
+		m = sendRune(t, m, r)
+	}
+	return m
+}
+
+func TestBrowserDeleteNotebook(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work":     {"todo"},
+		"personal": {"journal"},
+	})
+
+	m := initModel(t, s)
+
+	// Find which notebook is at cursor 0.
+	if len(m.filtered) == 0 {
+		t.Fatal("expected notebooks in filtered list")
+	}
+	idx := m.filtered[m.cursor]
+	name := m.notebooks[idx].name
+
+	// Press 'd' to start delete.
+	m = sendRune(t, m, 'd')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'd'")
+	}
+
+	// Type the correct name.
+	m = sendString(t, m, name)
+
+	// Press Enter to confirm.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// The notebook should be deleted from the store.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range notebooks {
+		if nb == name {
+			t.Errorf("notebook %q should have been deleted", name)
+		}
+	}
+
+	// Should NOT be in input mode anymore.
+	if m.inputMode {
+		t.Error("expected inputMode to be false after confirming delete")
+	}
+}
+
+func TestBrowserDeleteNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"meeting-notes", "todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Find which note is at cursor 0.
+	if len(m.filtered) == 0 {
+		t.Fatal("expected notes in filtered list")
+	}
+	idx := m.filtered[m.cursor]
+	name := m.notes[idx].Name
+
+	// Press 'd' to start delete.
+	m = sendRune(t, m, 'd')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'd'")
+	}
+
+	// Type the correct note name.
+	m = sendString(t, m, name)
+
+	// Press Enter to confirm.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// The note should be deleted from the store.
+	notes, err := s.ListNotes(m.currentBook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.Name == name {
+			t.Errorf("note %q should have been deleted", name)
+		}
+	}
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after confirming delete")
+	}
+}
+
+func TestBrowserDeleteWrongName(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'd' to start delete.
+	m = sendRune(t, m, 'd')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'd'")
+	}
+
+	// Type the wrong name.
+	m = sendString(t, m, "wrong-name")
+
+	// Press Enter.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// The notebook should NOT have been deleted.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 {
+		t.Errorf("expected 1 notebook (not deleted), got %d", len(notebooks))
+	}
+
+	// A status message should be set.
+	if m.statusText == "" {
+		t.Error("expected a status message after wrong name")
+	}
+	if !containsStr(m.statusText, "match") {
+		t.Errorf("expected status to mention 'match', got %q", m.statusText)
+	}
+
+	// Should NOT be in input mode.
+	if m.inputMode {
+		t.Error("expected inputMode to be false after wrong name")
+	}
+}
+
+func TestBrowserDeleteCancel(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'd' to start delete.
+	m = sendRune(t, m, 'd')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'd'")
+	}
+
+	// Press Esc to cancel.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	// The notebook should NOT have been deleted.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 {
+		t.Errorf("expected 1 notebook (not deleted), got %d", len(notebooks))
+	}
+
+	// Should NOT be in input mode.
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Esc")
+	}
+}
+
+func TestBrowserDeleteEmptyList(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'd' on empty list should do nothing.
+	m = sendRune(t, m, 'd')
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false when list is empty")
+	}
+}
+
+func TestBrowserDeleteCursorAdjust(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"alpha": {"a"},
+		"bravo": {"b"},
+	})
+
+	m := initModel(t, s)
+
+	// Move cursor to last item.
+	m = sendKey(t, m, tea.KeyDown)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor at 1, got %d", m.cursor)
+	}
+
+	// Get the name at cursor position.
+	idx := m.filtered[m.cursor]
+	name := m.notebooks[idx].name
+
+	// Delete it.
+	m = sendRune(t, m, 'd')
+	m = sendString(t, m, name)
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// After reload, cursor should be clamped (only 1 item left).
+	if m.cursor >= len(m.filtered) {
+		t.Errorf("cursor %d is out of bounds for %d items", m.cursor, len(m.filtered))
+	}
+}
+
 func containsStr(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && contains(s, substr)
 }
