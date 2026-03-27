@@ -68,3 +68,18 @@ func TestRenderMarkdownCustomWidth(t *testing.T) {
 		t.Errorf("expected 'Narrow' in output, got %q", out)
 	}
 }
+
+func TestRenderMarkdownWithCommunityStyle(t *testing.T) {
+	md := "# Community Style\n\nRendered with an embedded community style."
+	out := RenderMarkdownWithStyle(md, 80, "gruvbox")
+	if out == "" {
+		t.Fatal("expected non-empty output")
+	}
+	// ANSI escape codes may split words, so check each word individually.
+	if !strings.Contains(out, "Community") {
+		t.Errorf("expected 'Community' in output, got %q", out)
+	}
+	if !strings.Contains(out, "embedded") {
+		t.Errorf("expected 'embedded' in output, got %q", out)
+	}
+}

@@ -1,10 +1,12 @@
 package render
 
 import (
+	"log"
 	"os"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook/styles"
 	"golang.org/x/term"
 )
 
@@ -66,13 +68,8 @@ func SetGlamourStyle(style string) {
 // This is used by the theme picker to preview different styles without
 // changing the global glamour_style setting.
 func RenderMarkdownWithStyle(content string, width int, styleName string) string {
-	style, isFile := theme.ResolveGlamourStyle(styleName)
-	var styleOpt glamour.TermRendererOption
-	if isFile {
-		styleOpt = glamour.WithStylesFromJSONFile(style)
-	} else {
-		styleOpt = glamour.WithStandardStyle(style)
-	}
+	style, source := theme.ResolveGlamourStyle(styleName)
+	styleOpt := styleOptionFromSource(style, source)
 
 	opts := []glamour.TermRendererOption{styleOpt}
 	if width > 0 {
@@ -95,11 +92,26 @@ func RenderMarkdownWithStyle(content string, width int, styleName string) string
 
 // resolveStyleOption returns the appropriate glamour TermRendererOption
 // based on the user's glamour_style config. It supports built-in style
-// names and custom JSON file paths.
+// names, community styles, and custom JSON file paths.
 func resolveStyleOption() glamour.TermRendererOption {
-	style, isFile := theme.ResolveGlamourStyle(glamourStyleOverride)
-	if isFile {
+	style, source := theme.ResolveGlamourStyle(glamourStyleOverride)
+	return styleOptionFromSource(style, source)
+}
+
+// styleOptionFromSource converts a resolved style name and source into the
+// corresponding glamour TermRendererOption.
+func styleOptionFromSource(style string, source theme.StyleSource) glamour.TermRendererOption {
+	switch source {
+	case theme.StyleFile:
 		return glamour.WithStylesFromJSONFile(style)
+	case theme.StyleCommunity:
+		data, err := styles.Load(style)
+		if err != nil {
+			log.Printf("failed to load community style %q: %v", style, err)
+			return glamour.WithStandardStyle("dark")
+		}
+		return glamour.WithStylesFromJSONBytes(data)
+	default:
+		return glamour.WithStandardStyle(style)
 	}
-	return glamour.WithStandardStyle(style)
 }
