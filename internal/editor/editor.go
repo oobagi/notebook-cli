@@ -489,6 +489,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "ctrl+c":
+			if m.modified() {
+				m.quitPrompt = true
+				m.status = "Save before quitting? [Y/n/Esc]"
+				m.statusStyle = statusWarning
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
 		}
