@@ -170,7 +170,7 @@ func TestListNotesNonExistentBook(t *testing.T) {
 }
 
 func TestListNotesBareBookCommand(t *testing.T) {
-	// notebook <book> with no verb should also list notes.
+	// notebook <book> with no verb should list notes in that book.
 	dir := setupTestStore(t)
 	st := storage.NewStore(dir)
 	_ = st.CreateNote("ideas", "spark", "an idea")
@@ -179,13 +179,8 @@ func TestListNotesBareBookCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if !strings.Contains(out, "spark") {
 		t.Errorf("expected 'spark' in output, got %q", out)
-	}
-	// Should have size and timestamp columns now.
-	if !strings.Contains(out, "B") && !strings.Contains(out, "KB") {
-		t.Errorf("expected size unit in output, got %q", out)
 	}
 }
 

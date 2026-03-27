@@ -360,6 +360,7 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 	}
 }
 
+
 func containsStr(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && contains(s, substr)
 }

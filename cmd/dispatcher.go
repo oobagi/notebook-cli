@@ -79,9 +79,9 @@ func dispatch(cmd *cobra.Command, args []string) error {
 				printInfo(w, "Cancelled")
 				return nil
 			}
-			return deleteNoteFromBook(w, book, picked)
+			return deleteNoteFromBook(w, cmd.InOrStdin(), book, picked, false)
 		}
-		return deleteNoteFromBook(w, book, rest[1])
+		return deleteNoteFromBook(w, cmd.InOrStdin(), book, rest[1], false)
 	case "edit":
 		if len(rest) < 2 {
 			// No note specified: show a picker.
@@ -146,7 +146,7 @@ func dispatch(cmd *cobra.Command, args []string) error {
 	case "edit":
 		return editNote(w, book, note)
 	case "delete":
-		return deleteNoteFromBook(w, book, note)
+		return deleteNoteFromBook(w, cmd.InOrStdin(), book, note, false)
 	case "copy":
 		return copyNote(w, book, note)
 	default:
@@ -211,12 +211,24 @@ func createNoteInBook(w io.Writer, book, title string) error {
 	return nil
 }
 
-func deleteNoteFromBook(w io.Writer, book, note string) error {
-	if err := store.DeleteNote(book, note); err != nil {
+func deleteNoteFromBook(w io.Writer, r io.Reader, book, note string, force bool) error {
+	// Verify the note exists before prompting for confirmation.
+	if _, err := store.GetNote(book, note); err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
 			return nil
 		}
+		printError(w, err.Error())
+		return nil
+	}
+	if !force {
+		prompt := fmt.Sprintf("  Delete %q from %s? This cannot be undone.", note, book)
+		if !confirmByName(w, r, prompt, note) {
+			printInfo(w, "Cancelled")
+			return nil
+		}
+	}
+	if err := store.DeleteNote(book, note); err != nil {
 		printError(w, err.Error())
 		return nil
 	}

@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/oobagi/notebook/internal/picker"
 	"github.com/spf13/cobra"
@@ -61,20 +59,13 @@ var deleteCmd = &cobra.Command{
 		}
 
 		if !forceFlag {
-			// Show confirmation prompt.
+			var prompt string
 			if count > 0 {
-				fmt.Fprintf(w, "  Delete %q and %s? This cannot be undone. [y/N] ",
-					name, pluralize(count, "note", "notes"))
+				prompt = fmt.Sprintf("  Delete %q and %s? This cannot be undone.", name, pluralize(count, "note", "notes"))
 			} else {
-				fmt.Fprintf(w, "  Delete %q? This cannot be undone. [y/N] ", name)
+				prompt = fmt.Sprintf("  Delete %q? This cannot be undone.", name)
 			}
-
-			scanner := bufio.NewScanner(cmd.InOrStdin())
-			if !scanner.Scan() {
-				return nil
-			}
-			answer := strings.TrimSpace(scanner.Text())
-			if answer != "y" && answer != "Y" {
+			if !confirmByName(w, cmd.InOrStdin(), prompt, name) {
 				printInfo(w, "Cancelled")
 				return nil
 			}

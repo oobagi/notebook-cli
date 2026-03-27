@@ -56,7 +56,7 @@ func TestDirFlagRegistered(t *testing.T) {
 func TestDirFlagDefaultsToHomeNotebook(t *testing.T) {
 	// Reset dirFlag to empty to simulate no --dir passed.
 	dirFlag = ""
-	rootCmd.SetArgs([]string{"version"})
+	rootCmd.SetArgs([]string{"list"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestDirFlagDefaultsToHomeNotebook(t *testing.T) {
 func TestDirFlagCustomPath(t *testing.T) {
 	dir := t.TempDir()
 	dirFlag = dir
-	rootCmd.SetArgs([]string{"version"})
+	rootCmd.SetArgs([]string{"list"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestDispatchBookWithNoArgs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "spark") {
-		t.Errorf("expected %q in output, got %q", "spark", out)
+		t.Errorf("expected note 'spark' in output, got %q", out)
 	}
 }
 
@@ -146,13 +146,16 @@ func TestDispatchBookDelete(t *testing.T) {
 	st := storage.NewStore(dir)
 	_ = st.CreateNote("work", "temp", "data")
 
+	// Pipe the note name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader("temp\n"))
+	defer rootCmd.SetIn(nil)
+
 	out, err := executeCapture([]string{"--dir", dir, "work", "delete", "temp"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "  \u2713 Deleted \"temp\" from work\n"
-	if out != want {
-		t.Errorf("output = %q, want %q", out, want)
+	if !strings.Contains(out, "\u2713 Deleted \"temp\" from work") {
+		t.Errorf("expected success message in output, got %q", out)
 	}
 
 	// Verify the note is gone.
@@ -264,13 +267,16 @@ func TestDispatchNoteDelete(t *testing.T) {
 	st := storage.NewStore(dir)
 	_ = st.CreateNote("work", "doomed", "bye")
 
+	// Pipe the note name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader("doomed\n"))
+	defer rootCmd.SetIn(nil)
+
 	out, err := executeCapture([]string{"--dir", dir, "work", "doomed", "delete"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "  \u2713 Deleted \"doomed\" from work\n"
-	if out != want {
-		t.Errorf("output = %q, want %q", out, want)
+	if !strings.Contains(out, "\u2713 Deleted \"doomed\" from work") {
+		t.Errorf("expected success message in output, got %q", out)
 	}
 
 	_, err = st.GetNote("work", "doomed")

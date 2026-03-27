@@ -73,8 +73,8 @@ func TestDeleteNotebookConfirmYes(t *testing.T) {
 	_ = st.CreateNote("ideas", "note2", "content")
 	_ = st.CreateNote("ideas", "note3", "content")
 
-	// Simulate user typing "y" at the confirmation prompt.
-	rootCmd.SetIn(strings.NewReader("y\n"))
+	// Simulate user typing the notebook name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader("ideas\n"))
 	defer rootCmd.SetIn(nil)
 
 	out, err := executeCapture([]string{"--dir", dir, "delete", "ideas"})
@@ -83,6 +83,9 @@ func TestDeleteNotebookConfirmYes(t *testing.T) {
 	}
 	if !strings.Contains(out, `Delete "ideas" and 3 notes?`) {
 		t.Errorf("expected confirmation prompt in output, got %q", out)
+	}
+	if !strings.Contains(out, "Type the name to confirm:") {
+		t.Errorf("expected name-confirmation prompt in output, got %q", out)
 	}
 	if !strings.Contains(out, "\u2713 Deleted \"ideas\" and 3 notes") {
 		t.Errorf("expected success message in output, got %q", out)
@@ -97,14 +100,14 @@ func TestDeleteNotebookConfirmYes(t *testing.T) {
 	}
 }
 
-func TestDeleteNotebookConfirmUpperY(t *testing.T) {
+func TestDeleteNotebookConfirmExactName(t *testing.T) {
 	dir := setupTestStore(t)
 	forceFlag = false
 	st := storage.NewStore(dir)
 	_ = st.CreateNotebook("work")
 	_ = st.CreateNote("work", "task", "do stuff")
 
-	rootCmd.SetIn(strings.NewReader("Y\n"))
+	rootCmd.SetIn(strings.NewReader("work\n"))
 	defer rootCmd.SetIn(nil)
 
 	out, err := executeCapture([]string{"--dir", dir, "delete", "work"})
@@ -184,7 +187,7 @@ func TestDeleteEmptyNotebookPrompt(t *testing.T) {
 	st := storage.NewStore(dir)
 	_ = st.CreateNotebook("vacant")
 
-	rootCmd.SetIn(strings.NewReader("y\n"))
+	rootCmd.SetIn(strings.NewReader("vacant\n"))
 	defer rootCmd.SetIn(nil)
 
 	out, err := executeCapture([]string{"--dir", dir, "delete", "vacant"})
@@ -192,8 +195,11 @@ func TestDeleteEmptyNotebookPrompt(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Empty notebook prompt should NOT mention note count.
-	if !strings.Contains(out, `Delete "vacant"? This cannot be undone. [y/N]`) {
+	if !strings.Contains(out, `Delete "vacant"? This cannot be undone.`) {
 		t.Errorf("expected simple prompt for empty notebook, got %q", out)
+	}
+	if strings.Contains(out, "note") && !strings.Contains(out, "notebook") && !strings.Contains(out, "Deleted") {
+		t.Errorf("empty notebook prompt should not mention notes, got %q", out)
 	}
 	if !strings.Contains(out, "\u2713 Deleted \"vacant\"\n") {
 		t.Errorf("expected success message, got %q", out)
@@ -254,19 +260,28 @@ func TestDeleteNonExistentNotebook(t *testing.T) {
 
 // --- Note deletion tests ---
 
-func TestDeleteNoteNoConfirmation(t *testing.T) {
+func TestDeleteNoteConfirmByName(t *testing.T) {
 	dir := setupTestStore(t)
 	st := storage.NewStore(dir)
 	_ = st.CreateNote("work", "temp", "throwaway")
+
+	// Simulate user typing the note name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader("temp\n"))
+	defer rootCmd.SetIn(nil)
 
 	// Delete via: notebook <book> delete <note>
 	out, err := executeCapture([]string{"--dir", dir, "work", "delete", "temp"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "  \u2713 Deleted \"temp\" from work\n"
-	if out != want {
-		t.Errorf("output = %q, want %q", out, want)
+	if !strings.Contains(out, `Delete "temp" from work? This cannot be undone.`) {
+		t.Errorf("expected confirmation prompt in output, got %q", out)
+	}
+	if !strings.Contains(out, "Type the name to confirm:") {
+		t.Errorf("expected name-confirmation prompt in output, got %q", out)
+	}
+	if !strings.Contains(out, "\u2713 Deleted \"temp\" from work") {
+		t.Errorf("expected success message in output, got %q", out)
 	}
 
 	// Verify note is gone.
@@ -276,19 +291,46 @@ func TestDeleteNoteNoConfirmation(t *testing.T) {
 	}
 }
 
+func TestDeleteNoteWrongNameCancels(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNote("work", "important", "keep this")
+
+	// Typing the wrong name should cancel.
+	rootCmd.SetIn(strings.NewReader("wrong\n"))
+	defer rootCmd.SetIn(nil)
+
+	out, err := executeCapture([]string{"--dir", dir, "work", "delete", "important"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Cancelled") {
+		t.Errorf("expected 'Cancelled' in output, got %q", out)
+	}
+
+	// Verify note still exists.
+	_, err = st.GetNote("work", "important")
+	if err != nil {
+		t.Fatal("note should still exist after cancelled delete")
+	}
+}
+
 func TestDeleteNoteViaVerbSuffix(t *testing.T) {
 	dir := setupTestStore(t)
 	st := storage.NewStore(dir)
 	_ = st.CreateNote("journal", "entry", "dear diary")
+
+	// Simulate user typing the note name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader("entry\n"))
+	defer rootCmd.SetIn(nil)
 
 	// Delete via: notebook <book> <note> delete
 	out, err := executeCapture([]string{"--dir", dir, "journal", "entry", "delete"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "  \u2713 Deleted \"entry\" from journal\n"
-	if out != want {
-		t.Errorf("output = %q, want %q", out, want)
+	if !strings.Contains(out, "\u2713 Deleted \"entry\" from journal") {
+		t.Errorf("expected success message in output, got %q", out)
 	}
 
 	_, err = st.GetNote("journal", "entry")

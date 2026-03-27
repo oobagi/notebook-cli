@@ -110,7 +110,7 @@ func TestCLIFlagOverridesConfig(t *testing.T) {
 	// The --dir flag should override the config's storage_dir.
 	flagDir := t.TempDir()
 	dirFlag = flagDir
-	rootCmd.SetArgs([]string{"version"})
+	rootCmd.SetArgs([]string{"list"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

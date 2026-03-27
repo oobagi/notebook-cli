@@ -59,13 +59,16 @@ func TestAutoCreateNotebookEndToEnd(t *testing.T) {
 	}
 
 	// Step 5: Verify `notebook <book> <note> delete` deletes the note.
+	// Pipe the note name to confirm deletion.
+	rootCmd.SetIn(strings.NewReader(note + "\n"))
+	defer rootCmd.SetIn(nil)
+
 	out, err = executeCapture([]string{"--dir", dir, book, note, "delete"})
 	if err != nil {
 		t.Fatalf("delete note: unexpected error: %v", err)
 	}
-	wantDel := "  \u2713 Deleted \"first-note\" from brand-new-book\n"
-	if out != wantDel {
-		t.Errorf("delete note output = %q, want %q", out, wantDel)
+	if !strings.Contains(out, "\u2713 Deleted \"first-note\" from brand-new-book") {
+		t.Errorf("expected success message in delete note output, got %q", out)
 	}
 
 	// Confirm the note is actually gone.

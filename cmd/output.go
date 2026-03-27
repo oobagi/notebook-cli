@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 func colorEnabled() bool {
@@ -41,6 +43,21 @@ func printWarning(w io.Writer, msg string) {
 	} else {
 		fmt.Fprintf(w, "  ! %s\n", msg)
 	}
+}
+
+// confirmByName shows a destructive-action prompt and requires the user to type
+// the exact resource name to proceed. Returns true only when the typed input
+// matches expectedName exactly.
+func confirmByName(w io.Writer, r io.Reader, prompt, expectedName string) bool {
+	fmt.Fprintln(w, prompt)
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  Type the name to confirm: ")
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return false
+	}
+	typed := strings.TrimSpace(scanner.Text())
+	return typed == expectedName
 }
 
 // PrintErrorStderr prints a styled error message to stderr.

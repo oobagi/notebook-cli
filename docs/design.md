@@ -20,7 +20,7 @@ notebook list                         # List all books
 notebook new "Book Name"              # Create a book
 notebook delete "Book Name"           # Delete a book (requires confirmation)
 
-notebook <book>                       # Launch TUI scoped to this book
+notebook <book>                       # List notes in a book
 notebook <book> list                  # List notes in a book
 notebook <book> new "Note Title"      # Create a note (auto-creates book if needed)
 notebook <book> <note>                # View a note (rendered markdown)
