@@ -31,6 +31,7 @@ func setupTestStore(t *testing.T, books map[string][]string) *storage.Store {
 // initModel creates a Model and processes the Init command to load data.
 func initModel(t *testing.T, s *storage.Store) Model {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	m := New(Config{
 		Store:    s,
 		EditNote: func(book, note string) error { return nil },
