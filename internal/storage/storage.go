@@ -267,6 +267,49 @@ func (s *Store) DeleteNotebook(name string) error {
 	return nil
 }
 
+// RenameNotebook renames a notebook directory.
+func (s *Store) RenameNotebook(oldName, newName string) error {
+	newName = strings.TrimSpace(newName)
+	if err := validName(oldName); err != nil {
+		return err
+	}
+	if err := validName(newName); err != nil {
+		return err
+	}
+	oldDir := s.notebookPath(oldName)
+	newDir := s.notebookPath(newName)
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		return fmt.Errorf("notebook %q does not exist", oldName)
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		return fmt.Errorf("notebook %q already exists", newName)
+	}
+	return os.Rename(oldDir, newDir)
+}
+
+// RenameNote renames a note file within a notebook.
+func (s *Store) RenameNote(book, oldName, newName string) error {
+	newName = strings.TrimSpace(newName)
+	if err := validName(book); err != nil {
+		return err
+	}
+	if err := validName(oldName); err != nil {
+		return err
+	}
+	if err := validName(newName); err != nil {
+		return err
+	}
+	oldPath := s.notePath(book, oldName)
+	newPath := s.notePath(book, newName)
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		return fmt.Errorf("note %q does not exist in %q", oldName, book)
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("note %q already exists in %q", newName, book)
+	}
+	return os.Rename(oldPath, newPath)
+}
+
 // UpdateNote overwrites the content of an existing note.
 func (s *Store) UpdateNote(notebook, name, content string) error {
 	if err := validName(notebook); err != nil {

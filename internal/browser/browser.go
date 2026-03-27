@@ -262,6 +262,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == "d" {
 			return m.startDelete()
 		}
+		if s == "r" {
+			return m.startRename()
+		}
 		return m, nil
 	}
 
@@ -389,6 +392,51 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 			}
 			return func() tea.Msg {
 				if err := m.store.DeleteNote(m.currentBook, name); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m Model) startRename() (tea.Model, tea.Cmd) {
+	if m.level == 0 {
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		oldName := m.notebooks[idx].name
+		m.inputMode = true
+		m.inputPrompt = "Rename notebook:"
+		m.inputValue = oldName
+		m.inputAction = func(newName string) tea.Cmd {
+			if newName == oldName {
+				return func() tea.Msg { return statusMsg{"No change"} }
+			}
+			return func() tea.Msg {
+				if err := m.store.RenameNotebook(oldName, newName); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	} else {
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		idx := m.filtered[m.cursor]
+		oldName := m.notes[idx].Name
+		m.inputMode = true
+		m.inputPrompt = fmt.Sprintf("Rename note in %s:", m.currentBook)
+		m.inputValue = oldName
+		m.inputAction = func(newName string) tea.Cmd {
+			if newName == oldName {
+				return func() tea.Msg { return statusMsg{"No change"} }
+			}
+			return func() tea.Msg {
+				if err := m.store.RenameNote(m.currentBook, oldName, newName); err != nil {
 					return errMsg{err}
 				}
 				return reloadMsg{}

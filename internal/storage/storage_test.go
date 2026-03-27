@@ -571,3 +571,112 @@ func TestSearchNotesNoResults(t *testing.T) {
 		t.Fatalf("got %d results, want 0", len(results))
 	}
 }
+
+// --- Rename tests ---
+
+func TestRenameNotebook(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("old-name"); err != nil {
+		t.Fatalf("CreateNotebook: %v", err)
+	}
+
+	if err := store.RenameNotebook("old-name", "new-name"); err != nil {
+		t.Fatalf("RenameNotebook: %v", err)
+	}
+
+	// Old dir should be gone.
+	if _, err := os.Stat(filepath.Join(store.Root, "old-name")); !os.IsNotExist(err) {
+		t.Error("old notebook dir should not exist after rename")
+	}
+
+	// New dir should exist.
+	info, err := os.Stat(filepath.Join(store.Root, "new-name"))
+	if err != nil {
+		t.Fatalf("new notebook dir missing: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("new notebook path should be a directory")
+	}
+}
+
+func TestRenameNotebookNotFound(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	err := store.RenameNotebook("nonexistent", "new-name")
+	if err == nil {
+		t.Fatal("expected error renaming nonexistent notebook, got nil")
+	}
+}
+
+func TestRenameNotebookDuplicate(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("alpha"); err != nil {
+		t.Fatalf("CreateNotebook: %v", err)
+	}
+	if err := store.CreateNotebook("bravo"); err != nil {
+		t.Fatalf("CreateNotebook: %v", err)
+	}
+
+	err := store.RenameNotebook("alpha", "bravo")
+	if err == nil {
+		t.Fatal("expected error renaming to existing notebook name, got nil")
+	}
+}
+
+func TestRenameNote(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	content := "# Hello\nSome content here."
+	if err := store.CreateNote("nb", "old-note", content); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	if err := store.RenameNote("nb", "old-note", "new-note"); err != nil {
+		t.Fatalf("RenameNote: %v", err)
+	}
+
+	// Old file should be gone.
+	if _, err := os.Stat(filepath.Join(store.Root, "nb", "old-note.md")); !os.IsNotExist(err) {
+		t.Error("old note file should not exist after rename")
+	}
+
+	// New file should exist with same content.
+	note, err := store.GetNote("nb", "new-note")
+	if err != nil {
+		t.Fatalf("GetNote after rename: %v", err)
+	}
+	if note.Content != content {
+		t.Errorf("Content = %q, want %q", note.Content, content)
+	}
+}
+
+func TestRenameNoteNotFound(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("nb"); err != nil {
+		t.Fatalf("CreateNotebook: %v", err)
+	}
+
+	err := store.RenameNote("nb", "nonexistent", "new-name")
+	if err == nil {
+		t.Fatal("expected error renaming nonexistent note, got nil")
+	}
+}
+
+func TestRenameNoteDuplicate(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("nb", "alpha", "a"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	if err := store.CreateNote("nb", "bravo", "b"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	err := store.RenameNote("nb", "alpha", "bravo")
+	if err == nil {
+		t.Fatal("expected error renaming to existing note name, got nil")
+	}
+}
