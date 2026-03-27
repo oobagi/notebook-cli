@@ -709,8 +709,6 @@ var availableThemeStyles = []string{
 	"light",
 	"dracula",
 	"tokyo-night",
-	"notty",
-	"ascii",
 	"pink",
 }
 

@@ -1428,7 +1428,7 @@ func TestBrowserThemePickerStyles(t *testing.T) {
 	m := initModel(t, s)
 	m = sendRune(t, m, 't')
 
-	expected := []string{"auto", "dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink"}
+	expected := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
 	if len(m.themeStyles) != len(expected) {
 		t.Fatalf("expected %d styles, got %d", len(expected), len(m.themeStyles))
 	}
