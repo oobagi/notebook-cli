@@ -13,6 +13,7 @@ import (
 	"github.com/oobagi/notebook/internal/model"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook/internal/theme"
 )
 
 // EditFunc is called when the user selects a note to edit.
@@ -857,7 +858,7 @@ func (m Model) renderThemeOverlay() string {
 			hintStr = " " + dim.Render(hint)
 		}
 		if i == m.themeCursor {
-			sel := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+			sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 			left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("●"), sel.Render(s), hintStr))
 		} else {
 			left.WriteString(fmt.Sprintf("    %s%s\n", s, hintStr))
@@ -899,7 +900,7 @@ func (m Model) renderThemeOverlay() string {
 
 	previewBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(0, 1).
 		Width(previewWidth)
 
@@ -918,7 +919,7 @@ func (m Model) renderThemeOverlay() string {
 	// Outer container.
 	outer := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(0, 1).
 		MaxHeight(h - 2)
 
@@ -1081,7 +1082,7 @@ func (m Model) renderHelpOverlay() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
 		Width(36).
 		Align(lipgloss.Left)
@@ -1309,9 +1310,9 @@ func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 	countStr := pluralize(nb.noteCount, "note", "notes")
 
 	if selected {
-		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
+		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		name = nameStyle.Render(display)
 	}
 
@@ -1338,9 +1339,9 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 	}
 
 	if selected {
-		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		name = nameStyle.Render(display)
 	}
 
