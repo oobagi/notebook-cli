@@ -72,8 +72,8 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 11: Community Glamour Styles
 
-- [ ] [#94 Embed community Glamour styles into the binary](https://github.com/oobagi/notebook/issues/94)
-- [ ] [#95 Wire community styles into ResolveGlamourStyle](https://github.com/oobagi/notebook/issues/95)
-- [ ] [#96 Show community styles in theme picker](https://github.com/oobagi/notebook/issues/96)
-- [ ] [#97 CI validation for community style JSON files](https://github.com/oobagi/notebook/issues/97)
-- [ ] [#98 Contributing guide for community styles](https://github.com/oobagi/notebook/issues/98)
+- [x] [#94 Embed community Glamour styles into the binary](https://github.com/oobagi/notebook/issues/94)
+- [x] [#95 Wire community styles into ResolveGlamourStyle](https://github.com/oobagi/notebook/issues/95)
+- [x] [#96 Show community styles in theme picker](https://github.com/oobagi/notebook/issues/96)
+- [x] [#97 CI validation for community style JSON files](https://github.com/oobagi/notebook/issues/97)
+- [x] [#98 Contributing guide for community styles](https://github.com/oobagi/notebook/issues/98)
