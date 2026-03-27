@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oobagi/notebook/internal/picker"
 	"github.com/spf13/cobra"
 )
 
@@ -20,28 +19,8 @@ var deleteCmd = &cobra.Command{
 		if len(args) > 0 {
 			name = args[0]
 		} else {
-			// No arg provided: show a picker.
-			notebooks, err := store.ListNotebooks()
-			if err != nil {
-				printError(w, err.Error())
-				return nil
-			}
-			if len(notebooks) == 0 {
-				printInfo(w, "No notebooks to delete.")
-				return nil
-			}
-			picked, err := picker.Run(picker.Config{
-				Title: "Pick a notebook to delete",
-				Items: notebooks,
-			})
-			if err != nil {
-				return err
-			}
-			if picked == "" {
-				printInfo(w, "Cancelled")
-				return nil
-			}
-			name = picked
+			printError(w, "Missing name. Try: notebook delete \"My Notebook\"")
+			return nil
 		}
 
 		// Check if notebook exists.

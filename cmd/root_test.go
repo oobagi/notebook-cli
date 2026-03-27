@@ -339,16 +339,16 @@ func TestDispatchBookNewMissingTitle(t *testing.T) {
 	}
 }
 
-func TestDispatchBookDeleteNoArgShowsPickerOrMessage(t *testing.T) {
+func TestDispatchBookDeleteNoArgShowsError(t *testing.T) {
 	dir := setupTestStore(t)
 
-	// Notebook "work" doesn't exist, so the picker path reports "doesn't exist".
+	// No note title given: should print a usage hint error.
 	out, err := executeCapture([]string{"--dir", dir, "work", "delete"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "doesn't exist") {
-		t.Errorf("expected \"doesn't exist\" in output, got %q", out)
+	if !strings.Contains(out, "Missing note title") {
+		t.Errorf("expected 'Missing note title' in output, got %q", out)
 	}
 }
 
@@ -357,13 +357,13 @@ func TestDispatchBookDeleteNoArgEmptyBook(t *testing.T) {
 	st := storage.NewStore(dir)
 	_ = st.CreateNotebook("empty-book")
 
-	// Notebook exists but has no notes: should show info message.
+	// No note title given: should print a usage hint error (not picker).
 	out, err := executeCapture([]string{"--dir", dir, "empty-book", "delete"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "No notes to delete") {
-		t.Errorf("expected 'No notes to delete' in output, got %q", out)
+	if !strings.Contains(out, "Missing note title") {
+		t.Errorf("expected 'Missing note title' in output, got %q", out)
 	}
 }
 
