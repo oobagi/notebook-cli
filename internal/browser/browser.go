@@ -41,6 +41,7 @@ type Model struct {
 	filtered    []int  // indices into notebooks/notes after filtering
 	width       int
 	height      int
+	showHelp    bool   // help overlay visible
 	quitting    bool
 	selected    *Selection // set when user picks a note to edit
 	err         error
@@ -166,6 +167,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// When help overlay is showing, only ? and Esc dismiss it.
+	if m.showHelp {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.showHelp = false
+			return m, nil
+		case tea.KeyRunes:
+			if string(msg.Runes) == "?" {
+				m.showHelp = false
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
 	// When filtering, handle text input first.
 	if m.filtering {
 		return m.handleFilterKey(msg)
@@ -199,6 +215,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == "q" {
 			m.quitting = true
 			return m, tea.Quit
+		}
+		if s == "?" {
+			m.showHelp = true
+			return m, nil
 		}
 		if s == "/" {
 			m.filtering = true
@@ -352,10 +372,71 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
+// renderHelpOverlay builds the centered help panel.
+func (m Model) renderHelpOverlay() string {
+	var help string
+	if m.level == 0 {
+		help = `  Keybindings
+  ───────────────────────────
+
+  ↑/↓       Navigate
+  Enter      Open notebook
+  n          New notebook
+  d          Delete notebook
+  r          Rename notebook
+  /          Search
+  q          Quit
+  ?          Toggle help
+
+  Press ? or Esc to close`
+	} else {
+		help = `  Keybindings
+  ───────────────────────────
+
+  ↑/↓       Navigate
+  Enter      Edit note
+  v          View note
+  n          New note
+  d          Delete note
+  r          Rename note
+  c          Copy to clipboard
+  /          Search
+  Esc        Back to notebooks
+  q          Quit
+  ?          Toggle help
+
+  Press ? or Esc to close`
+	}
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(1, 2).
+		Width(36).
+		Align(lipgloss.Left)
+
+	rendered := box.Render(help)
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
+	}
+
+	if m.showHelp {
+		return m.renderHelpOverlay()
 	}
 
 	if m.err != nil {
@@ -574,7 +655,7 @@ func (m Model) renderStatusBar() string {
 		return dim.Render(fmt.Sprintf("  Filter: %s_ \u00B7 Esc clear \u00B7 Enter select", m.filter))
 	}
 
-	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit")
+	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help")
 }
 
 // pluralize returns "1 note" or "3 notes" style strings.
