@@ -334,10 +334,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyEnter:
+	case tea.KeyEnter, tea.KeyRight:
 		return m.handleEnter()
 
-	case tea.KeyEsc:
+	case tea.KeyEsc, tea.KeyLeft:
 		return m.handleEsc()
 
 	case tea.KeyRunes:
