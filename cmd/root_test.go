@@ -25,6 +25,7 @@ func TestRootCommandSilenceErrors(t *testing.T) {
 // store variable. It returns the temp dir path.
 func setupTestStore(t *testing.T) string {
 	t.Helper()
+	t.Setenv("NO_COLOR", "1")
 	dir := t.TempDir()
 	store = storage.NewStore(dir)
 	return dir
@@ -311,30 +312,52 @@ func TestDispatchNoteCopyNotFound(t *testing.T) {
 func TestDispatchUnknownNoteVerb(t *testing.T) {
 	dir := setupTestStore(t)
 
-	_, err := executeCapture([]string{"--dir", dir, "work", "readme", "frobnicate"})
-	if err == nil {
-		t.Fatal("expected error for unknown note verb")
+	out, err := executeCapture([]string{"--dir", dir, "work", "readme", "frobnicate"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown command") {
-		t.Errorf("expected 'unknown command' in error, got %q", err.Error())
+	if !strings.Contains(out, "Unknown command") {
+		t.Errorf("expected 'Unknown command' in output, got %q", out)
 	}
 }
 
 func TestDispatchBookNewMissingTitle(t *testing.T) {
 	dir := setupTestStore(t)
 
-	_, err := executeCapture([]string{"--dir", dir, "work", "new"})
-	if err == nil {
-		t.Fatal("expected error when note title is missing")
+	out, err := executeCapture([]string{"--dir", dir, "work", "new"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Missing note title") {
+		t.Errorf("expected 'Missing note title' in output, got %q", out)
 	}
 }
 
-func TestDispatchBookDeleteMissingTitle(t *testing.T) {
+func TestDispatchBookDeleteNoArgShowsPickerOrMessage(t *testing.T) {
 	dir := setupTestStore(t)
 
-	_, err := executeCapture([]string{"--dir", dir, "work", "delete"})
-	if err == nil {
-		t.Fatal("expected error when delete target is missing")
+	// Notebook "work" doesn't exist, so the picker path reports "doesn't exist".
+	out, err := executeCapture([]string{"--dir", dir, "work", "delete"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "doesn't exist") {
+		t.Errorf("expected \"doesn't exist\" in output, got %q", out)
+	}
+}
+
+func TestDispatchBookDeleteNoArgEmptyBook(t *testing.T) {
+	dir := setupTestStore(t)
+	st := storage.NewStore(dir)
+	_ = st.CreateNotebook("empty-book")
+
+	// Notebook exists but has no notes: should show info message.
+	out, err := executeCapture([]string{"--dir", dir, "empty-book", "delete"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "No notes to delete") {
+		t.Errorf("expected 'No notes to delete' in output, got %q", out)
 	}
 }
 

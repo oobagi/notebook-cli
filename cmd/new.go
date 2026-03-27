@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -10,10 +11,22 @@ import (
 var newCmd = &cobra.Command{
 	Use:   "new <name>",
 	Short: "Create a new notebook",
-	Args:  cobra.ExactArgs(1),
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("Missing name. Try: notebook new \"My Notebook\"")
+		}
+		if len(args) > 1 {
+			return fmt.Errorf("Too many arguments. Try: notebook new \"My Notebook\"")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		w := cmd.OutOrStdout()
-		name := args[0]
+		name := strings.TrimSpace(args[0])
+		if name == "" {
+			printError(w, "Notebook name can't be empty.")
+			return nil
+		}
 
 		// Check if the notebook already exists before creating.
 		dir := store.NotebookDir(name)

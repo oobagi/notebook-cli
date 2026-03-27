@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
+	"github.com/oobagi/notebook/internal/picker"
 	"github.com/oobagi/notebook/internal/render"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -43,17 +44,82 @@ func dispatch(cmd *cobra.Command, args []string) error {
 		return listNotesInBook(w, book)
 	case "new":
 		if len(rest) < 2 {
-			return fmt.Errorf("usage: notebook %s new <title>", book)
+			printError(w, fmt.Sprintf("Missing note title. Try: notebook %s new \"My Note\"", book))
+			return nil
 		}
 		return createNoteInBook(w, book, rest[1])
 	case "delete":
 		if len(rest) < 2 {
-			return fmt.Errorf("usage: notebook %s delete <title>", book)
+			// No note specified: show a picker.
+			notes, err := store.ListNotes(book)
+			if err != nil {
+				if strings.Contains(err.Error(), "no such file or directory") ||
+					strings.Contains(err.Error(), "does not exist") {
+					printError(w, fmt.Sprintf("Notebook %q doesn't exist. See your notebooks with: notebook list", book))
+					return nil
+				}
+				return fmt.Errorf("list notes in %q: %w", book, err)
+			}
+			if len(notes) == 0 {
+				printInfo(w, fmt.Sprintf("No notes to delete in %q.", book))
+				return nil
+			}
+			items := make([]string, len(notes))
+			for i, n := range notes {
+				items[i] = n.Name
+			}
+			picked, err := picker.Run(picker.Config{
+				Title: fmt.Sprintf("Pick a note to delete from %s", book),
+				Items: items,
+			})
+			if err != nil {
+				return err
+			}
+			if picked == "" {
+				printInfo(w, "Cancelled")
+				return nil
+			}
+			return deleteNoteFromBook(w, book, picked)
 		}
 		return deleteNoteFromBook(w, book, rest[1])
+	case "edit":
+		if len(rest) < 2 {
+			// No note specified: show a picker.
+			notes, err := store.ListNotes(book)
+			if err != nil {
+				if strings.Contains(err.Error(), "no such file or directory") ||
+					strings.Contains(err.Error(), "does not exist") {
+					printError(w, fmt.Sprintf("Notebook %q doesn't exist. See your notebooks with: notebook list", book))
+					return nil
+				}
+				return fmt.Errorf("list notes in %q: %w", book, err)
+			}
+			if len(notes) == 0 {
+				printInfo(w, fmt.Sprintf("No notes to edit in %q.", book))
+				return nil
+			}
+			items := make([]string, len(notes))
+			for i, n := range notes {
+				items[i] = n.Name
+			}
+			picked, err := picker.Run(picker.Config{
+				Title: fmt.Sprintf("Pick a note to edit in %s", book),
+				Items: items,
+			})
+			if err != nil {
+				return err
+			}
+			if picked == "" {
+				printInfo(w, "Cancelled")
+				return nil
+			}
+			return editNote(w, book, picked)
+		}
+		return editNote(w, book, rest[1])
 	case "search":
 		if len(rest) < 2 {
-			return fmt.Errorf("usage: notebook %s search <query>", book)
+			printError(w, fmt.Sprintf("Missing search query. Try: notebook %s search \"query\"", book))
+			return nil
 		}
 		return searchInBook(w, book, rest[1])
 	}
@@ -84,7 +150,8 @@ func dispatch(cmd *cobra.Command, args []string) error {
 	case "copy":
 		return copyNote(w, book, note)
 	default:
-		return fmt.Errorf("unknown command %q for note %q in %q", verb, note, book)
+		printError(w, fmt.Sprintf("Unknown command %q. Try: edit, delete, or copy.", verb))
+		return nil
 	}
 }
 
@@ -95,7 +162,7 @@ func listNotesInBook(w io.Writer, book string) error {
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") ||
 			strings.Contains(err.Error(), "does not exist") {
-			printError(w, fmt.Sprintf("Notebook %q not found", book))
+			printError(w, fmt.Sprintf("Notebook %q doesn't exist. See your notebooks with: notebook list", book))
 			return nil
 		}
 		return fmt.Errorf("list notes in %q: %w", book, err)
@@ -126,6 +193,11 @@ func listNotesInBook(w io.Writer, book string) error {
 }
 
 func createNoteInBook(w io.Writer, book, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		printError(w, "Note title can't be empty.")
+		return nil
+	}
 	if err := store.CreateNote(book, title, ""); err != nil {
 		// Check for "already exists" from the storage layer.
 		if strings.Contains(err.Error(), "already exists") {
@@ -142,7 +214,7 @@ func createNoteInBook(w io.Writer, book, title string) error {
 func deleteNoteFromBook(w io.Writer, book, note string) error {
 	if err := store.DeleteNote(book, note); err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
-			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
 			return nil
 		}
 		printError(w, err.Error())
@@ -162,7 +234,7 @@ func viewNote(w io.Writer, book, note string) error {
 	n, err := store.GetNote(book, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
-			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
 			return nil
 		}
 		return fmt.Errorf("view note %q/%q: %w", book, note, err)
@@ -203,7 +275,7 @@ func editNote(w io.Writer, book, note string) error {
 	n, err := store.GetNote(book, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
-			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
 			return nil
 		}
 		return fmt.Errorf("edit note %q/%q: %w", book, note, err)
@@ -229,7 +301,7 @@ func copyNote(w io.Writer, book, note string) error {
 	n, err := store.GetNote(book, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
-			printError(w, fmt.Sprintf("Note %q not found in %q", note, book))
+			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
 			return nil
 		}
 		return fmt.Errorf("copy note %q/%q: %w", book, note, err)
