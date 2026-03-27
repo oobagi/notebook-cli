@@ -44,6 +44,13 @@ type Model struct {
 	quitting    bool
 	selected    *Selection // set when user picks a note to edit
 	err         error
+
+	// Inline text input mode (used for create, rename, etc.)
+	inputMode   bool                  // whether text input is active
+	inputPrompt string                // prompt text (e.g., "New notebook:")
+	inputValue  string                // current text in the input field
+	inputAction func(string) tea.Cmd  // callback when Enter is pressed
+	inputErr    string                // validation error to show inline
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -128,6 +135,9 @@ func (m Model) loadNotes(book string) tea.Cmd {
 
 type errMsg struct{ err error }
 
+// reloadMsg signals that the current list should be reloaded.
+type reloadMsg struct{}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -151,6 +161,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case reloadMsg:
+		if m.level == 0 {
+			return m, m.loadNotebooks()
+		}
+		return m, m.loadNotes(m.currentBook)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -164,6 +180,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	// Input mode intercepts all keys.
+	if m.inputMode {
+		return m.handleInputKey(msg)
 	}
 
 	// When filtering, handle text input first.
@@ -205,6 +226,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filter = ""
 			m.applyFilter()
 			return m, nil
+		}
+		if s == "n" {
+			return m.startCreate()
 		}
 		return m, nil
 	}
@@ -253,6 +277,74 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m, nil
+}
+
+func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.inputMode = false
+		m.inputValue = ""
+		m.inputErr = ""
+		return m, nil
+
+	case tea.KeyEnter:
+		value := strings.TrimSpace(m.inputValue)
+		if value == "" {
+			m.inputErr = "Name can't be empty"
+			return m, nil
+		}
+		action := m.inputAction
+		m.inputMode = false
+		m.inputValue = ""
+		m.inputErr = ""
+		return m, action(value)
+
+	case tea.KeyBackspace:
+		if len(m.inputValue) > 0 {
+			m.inputValue = m.inputValue[:len(m.inputValue)-1]
+			m.inputErr = ""
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		m.inputValue += string(msg.Runes)
+		m.inputErr = ""
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) startCreate() (tea.Model, tea.Cmd) {
+	if m.level == 0 {
+		m.inputMode = true
+		m.inputPrompt = "New notebook:"
+		m.inputValue = ""
+		m.inputErr = ""
+		m.inputAction = func(name string) tea.Cmd {
+			return func() tea.Msg {
+				if err := m.store.CreateNotebook(name); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	} else {
+		book := m.currentBook
+		m.inputMode = true
+		m.inputPrompt = fmt.Sprintf("New note in %s:", book)
+		m.inputValue = ""
+		m.inputErr = ""
+		m.inputAction = func(name string) tea.Cmd {
+			return func() tea.Msg {
+				if err := m.store.CreateNote(book, name, ""); err != nil {
+					return errMsg{err}
+				}
+				return reloadMsg{}
+			}
+		}
+	}
 	return m, nil
 }
 
@@ -570,11 +662,20 @@ func (m Model) renderEmptyNotes() string {
 func (m Model) renderStatusBar() string {
 	dim := lipgloss.NewStyle().Faint(true)
 
+	if m.inputMode {
+		line := fmt.Sprintf("  %s %s_", m.inputPrompt, m.inputValue)
+		if m.inputErr != "" {
+			errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+			line += "\n" + errStyle.Render("  "+m.inputErr)
+		}
+		return line
+	}
+
 	if m.filtering {
 		return dim.Render(fmt.Sprintf("  Filter: %s_ \u00B7 Esc clear \u00B7 Enter select", m.filter))
 	}
 
-	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit")
+	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 n new \u00B7 Esc back \u00B7 q quit")
 }
 
 // pluralize returns "1 note" or "3 notes" style strings.

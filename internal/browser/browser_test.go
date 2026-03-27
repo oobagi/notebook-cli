@@ -55,29 +55,28 @@ func sendKey(t *testing.T, m Model, key tea.KeyType) Model {
 	t.Helper()
 	updated, cmd := m.Update(tea.KeyMsg{Type: key})
 	m = updated.(Model)
-
-	// Process any commands (like loadNotes).
-	if cmd != nil {
-		msg := cmd()
-		if msg != nil {
-			updated, _ = m.Update(msg)
-			m = updated.(Model)
-		}
-	}
-	return m
+	return drainCmds(t, m, cmd)
 }
 
 func sendRune(t *testing.T, m Model, r rune) Model {
 	t.Helper()
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	m = updated.(Model)
+	return drainCmds(t, m, cmd)
+}
 
-	if cmd != nil {
+// drainCmds processes commands until none remain (up to a safety limit).
+func drainCmds(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	for i := 0; i < 10 && cmd != nil; i++ {
 		msg := cmd()
-		if msg != nil {
-			updated, _ = m.Update(msg)
-			m = updated.(Model)
+		if msg == nil {
+			break
 		}
+		var next tea.Cmd
+		updated, next := m.Update(msg)
+		m = updated.(Model)
+		cmd = next
 	}
 	return m
 }
@@ -360,6 +359,199 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 	}
 }
 
+
+func TestBrowserCreateNotebook(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"existing": {"note1"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'n' to start creating a notebook.
+	m = sendRune(t, m, 'n')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after 'n'")
+	}
+	if m.inputPrompt != "New notebook:" {
+		t.Errorf("expected prompt 'New notebook:', got %q", m.inputPrompt)
+	}
+
+	// Type the notebook name.
+	m = sendRune(t, m, 'n')
+	m = sendRune(t, m, 'e')
+	m = sendRune(t, m, 'w')
+
+	if m.inputValue != "new" {
+		t.Errorf("expected inputValue 'new', got %q", m.inputValue)
+	}
+
+	// Press Enter to submit.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Enter")
+	}
+
+	// The notebook should have been created and the list reloaded.
+	found := false
+	for _, nb := range m.notebooks {
+		if nb.name == "new" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'new' notebook in list, got %v", m.notebooks)
+	}
+}
+
+func TestBrowserCreateNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'n' to start creating a note.
+	m = sendRune(t, m, 'n')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after 'n'")
+	}
+	if !containsStr(m.inputPrompt, "New note in") {
+		t.Errorf("expected prompt to contain 'New note in', got %q", m.inputPrompt)
+	}
+
+	// Type note name.
+	for _, r := range "newnote" {
+		m = sendRune(t, m, r)
+	}
+
+	if m.inputValue != "newnote" {
+		t.Errorf("expected inputValue 'newnote', got %q", m.inputValue)
+	}
+
+	// Press Enter to submit.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Enter")
+	}
+
+	// The note should appear in the reloaded list.
+	found := false
+	for _, n := range m.notes {
+		if n.Name == "newnote" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'newnote' in notes list, got %v", m.notes)
+	}
+}
+
+func TestBrowserCreateCancel(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+	initialCount := len(m.notebooks)
+
+	// Press 'n' to start creating, type something, then cancel.
+	m = sendRune(t, m, 'n')
+	m = sendRune(t, m, 'x')
+	m = sendRune(t, m, 'y')
+
+	if m.inputValue != "xy" {
+		t.Errorf("expected inputValue 'xy', got %q", m.inputValue)
+	}
+
+	// Press Esc to cancel.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Esc")
+	}
+	if m.inputValue != "" {
+		t.Errorf("expected empty inputValue after Esc, got %q", m.inputValue)
+	}
+
+	// No new notebook should have been created.
+	names, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != initialCount {
+		t.Errorf("expected %d notebooks (unchanged), got %d", initialCount, len(names))
+	}
+}
+
+func TestBrowserCreateEmptyName(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'n' to start creating.
+	m = sendRune(t, m, 'n')
+
+	// Press Enter immediately with no input.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if !m.inputMode {
+		t.Error("expected inputMode to stay true on empty submit")
+	}
+	if m.inputErr != "Name can't be empty" {
+		t.Errorf("expected error 'Name can't be empty', got %q", m.inputErr)
+	}
+
+	// Error should appear in the view.
+	view := m.View()
+	if !containsStr(view, "Name can't be empty") {
+		t.Errorf("expected error in view, got:\n%s", view)
+	}
+}
+
+func TestBrowserInputModeKeysDoNotTriggerCommands(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'n' to enter input mode.
+	m = sendRune(t, m, 'n')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true")
+	}
+
+	// Type characters that would otherwise trigger commands.
+	m = sendRune(t, m, 'q') // would quit
+	m = sendRune(t, m, 'd') // might trigger delete
+	m = sendRune(t, m, '/') // would trigger filter
+
+	if m.quitting {
+		t.Error("'q' should not quit in input mode")
+	}
+	if m.filtering {
+		t.Error("'/' should not activate filter in input mode")
+	}
+	if m.inputValue != "qd/" {
+		t.Errorf("expected inputValue 'qd/', got %q", m.inputValue)
+	}
+}
 
 func containsStr(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && contains(s, substr)
