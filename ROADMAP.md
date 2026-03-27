@@ -65,10 +65,10 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 10: CLI Color Theming
 
-- [ ] [#87 Add named UI color presets to theme package](https://github.com/oobagi/notebook/issues/87)
-- [ ] [#88 Add ui_theme config key](https://github.com/oobagi/notebook/issues/88)
-- [ ] [#89 Wire theme colors into all lipgloss styles](https://github.com/oobagi/notebook/issues/89)
-- [ ] [#90 Add UI theme tab to theme picker overlay](https://github.com/oobagi/notebook/issues/90)
+- [x] [#87 Add named UI color presets to theme package](https://github.com/oobagi/notebook/issues/87)
+- [x] [#88 Add ui_theme config key](https://github.com/oobagi/notebook/issues/88)
+- [x] [#89 Wire theme colors into all lipgloss styles](https://github.com/oobagi/notebook/issues/89)
+- [x] [#90 Add UI theme tab to theme picker overlay](https://github.com/oobagi/notebook/issues/90)
 
 ## Phase 11: Community Glamour Styles
 
