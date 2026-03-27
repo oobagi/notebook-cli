@@ -207,6 +207,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadNotes(m.currentBook)
 
+	case reloadAndSelectMsg:
+		m.selectAfterReload = msg.name
+		if m.level == 0 {
+			return m, m.loadNotebooks()
+		}
+		return m, m.loadNotes(m.currentBook)
+
 	case statusMsg:
 		m.statusText = msg.text
 		return m, nil
@@ -505,16 +512,15 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 				}
 			}
 			if typed == name {
-				return nil
+				return func() tea.Msg { return statusMsg{"No change"} }
 			}
 			return func() tea.Msg {
 				if err := m.store.RenameNotebook(name, typed); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadMsg{}
+				return reloadAndSelectMsg{typed}
 			}
 		}
-		m.selectAfterReload = ""
 	} else {
 		if len(m.filtered) == 0 {
 			return m, nil
@@ -531,16 +537,15 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 				}
 			}
 			if typed == name {
-				return nil
+				return func() tea.Msg { return statusMsg{"No change"} }
 			}
 			return func() tea.Msg {
 				if err := m.store.RenameNote(m.currentBook, name, typed); err != nil {
 					return statusMsg{err.Error()}
 				}
-				return reloadMsg{}
+				return reloadAndSelectMsg{typed}
 			}
 		}
-		m.selectAfterReload = ""
 	}
 	return m, nil
 }

@@ -799,6 +799,239 @@ func TestBrowserCopyAtL0IsNoop(t *testing.T) {
 	}
 }
 
+// processAllCmds runs the cmd→msg→Update loop until no more cmds are returned.
+func processAllCmds(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			break
+		}
+		updated, next := m.Update(msg)
+		m = updated.(Model)
+		cmd = next
+	}
+	return m
+}
+
+func TestBrowserRenameNotebook(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"old-name": {"note1"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'r' to start rename.
+	m = sendRune(t, m, 'r')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'r'")
+	}
+	if m.inputValue != "old-name" {
+		t.Errorf("expected inputValue pre-populated with 'old-name', got %q", m.inputValue)
+	}
+
+	// Clear the pre-populated value and type a new name.
+	for range "old-name" {
+		m = sendKey(t, m, tea.KeyBackspace)
+	}
+	m = sendString(t, m, "new-name")
+
+	// Press Enter to confirm — process the full cmd chain (action → reload → loaded).
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = processAllCmds(t, updated.(Model), cmd)
+
+	// Store should reflect the rename.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, nb := range notebooks {
+		found[nb] = true
+	}
+	if found["old-name"] {
+		t.Error("old-name should no longer exist")
+	}
+	if !found["new-name"] {
+		t.Error("new-name should exist after rename")
+	}
+
+	// Notes should be preserved.
+	notes, err := s.ListNotes("new-name")
+	if err != nil {
+		t.Fatalf("ListNotes: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 note in renamed notebook, got %d", len(notes))
+	}
+
+	// Cursor should be on the renamed item.
+	if len(m.filtered) > 0 {
+		idx := m.filtered[m.cursor]
+		if m.notebooks[idx].name != "new-name" {
+			t.Errorf("expected cursor on 'new-name', got %q", m.notebooks[idx].name)
+		}
+	}
+}
+
+func TestBrowserRenameNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"old-note"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter notebook.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'r' to start rename.
+	m = sendRune(t, m, 'r')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'r'")
+	}
+	if m.inputValue != "old-note" {
+		t.Errorf("expected inputValue pre-populated with 'old-note', got %q", m.inputValue)
+	}
+
+	// Clear and type new name.
+	for range "old-note" {
+		m = sendKey(t, m, tea.KeyBackspace)
+	}
+	m = sendString(t, m, "new-note")
+
+	// Press Enter to confirm — process the full cmd chain.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = processAllCmds(t, updated.(Model), cmd)
+
+	// Old note should be gone, new note should exist.
+	_, err := s.GetNote("work", "old-note")
+	if err == nil {
+		t.Error("old-note should not exist after rename")
+	}
+	note, err := s.GetNote("work", "new-note")
+	if err != nil {
+		t.Fatalf("GetNote new-note: %v", err)
+	}
+	if note.Content != "test content for old-note" {
+		t.Errorf("content not preserved, got %q", note.Content)
+	}
+}
+
+func TestBrowserRenameCancel(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'r' to start rename.
+	m = sendRune(t, m, 'r')
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true")
+	}
+
+	// Press Esc to cancel.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Esc")
+	}
+
+	// Notebook should be unchanged.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 || notebooks[0] != "work" {
+		t.Errorf("expected unchanged notebooks, got %v", notebooks)
+	}
+}
+
+func TestBrowserRenameEmptyList(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'r' on empty list should do nothing.
+	m = sendRune(t, m, 'r')
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false when list is empty")
+	}
+}
+
+func TestBrowserRenameEmptyName(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'r' to start rename.
+	m = sendRune(t, m, 'r')
+
+	// Clear the name entirely.
+	for range "work" {
+		m = sendKey(t, m, tea.KeyBackspace)
+	}
+
+	// Press Enter with empty name.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// Should have error status.
+	if m.statusText == "" {
+		t.Error("expected status message for empty name")
+	}
+	if !containsStr(m.statusText, "empty") {
+		t.Errorf("expected status to mention 'empty', got %q", m.statusText)
+	}
+
+	// Notebook should be unchanged.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 {
+		t.Errorf("expected 1 notebook unchanged, got %d", len(notebooks))
+	}
+}
+
+func TestBrowserRenameSameName(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Press 'r' to start rename.
+	m = sendRune(t, m, 'r')
+
+	// Don't change the name, just press Enter.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// Should not be in input mode and should show "No change" status.
+	if m.inputMode {
+		t.Error("expected inputMode to be false")
+	}
+	if m.statusText != "No change" {
+		t.Errorf("expected status 'No change', got %q", m.statusText)
+	}
+
+	// Notebook should still exist.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 {
+		t.Errorf("expected 1 notebook, got %d", len(notebooks))
+	}
+}
+
 func TestBrowserViewAtL0IsNoop(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},
