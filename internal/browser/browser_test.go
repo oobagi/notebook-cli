@@ -228,8 +228,8 @@ func TestBrowserEmptyState(t *testing.T) {
 	if !containsStr(view, "No notebooks yet") {
 		t.Errorf("expected empty state message, got:\n%s", view)
 	}
-	if !containsStr(view, "notebook new") {
-		t.Errorf("expected create hint, got:\n%s", view)
+	if !containsStr(view, "Press n") {
+		t.Errorf("expected 'Press n' hint, got:\n%s", view)
 	}
 }
 
@@ -254,6 +254,9 @@ func TestBrowserEmptyNotebook(t *testing.T) {
 	view := m.View()
 	if !containsStr(view, "No notes in") {
 		t.Errorf("expected empty notebook message, got:\n%s", view)
+	}
+	if !containsStr(view, "Press n") {
+		t.Errorf("expected 'Press n' hint, got:\n%s", view)
 	}
 }
 
@@ -1029,6 +1032,134 @@ func TestBrowserRenameSameName(t *testing.T) {
 	}
 	if len(notebooks) != 1 {
 		t.Errorf("expected 1 notebook, got %d", len(notebooks))
+	}
+}
+
+func TestBrowserCreateNotebook(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'n' to start create.
+	m = sendRune(t, m, 'n')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'n'")
+	}
+	if m.inputValue != "" {
+		t.Errorf("expected empty inputValue, got %q", m.inputValue)
+	}
+
+	// Type a name and confirm.
+	m = sendString(t, m, "my-book")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = processAllCmds(t, updated.(Model), cmd)
+
+	// Notebook should exist.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 1 || notebooks[0] != "my-book" {
+		t.Errorf("expected [my-book], got %v", notebooks)
+	}
+}
+
+func TestBrowserCreateNote(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook.
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'n' to start create.
+	m = sendRune(t, m, 'n')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'n'")
+	}
+
+	// Type a name and confirm.
+	m = sendString(t, m, "my-note")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = processAllCmds(t, updated.(Model), cmd)
+
+	// Note should exist.
+	notes, err := s.ListNotes("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Name != "my-note" {
+		t.Errorf("expected [my-note], got %v", notes)
+	}
+}
+
+func TestBrowserCreateCancel(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'n' then Esc.
+	m = sendRune(t, m, 'n')
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Esc")
+	}
+
+	// Nothing should have been created.
+	notebooks, err := s.ListNotebooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notebooks) != 0 {
+		t.Errorf("expected 0 notebooks, got %d", len(notebooks))
+	}
+}
+
+func TestBrowserCreateEmptyName(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'n' then Enter with empty name.
+	m = sendRune(t, m, 'n')
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if m.statusText == "" {
+		t.Error("expected error status for empty name")
+	}
+	if !containsStr(m.statusText, "empty") {
+		t.Errorf("expected status to mention 'empty', got %q", m.statusText)
+	}
+}
+
+func TestBrowserCreateDuplicate(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook.
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// Try to create a duplicate note.
+	m = sendRune(t, m, 'n')
+	m = sendString(t, m, "todo")
+	m = sendKey(t, m, tea.KeyEnter)
+
+	if m.statusText == "" {
+		t.Error("expected error status for duplicate name")
+	}
+	if !containsStr(m.statusText, "already exists") {
+		t.Errorf("expected status to mention 'already exists', got %q", m.statusText)
 	}
 }
 

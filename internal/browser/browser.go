@@ -362,6 +362,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == "r" {
 			return m.startRename()
 		}
+		if s == "n" {
+			return m.startCreate()
+		}
 		if s == "v" && m.level == 1 {
 			return m.startView()
 		}
@@ -550,6 +553,45 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 			}
 			return func() tea.Msg {
 				if err := m.store.RenameNote(m.currentBook, name, typed); err != nil {
+					return statusMsg{err.Error()}
+				}
+				return reloadAndSelectMsg{typed}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m Model) startCreate() (tea.Model, tea.Cmd) {
+	if m.level == 0 {
+		m.inputMode = true
+		m.inputPrompt = "New notebook:"
+		m.inputValue = ""
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed == "" {
+				return func() tea.Msg {
+					return statusMsg{"Name must not be empty"}
+				}
+			}
+			return func() tea.Msg {
+				if err := m.store.CreateNotebook(typed); err != nil {
+					return statusMsg{err.Error()}
+				}
+				return reloadAndSelectMsg{typed}
+			}
+		}
+	} else {
+		m.inputMode = true
+		m.inputPrompt = fmt.Sprintf("New note in %s:", m.currentBook)
+		m.inputValue = ""
+		m.inputAction = func(typed string) tea.Cmd {
+			if typed == "" {
+				return func() tea.Msg {
+					return statusMsg{"Name must not be empty"}
+				}
+			}
+			return func() tea.Msg {
+				if err := m.store.CreateNote(m.currentBook, typed, ""); err != nil {
 					return statusMsg{err.Error()}
 				}
 				return reloadAndSelectMsg{typed}
@@ -1015,12 +1057,31 @@ func (m Model) nameColWidth(level int) int {
 }
 
 func (m Model) renderEmptyNotebooks() string {
-	return "  No notebooks yet.\n\n  Create one with: notebook new \"My Book\"\n"
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height - 4
+	if h < 1 {
+		h = 1
+	}
+	dim := lipgloss.NewStyle().Faint(true)
+	msg := "No notebooks yet.\n\nPress n to create one."
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
 }
 
 func (m Model) renderEmptyNotes() string {
-	return fmt.Sprintf("  No notes in %s.\n\n  Create one with: notebook %s new \"My Note\"\n",
-		m.currentBook, m.currentBook)
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height - 4
+	if h < 1 {
+		h = 1
+	}
+	dim := lipgloss.NewStyle().Faint(true)
+	msg := fmt.Sprintf("No notes in %s.\n\nPress n to create one.", m.currentBook)
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
 }
 
 func (m Model) renderStatusBar() string {
