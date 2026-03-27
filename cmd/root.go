@@ -13,10 +13,9 @@ import (
 )
 
 var (
-	store     *storage.Store
-	dirFlag   string
-	themeFlag string
-	cfg       config.Config
+	store   *storage.Store
+	dirFlag string
+	cfg     config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -33,10 +32,10 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("load config: %w", err)
 		}
 
-		// Resolve the active theme: flag > config > auto-detect.
-		themeName := themeFlag
-		if themeName == "auto" && cfg.Theme != "" && cfg.Theme != "auto" {
-			themeName = cfg.Theme
+		// Resolve the active theme from config (or auto-detect).
+		themeName := cfg.Theme
+		if themeName == "" {
+			themeName = "auto"
 		}
 		theme.SetTheme(theme.FromName(themeName))
 
@@ -69,8 +68,9 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&dirFlag, "dir", "", "root directory for notebook storage (default ~/.notebook)")
-	rootCmd.PersistentFlags().StringVar(&themeFlag, "theme", "auto", "color theme (auto, dark, light)")
+	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
 	rootCmd.SetVersionTemplate("notebook {{.Version}}\n")
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
 
 // Execute runs the root command.

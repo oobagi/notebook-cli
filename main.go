@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/oobagi/notebook/cmd"
@@ -9,7 +8,7 @@ import (
 
 func main() {
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		cmd.PrintErrorStderr(err.Error())
 		os.Exit(1)
 	}
 }

@@ -17,7 +17,15 @@ var (
 var searchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Search across all notebooks",
-	Args:  cobra.ExactArgs(1),
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("Missing search query. Try: notebook search \"meeting notes\"")
+		}
+		if len(args) > 1 {
+			return fmt.Errorf("Too many arguments. Wrap your query in quotes: notebook search \"my query\"")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSearch(cmd.OutOrStdout(), args[0], searchNotebookFlag, searchCaseSensitive)
 	},

@@ -247,8 +247,8 @@ func TestDeleteNonExistentNotebook(t *testing.T) {
 	if !strings.Contains(out, "\u2717") {
 		t.Errorf("expected error symbol in output, got %q", out)
 	}
-	if !strings.Contains(out, "not found") {
-		t.Errorf("expected 'not found' in output, got %q", out)
+	if !strings.Contains(out, "doesn't exist") {
+		t.Errorf("expected 'doesn't exist' in output, got %q", out)
 	}
 }
 

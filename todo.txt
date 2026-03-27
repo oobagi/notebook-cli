@@ -1,7 +1,0 @@
-TODO (notebook)
-
-Similar projects to what we're trying to achieve:
-
-- https://github.com/guilhermeprokisch/see (newer)
-
-- https://github.com/charmbracelet/glow (older)

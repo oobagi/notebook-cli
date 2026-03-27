@@ -7,11 +7,18 @@ import (
 )
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all notebooks",
-	Args:  cobra.NoArgs,
+	Use:   "list [notebook]",
+	Short: "List all notebooks, or notes in a notebook",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		w := cmd.OutOrStdout()
+
+		// If a notebook name is given, list notes in that notebook.
+		if len(args) == 1 {
+			return listNotesInBook(w, args[0])
+		}
+
+		// Otherwise, list all notebooks.
 		notebooks, err := store.ListNotebooks()
 		if err != nil {
 			return err
