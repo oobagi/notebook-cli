@@ -398,6 +398,173 @@ func TestListNotesRejectsTraversal(t *testing.T) {
 	}
 }
 
+// --- Rename tests ---
+
+func TestRenameNotebook(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("old-name", "note1", "content one"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	if err := store.CreateNote("old-name", "note2", "content two"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	if err := store.RenameNotebook("old-name", "new-name"); err != nil {
+		t.Fatalf("RenameNotebook: %v", err)
+	}
+
+	// Old directory should be gone.
+	if _, err := os.Stat(filepath.Join(store.Root, "old-name")); !os.IsNotExist(err) {
+		t.Error("old notebook dir should not exist")
+	}
+
+	// New directory should exist with notes preserved.
+	notes, err := store.ListNotes("new-name")
+	if err != nil {
+		t.Fatalf("ListNotes on renamed notebook: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes in renamed notebook, got %d", len(notes))
+	}
+
+	note, err := store.GetNote("new-name", "note1")
+	if err != nil {
+		t.Fatalf("GetNote after rename: %v", err)
+	}
+	if note.Content != "content one" {
+		t.Errorf("Content = %q, want %q", note.Content, "content one")
+	}
+}
+
+func TestRenameNotebookDuplicate(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateNotebook("bravo"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.RenameNotebook("alpha", "bravo")
+	if err == nil {
+		t.Fatal("expected error renaming to existing notebook")
+	}
+
+	// Original should still exist.
+	if _, err := os.Stat(filepath.Join(store.Root, "alpha")); err != nil {
+		t.Error("original notebook should still exist after failed rename")
+	}
+}
+
+func TestRenameNotebookNotFound(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	err := store.RenameNotebook("ghost", "new")
+	if err == nil {
+		t.Fatal("expected error renaming non-existent notebook")
+	}
+}
+
+func TestRenameNote(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("nb", "old-note", "my content"); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	if err := store.RenameNote("nb", "old-note", "new-note"); err != nil {
+		t.Fatalf("RenameNote: %v", err)
+	}
+
+	// Old note should be gone.
+	_, err := store.GetNote("nb", "old-note")
+	if err == nil {
+		t.Error("expected error getting old note name after rename")
+	}
+
+	// New note should exist with preserved content.
+	note, err := store.GetNote("nb", "new-note")
+	if err != nil {
+		t.Fatalf("GetNote after rename: %v", err)
+	}
+	if note.Content != "my content" {
+		t.Errorf("Content = %q, want %q", note.Content, "my content")
+	}
+}
+
+func TestRenameNoteDuplicate(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("nb", "first", "content1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateNote("nb", "second", "content2"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.RenameNote("nb", "first", "second")
+	if err == nil {
+		t.Fatal("expected error renaming to existing note")
+	}
+
+	// Original should still exist with original content.
+	note, err := store.GetNote("nb", "first")
+	if err != nil {
+		t.Fatalf("GetNote after failed rename: %v", err)
+	}
+	if note.Content != "content1" {
+		t.Errorf("Content = %q, want %q", note.Content, "content1")
+	}
+}
+
+func TestRenameNoteNotFound(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("nb"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.RenameNote("nb", "ghost", "new")
+	if err == nil {
+		t.Fatal("expected error renaming non-existent note")
+	}
+}
+
+func TestRenameNotebookRejectsTraversal(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNotebook("legit"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.RenameNotebook("../evil", "new"); err == nil {
+		t.Error("RenameNotebook with traversal oldName should fail")
+	}
+	if err := store.RenameNotebook("legit", "../evil"); err == nil {
+		t.Error("RenameNotebook with traversal newName should fail")
+	}
+}
+
+func TestRenameNoteRejectsTraversal(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	if err := store.CreateNote("nb", "legit", "x"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.RenameNote("../evil", "legit", "new"); err == nil {
+		t.Error("RenameNote with traversal notebook should fail")
+	}
+	if err := store.RenameNote("nb", "../evil", "new"); err == nil {
+		t.Error("RenameNote with traversal oldName should fail")
+	}
+	if err := store.RenameNote("nb", "legit", "../evil"); err == nil {
+		t.Error("RenameNote with traversal newName should fail")
+	}
+}
+
 // --- Duplicate note rejection test ---
 
 func TestCreateNoteDuplicate(t *testing.T) {
