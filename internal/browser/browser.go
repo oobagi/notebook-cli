@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -65,6 +66,7 @@ type Model struct {
 
 	// Temporary status message shown in the status bar.
 	statusText string
+	statusGen  int // generation counter for auto-dismiss
 
 	// View mode fields (rendered markdown overlay).
 	viewMode    bool   // viewing a note's rendered markdown
@@ -108,6 +110,16 @@ func New(cfg Config) Model {
 // Selected returns the note selection if the user chose one, or nil.
 func (m Model) Selected() *Selection {
 	return m.selected
+}
+
+// scheduleStatusDismiss increments the generation counter and returns a tick
+// command that will clear the status text after statusTimeout.
+func (m *Model) scheduleStatusDismiss() tea.Cmd {
+	m.statusGen++
+	gen := m.statusGen
+	return tea.Tick(statusTimeout, func(t time.Time) tea.Msg {
+		return statusTimeoutMsg{generation: gen}
+	})
 }
 
 // notebooksLoadedMsg carries the loaded notebook list.
@@ -184,6 +196,14 @@ type reloadAndSelectMsg struct{ name string }
 // statusMsg carries a temporary status message for the status bar.
 type statusMsg struct{ text string }
 
+// statusTimeoutMsg is sent after the status auto-dismiss delay.
+// The generation field is compared against Model.statusGen to ensure
+// only the most recent status message is cleared.
+type statusTimeoutMsg struct{ generation int }
+
+// statusTimeout is the delay before auto-dismissing a transient status message.
+const statusTimeout = 4 * time.Second
+
 // viewLoadedMsg carries the note content to display in the view overlay.
 type viewLoadedMsg struct {
 	title   string
@@ -242,6 +262,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.statusText = msg.text
+		return m, m.scheduleStatusDismiss()
+
+	case statusTimeoutMsg:
+		if msg.generation == m.statusGen {
+			m.statusText = ""
+		}
 		return m, nil
 
 	case viewLoadedMsg:
@@ -870,15 +896,15 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cfg, err := config.Load()
 			if err != nil {
 				m.statusText = fmt.Sprintf("Config load error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			if err := config.Set(&cfg, "glamour_style", selected); err != nil {
 				m.statusText = fmt.Sprintf("Config error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			if err := config.Save(cfg); err != nil {
 				m.statusText = fmt.Sprintf("Config save error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			render.SetGlamourStyle(selected)
 			m.statusText = fmt.Sprintf("Theme set to %q", selected)
@@ -894,20 +920,20 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cfg, err := config.Load()
 			if err != nil {
 				m.statusText = fmt.Sprintf("Config load error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			if err := config.Set(&cfg, "ui_theme", selected.Name); err != nil {
 				m.statusText = fmt.Sprintf("Config error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			if err := config.Save(cfg); err != nil {
 				m.statusText = fmt.Sprintf("Config save error: %s", err)
-				return m, nil
+				return m, m.scheduleStatusDismiss()
 			}
 			theme.SetTheme(selected)
 			m.statusText = fmt.Sprintf("UI theme set to %s", selected.Name)
 		}
-		return m, nil
+		return m, m.scheduleStatusDismiss()
 
 	case tea.KeyRunes:
 		if string(msg.Runes) == "q" || string(msg.Runes) == "t" {

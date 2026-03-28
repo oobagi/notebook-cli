@@ -40,6 +40,14 @@ type previewTickMsg struct{ seq int }
 // previewDebounce is the delay before re-rendering the preview after a text change.
 const previewDebounce = 150 * time.Millisecond
 
+// statusTimeoutMsg is sent after the status auto-dismiss delay.
+// The generation field is compared against Model.statusGen to ensure
+// only the most recent status message is cleared.
+type statusTimeoutMsg struct{ generation int }
+
+// statusTimeout is the delay before auto-dismissing a transient status message.
+const statusTimeout = 4 * time.Second
+
 // minSplitWidth is the minimum terminal width required to show the split pane.
 // Below this, the preview is auto-hidden.
 const minSplitWidth = 40
@@ -61,6 +69,7 @@ type Model struct {
 	preview        string
 	previewDirty   bool
 	previewSeq int
+	statusGen  int // generation counter for status auto-dismiss
 }
 
 type statusKind int
@@ -158,6 +167,16 @@ func (m *Model) renderPreview() {
 	}
 	m.preview = render.RenderMarkdown(content, pw)
 	m.previewDirty = false
+}
+
+// scheduleStatusDismiss increments the generation counter and returns a tick
+// command that will clear the status after statusTimeout.
+func (m *Model) scheduleStatusDismiss() tea.Cmd {
+	m.statusGen++
+	gen := m.statusGen
+	return tea.Tick(statusTimeout, func(t time.Time) tea.Msg {
+		return statusTimeoutMsg{generation: gen}
+	})
 }
 
 // schedulePreviewTick increments the sequence counter and returns a tick command.
@@ -261,6 +280,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewTickMsg:
 		if msg.seq == m.previewSeq && m.previewDirty {
 			m.renderPreview()
+		}
+		return m, nil
+
+	case statusTimeoutMsg:
+		if msg.generation == m.statusGen {
+			m.status = ""
+			m.statusStyle = statusNone
 		}
 		return m, nil
 
@@ -372,7 +398,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.initial = msg.content
 		m.status = "Saved"
 		m.statusStyle = statusSuccess
-		return m, nil
+		return m, m.scheduleStatusDismiss()
 
 	case savedQuitMsg:
 		m.initial = msg.content
@@ -382,7 +408,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case saveErrMsg:
 		m.status = fmt.Sprintf("Save failed: %s", msg.err)
 		m.statusStyle = statusError
-		return m, nil
+		return m, m.scheduleStatusDismiss()
 	}
 
 	// Track content before the textarea processes the message so we can
