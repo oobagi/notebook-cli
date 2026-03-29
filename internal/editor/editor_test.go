@@ -578,7 +578,8 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 		"Ctrl+P", "Toggle preview",
 		"Ctrl+G", "Toggle this help",
 		"Ctrl+K", "Cut line",
-		"Ctrl+U", "Paste line",
+		"Ctrl+Y", "Paste line",
+		"Ctrl+U", "Delete to line start",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -633,7 +634,7 @@ func TestCtrlKCutsLine(t *testing.T) {
 	}
 }
 
-func TestCtrlUPastesLine(t *testing.T) {
+func TestCtrlYPastesLine(t *testing.T) {
 	m := New(Config{Title: "test", Content: "line1\nline2\nline3"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -646,8 +647,8 @@ func TestCtrlUPastesLine(t *testing.T) {
 		t.Fatalf("clipboard should be %q, got %q", "line3", m.clipboard)
 	}
 
-	// Now paste — should re-insert line3.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	// Now paste with Ctrl+Y — should re-insert line3.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
 	m = updated.(Model)
 
 	content := m.Content()
@@ -659,7 +660,7 @@ func TestCtrlUPastesLine(t *testing.T) {
 	}
 }
 
-func TestCtrlUNopWithEmptyClipboard(t *testing.T) {
+func TestCtrlYNopWithEmptyClipboard(t *testing.T) {
 	m := New(Config{Title: "test", Content: "line1\nline2"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -667,11 +668,72 @@ func TestCtrlUNopWithEmptyClipboard(t *testing.T) {
 	contentBefore := m.Content()
 
 	// Paste with empty clipboard — should be a no-op.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
 	m = updated.(Model)
 
 	if m.Content() != contentBefore {
 		t.Fatal("paste with empty clipboard should not change content")
+	}
+}
+
+func TestCtrlUDeletesToLineStart(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// The textarea cursor starts at the end of the content.
+	// Ctrl+U should delete everything before the cursor on the current line.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+
+	content := m.Content()
+	if content != "" {
+		t.Fatalf("Ctrl+U at end of line should delete entire line content, got %q", content)
+	}
+}
+
+func TestCtrlUDeletesToLineStartMultiline(t *testing.T) {
+	m := New(Config{Title: "test", Content: "line1\nhello world\nline3"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to line 1 (middle line). The cursor starts at the end
+	// of the last line. Move up twice to get to line 0, then down once
+	// to get to line 1.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+
+	// Now we should be on line 1 ("hello world"). Ctrl+U should delete
+	// everything before cursor on this line, leaving other lines intact.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+
+	content := m.Content()
+	if !strings.Contains(content, "line1") {
+		t.Fatal("line1 should remain after Ctrl+U on a different line")
+	}
+	if !strings.Contains(content, "line3") {
+		t.Fatal("line3 should remain after Ctrl+U on a different line")
+	}
+}
+
+func TestCtrlUNoOpAtLineStart(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to the start of the line.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m = updated.(Model)
+
+	contentBefore := m.Content()
+
+	// Ctrl+U at start of line should be a no-op.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+
+	if m.Content() != contentBefore {
+		t.Fatalf("Ctrl+U at start of line should be no-op, got %q", m.Content())
 	}
 }
 

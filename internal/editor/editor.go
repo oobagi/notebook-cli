@@ -267,6 +267,44 @@ func (m *Model) pasteLine() {
 	}
 }
 
+// deleteToLineStart removes all text from the cursor to the start of the
+// current line. If the cursor is already at the start of the line, this is a
+// no-op.
+func (m *Model) deleteToLineStart() {
+	value := m.textarea.Value()
+	lines := strings.Split(value, "\n")
+
+	line := m.cursorLine()
+	if line < 0 || line >= len(lines) {
+		return
+	}
+
+	col := m.textarea.LineInfo().ColumnOffset
+	if col <= 0 {
+		return
+	}
+
+	// Remove everything before the cursor on the current line.
+	// ColumnOffset counts rune positions (not display width), so convert to
+	// rune slice for correct slicing of multi-byte/double-width characters.
+	runes := []rune(lines[line])
+	if col > len(runes) {
+		col = len(runes)
+	}
+	lines[line] = string(runes[col:])
+
+	m.textarea.SetValue(strings.Join(lines, "\n"))
+
+	// Reposition the cursor to the target line, column 0.
+	m.textarea.SetCursor(0)
+	for m.textarea.Line() > line {
+		m.textarea.CursorUp()
+	}
+	for m.textarea.Line() < line {
+		m.textarea.CursorDown()
+	}
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -348,6 +386,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.schedulePreviewTick()
 
 		case "ctrl+u":
+			m.deleteToLineStart()
+			m.previewDirty = true
+			return m, m.schedulePreviewTick()
+
+		case "ctrl+y":
 			m.pasteLine()
 			m.previewDirty = true
 			return m, m.schedulePreviewTick()
@@ -431,7 +474,8 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+P    Toggle preview
   Ctrl+G    Toggle this help
   Ctrl+K    Cut line
-  Ctrl+U    Paste line
+  Ctrl+Y    Paste line
+  Ctrl+U    Delete to line start
 
   Press Ctrl+G or Esc to close`
 
