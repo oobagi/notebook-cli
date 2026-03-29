@@ -58,7 +58,6 @@ type Model struct {
 	quitPrompt  bool
 	quitting    bool
 	showHelp    bool
-	clipboard   string // line-level clipboard for Ctrl+Y
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
@@ -482,131 +481,6 @@ func (m *Model) cutBlock() {
 	m.textareas[m.active].Focus()
 }
 
-// toggleCheckbox toggles the Checked field on the active block if it is a
-// Checklist block. For non-checklist blocks, it is a no-op.
-func (m *Model) toggleCheckbox() {
-	if m.active < 0 || m.active >= len(m.blocks) {
-		return
-	}
-	if m.blocks[m.active].Type != block.Checklist {
-		return
-	}
-	m.blocks[m.active].Checked = !m.blocks[m.active].Checked
-}
-
-// deleteToLineStart removes all text from the cursor to the start of the
-// current line in the active textarea.
-func (m *Model) deleteToLineStart() {
-	if m.active < 0 || m.active >= len(m.textareas) {
-		return
-	}
-	ta := &m.textareas[m.active]
-	value := ta.Value()
-	lines := strings.Split(value, "\n")
-
-	line := ta.Line()
-	if line < 0 || line >= len(lines) {
-		return
-	}
-
-	col := ta.LineInfo().ColumnOffset
-	if col <= 0 {
-		return
-	}
-
-	runes := []rune(lines[line])
-	if col > len(runes) {
-		col = len(runes)
-	}
-	lines[line] = string(runes[col:])
-
-	ta.SetValue(strings.Join(lines, "\n"))
-
-	// Reposition cursor.
-	ta.SetCursor(0)
-	for ta.Line() > line {
-		ta.CursorUp()
-	}
-	for ta.Line() < line {
-		ta.CursorDown()
-	}
-}
-
-// cutLine removes the current line from the active textarea and stores it
-// in the line clipboard.
-func (m *Model) cutLine() string {
-	if m.active < 0 || m.active >= len(m.textareas) {
-		return ""
-	}
-	ta := &m.textareas[m.active]
-	value := ta.Value()
-	lines := strings.Split(value, "\n")
-
-	line := ta.Line()
-	if line < 0 || line >= len(lines) {
-		return ""
-	}
-
-	cut := lines[line]
-	newLines := make([]string, 0, len(lines)-1)
-	newLines = append(newLines, lines[:line]...)
-	newLines = append(newLines, lines[line+1:]...)
-
-	ta.SetValue(strings.Join(newLines, "\n"))
-
-	newLineCount := len(newLines)
-	targetLine := line
-	if targetLine >= newLineCount {
-		targetLine = newLineCount - 1
-	}
-	if targetLine < 0 {
-		targetLine = 0
-	}
-	ta.SetCursor(0)
-	for ta.Line() > targetLine {
-		ta.CursorUp()
-	}
-	for ta.Line() < targetLine {
-		ta.CursorDown()
-	}
-
-	return cut
-}
-
-// pasteLine inserts the line clipboard content at the current cursor line
-// in the active textarea.
-func (m *Model) pasteLine() {
-	if m.clipboard == "" {
-		return
-	}
-	if m.active < 0 || m.active >= len(m.textareas) {
-		return
-	}
-	ta := &m.textareas[m.active]
-	value := ta.Value()
-	lines := strings.Split(value, "\n")
-
-	line := ta.Line()
-	if line < 0 {
-		line = 0
-	}
-	if line > len(lines) {
-		line = len(lines)
-	}
-
-	newLines := make([]string, 0, len(lines)+1)
-	newLines = append(newLines, lines[:line]...)
-	newLines = append(newLines, m.clipboard)
-	newLines = append(newLines, lines[line:]...)
-
-	ta.SetValue(strings.Join(newLines, "\n"))
-
-	ta.SetCursor(0)
-	for ta.Line() < line {
-		ta.CursorDown()
-	}
-}
-
 // applyPaletteSelection changes the active block's type to the selected
 // palette item type. Special handling is applied for dividers and code blocks.
 func (m *Model) applyPaletteSelection(bt block.BlockType) {
@@ -764,21 +638,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+k":
 			m.cutBlock()
-			m.updateViewport()
-			return m, nil
-
-		case "ctrl+u":
-			m.deleteToLineStart()
-			m.updateViewport()
-			return m, nil
-
-		case "ctrl+d":
-			m.toggleCheckbox()
-			m.updateViewport()
-			return m, nil
-
-		case "ctrl+y":
-			m.pasteLine()
 			m.updateViewport()
 			return m, nil
 
@@ -999,9 +858,6 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+C    Force quit (no save)
   Ctrl+G    Toggle this help
   Ctrl+K    Cut block
-  Ctrl+Y    Paste line
-  Ctrl+U    Delete to line start
-  Ctrl+D    Toggle checkbox
   Enter     New block below
   Backspace Merge/delete block
   Alt+Up    Move block up
