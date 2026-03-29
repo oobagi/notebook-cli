@@ -120,8 +120,12 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 	case block.CodeBlock, block.Paragraph, block.Quote:
 		// Multi-line: allow enough height for content.
 		lines := strings.Count(b.Content, "\n") + 1
-		if lines < 3 {
-			lines = 3
+		minLines := 3
+		if b.Type == block.Paragraph {
+			minLines = 1
+		}
+		if lines < minLines {
+			lines = minLines
 		}
 		ta.SetHeight(lines)
 	default:
@@ -320,8 +324,12 @@ func (m *Model) mergeBlockUp(idx int) {
 	// For multi-line blocks, grow the textarea.
 	if isMultiLine(m.blocks[idx-1].Type) {
 		lines := strings.Count(merged, "\n") + 1
-		if lines < 3 {
-			lines = 3
+		minLines := 3
+		if m.blocks[idx-1].Type == block.Paragraph {
+			minLines = 1
+		}
+		if lines < minLines {
+			lines = minLines
 		}
 		m.textareas[idx-1].SetHeight(lines)
 	}
@@ -501,8 +509,12 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	default:
 		if isMultiLine(bt) {
 			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
-			if lines < 3 {
-				lines = 3
+			minLines := 3
+			if bt == block.Paragraph {
+				minLines = 1
+			}
+			if lines < minLines {
+				lines = minLines
 			}
 			m.textareas[m.active].SetHeight(lines)
 		} else {
@@ -779,8 +791,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		bt := m.blocks[m.active].Type
 		if isMultiLine(bt) {
 			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
-			if lines < 3 {
-				lines = 3
+			minLines := 3
+			if bt == block.Paragraph {
+				minLines = 1
+			}
+			if lines < minLines {
+				lines = minLines
 			}
 			m.textareas[m.active].SetHeight(lines)
 		}
