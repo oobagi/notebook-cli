@@ -69,6 +69,13 @@ var rootCmd = &cobra.Command{
 		if len(args) == 0 {
 			return runBrowser()
 		}
+
+		// If the first arg looks like a file path, open it directly
+		// instead of treating it as a notebook name.
+		if isFilePath(args[0]) {
+			return openFile(args[0])
+		}
+
 		return dispatch(cmd, args)
 	},
 	// Accept arbitrary args so the dispatcher can handle noun-verb routing.
