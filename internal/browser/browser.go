@@ -23,9 +23,11 @@ type EditFunc func(book, note string) error
 
 // Config holds the dependencies needed by the browser.
 type Config struct {
-	Store       *storage.Store
-	EditNote    EditFunc
-	InitialBook string // if set, start at L1 in this notebook
+	Store         *storage.Store
+	EditNote      EditFunc
+	InitialBook        string // if set, start at L1 in this notebook
+	InitialCursor      int    // cursor position to restore within the initial view
+	InitialSavedCursor int    // L0 cursor to restore when returning from L1
 }
 
 // Selection represents a note the user chose to open.
@@ -43,6 +45,7 @@ type Model struct {
 	notes       []model.Note
 	currentBook string // selected notebook name
 	cursor      int    // current selection index
+	savedCursor int    // notebook-level cursor restored on Esc
 	filter       string // fuzzy search filter text
 	filtering    bool   // whether filter mode is active
 	filterCursor int    // cursor position within filter
@@ -104,12 +107,24 @@ func New(cfg Config) Model {
 		m.level = 1
 		m.currentBook = cfg.InitialBook
 	}
+	m.cursor = cfg.InitialCursor
+	m.savedCursor = cfg.InitialSavedCursor
 	return m
 }
 
 // Selected returns the note selection if the user chose one, or nil.
 func (m Model) Selected() *Selection {
 	return m.selected
+}
+
+// Cursor returns the current cursor position.
+func (m Model) Cursor() int {
+	return m.cursor
+}
+
+// SavedCursor returns the saved L0 cursor position.
+func (m Model) SavedCursor() int {
+	return m.savedCursor
 }
 
 // scheduleStatusDismiss increments the generation counter and returns a tick
@@ -1199,6 +1214,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.level == 0 {
 		m.currentBook = m.notebooks[idx].name
 		m.level = 1
+		m.savedCursor = m.cursor
 		m.cursor = 0
 		m.filter = ""
 		m.filtering = false
@@ -1220,7 +1236,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 	if m.level == 1 {
 		m.level = 0
-		m.cursor = 0
+		m.cursor = m.savedCursor
 		m.filter = ""
 		m.filtering = false
 		m.notebooks = nil
