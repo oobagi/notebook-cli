@@ -87,8 +87,8 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 13: Block Editor Core
 
-- [ ] [#121 Replace textarea with block list widget](https://github.com/oobagi/notebook/issues/121)
-- [ ] [#122 Block operations — create, delete, merge, reorder](https://github.com/oobagi/notebook/issues/122)
+- [x] [#121 Replace textarea with block list widget](https://github.com/oobagi/notebook/issues/121)
+- [x] [#122 Block operations — create, delete, merge, reorder](https://github.com/oobagi/notebook/issues/122)
 
 ## Phase 14: Command Palette & Polish
 
