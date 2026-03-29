@@ -28,14 +28,15 @@
 
 Notebook is a terminal-native note editor that renders markdown as you type — split-pane, real-time, no browser needed. Think Google Docs meets your terminal.
 
-- **Live split-pane editor** — write markdown on the left, see it rendered on the right, updated as you type
-- **Live preview** — see your markdown rendered in real-time with a split-pane view as you type
+- **Block editor** — write in structured blocks (paragraphs, headings, lists, code, quotes) with a `/` command palette to switch types
 - **TUI browser** — launch `notebook` and browse everything with arrow keys and fuzzy search, like a GUI
+- **Open any file** — `notebook path/to/file.md` opens external files directly in the editor
 - **Clickable links** — URLs in your notes are actually clickable in supported terminals (OSC 8)
 
 ## Features
 
-- **[Split-pane editor](#usage)** — Real-time markdown rendering side-by-side with your text. Ctrl+P to toggle.
+- **[Block editor](#usage)** — Structured editing with 10 block types. Press `/` to open the command palette and change block types.
+- **[External files](#usage)** — `notebook path/to/file.md` opens any markdown or text file directly in the editor.
 - **[Clipboard copy](#usage)** — `notebook <book> <note> copy` to copy note content to your clipboard.
 - **[Full-text search](#usage)** — `notebook search "query"` across every note, with highlighted matches and context.
 - **[TUI browser](#usage)** — Fuzzy-searchable notebook/note browser. Arrow keys + Enter. No commands to memorize.
@@ -73,6 +74,7 @@ notebook <book> <note> copy            # Copy note content to clipboard
 notebook <book> delete                 # Delete a notebook and all its notes
 notebook <book> search "query"         # Search within a notebook
 notebook search "query"                # Search across all notebooks
+notebook path/to/file.md               # Open any file directly in the editor
 notebook config                        # Show current configuration
 notebook config set <key> <value>      # Set a config value
 ```

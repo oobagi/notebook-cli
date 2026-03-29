@@ -29,8 +29,9 @@ internal/
   editor/      Block-based editor with per-block textareas and / command palette (Bubble Tea)
   model/       Core types: Notebook, Note
   render/      Markdown rendering, OSC 8 links, admonition blocks (Glamour)
-  storage/     Filesystem-based notebook/note CRUD operations
-  theme/       Auto light/dark theme detection
+  storage/     Filesystem-based notebook/note CRUD operations, welcome note seeding
+  theme/       Auto light/dark detection, UI color presets, glamour style resolution
+styles/        Community-contributed Glamour style JSON files
 docs/          Documentation and design system
 assets/        Icons and media
 ```
