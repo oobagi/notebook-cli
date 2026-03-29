@@ -692,6 +692,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.swapBlocks(1)
 			m.updateViewport()
 			return m, nil
+
+		case "ctrl+u":
+			if m.handleBackspace() {
+				m.updateViewport()
+				return m, nil
+			}
+			m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyBackspace})
+			m.updateViewport()
+			return m, nil
 		}
 
 	case savedMsg:
