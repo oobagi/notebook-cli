@@ -92,5 +92,5 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 14: Command Palette & Polish
 
-- [ ] [#123 / command palette for block type insertion](https://github.com/oobagi/notebook/issues/123)
-- [ ] [#124 Checklist toggle, visual polish, help overlay update](https://github.com/oobagi/notebook/issues/124)
+- [x] [#123 / command palette for block type insertion](https://github.com/oobagi/notebook/issues/123)
+- [x] [#124 Checklist toggle, visual polish, help overlay update](https://github.com/oobagi/notebook/issues/124)

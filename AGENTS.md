@@ -26,7 +26,7 @@ internal/
   browser/     TUI notebook/note browser with fuzzy search (Bubble Tea)
   clipboard/   System clipboard and OSC 52 clipboard support
   config/      TOML configuration file (~/.config/notebook/config.toml)
-  editor/      Terminal editor with live markdown preview (Bubble Tea)
+  editor/      Block-based editor with per-block textareas and / command palette (Bubble Tea)
   model/       Core types: Notebook, Note
   render/      Markdown rendering, OSC 8 links, admonition blocks (Glamour)
   storage/     Filesystem-based notebook/note CRUD operations
