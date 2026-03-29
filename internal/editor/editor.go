@@ -267,6 +267,44 @@ func (m *Model) pasteLine() {
 	}
 }
 
+// toggleCheckbox toggles a markdown checkbox on the current line.
+// It converts "- [ ] " to "- [x] " and vice versa, and similarly for
+// asterisk bullets ("* [ ] " / "* [x] "). If the current line does not
+// contain a checkbox pattern, the method is a no-op.
+func (m *Model) toggleCheckbox() {
+	value := m.textarea.Value()
+	lines := strings.Split(value, "\n")
+
+	line := m.cursorLine()
+	if line < 0 || line >= len(lines) {
+		return
+	}
+
+	cur := lines[line]
+	var updated string
+	switch {
+	case strings.Contains(cur, "- [ ] "):
+		updated = strings.Replace(cur, "- [ ] ", "- [x] ", 1)
+	case strings.Contains(cur, "- [x] "):
+		updated = strings.Replace(cur, "- [x] ", "- [ ] ", 1)
+	case strings.Contains(cur, "* [ ] "):
+		updated = strings.Replace(cur, "* [ ] ", "* [x] ", 1)
+	case strings.Contains(cur, "* [x] "):
+		updated = strings.Replace(cur, "* [x] ", "* [ ] ", 1)
+	default:
+		return // not a checkbox line — no-op
+	}
+
+	lines[line] = updated
+	m.textarea.SetValue(strings.Join(lines, "\n"))
+
+	// Restore cursor to the same line.
+	m.textarea.SetCursor(0)
+	for m.textarea.Line() < line {
+		m.textarea.CursorDown()
+	}
+}
+
 // deleteToLineStart removes all text from the cursor to the start of the
 // current line. If the cursor is already at the start of the line, this is a
 // no-op.
@@ -390,6 +428,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previewDirty = true
 			return m, m.schedulePreviewTick()
 
+		case "ctrl+d":
+			m.toggleCheckbox()
+			m.previewDirty = true
+			return m, m.schedulePreviewTick()
+
 		case "ctrl+y":
 			m.pasteLine()
 			m.previewDirty = true
@@ -476,6 +519,7 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+K    Cut line
   Ctrl+Y    Paste line
   Ctrl+U    Delete to line start
+  Ctrl+D    Toggle checkbox
 
   Press Ctrl+G or Esc to close`
 
