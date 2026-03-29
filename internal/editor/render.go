@@ -31,7 +31,7 @@ func (m Model) renderBlock(idx int) string {
 }
 
 // renderActiveBlock renders the block that currently has focus, showing
-// the textarea for editing.
+// the textarea for editing with a left-margin accent indicator.
 func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	if idx < 0 || idx >= len(m.textareas) {
 		return ""
@@ -40,26 +40,37 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	ta := m.textareas[idx]
 	taView := ta.View()
 
+	th := theme.Current()
+	indicator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(th.Accent)).
+		Render("\u258e")
+
+	var rendered string
+
 	switch b.Type {
 	case block.Heading1:
 		style := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(theme.Current().Accent))
-		return style.Render(taView)
+			Foreground(lipgloss.Color(th.Accent))
+		rendered = style.Render(taView)
+		// Add blank line above H1 unless it's the first block.
+		if idx > 0 {
+			rendered = "\n" + rendered
+		}
 
 	case block.Heading2:
 		style := lipgloss.NewStyle().Bold(true)
-		return style.Render(taView)
+		rendered = style.Render(taView)
 
 	case block.Heading3:
 		style := lipgloss.NewStyle().Bold(true).Faint(true)
-		return style.Render(taView)
+		rendered = style.Render(taView)
 
 	case block.BulletList:
 		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
+			Foreground(lipgloss.Color(th.Muted)).
 			Render("  \u2022  ")
-		return prefix + taView
+		rendered = prefix + taView
 
 	case block.NumberedList:
 		num := 1
@@ -71,9 +82,9 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			}
 		}
 		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
+			Foreground(lipgloss.Color(th.Muted)).
 			Render(fmt.Sprintf("  %d. ", num))
-		return prefix + taView
+		rendered = prefix + taView
 
 	case block.Checklist:
 		var marker string
@@ -83,9 +94,9 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			marker = "  \u2610 "
 		}
 		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
+			Foreground(lipgloss.Color(th.Muted)).
 			Render(marker)
-		return prefix + taView
+		rendered = prefix + taView
 
 	case block.CodeBlock:
 		label := ""
@@ -97,20 +108,20 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		border := lipgloss.NewStyle().
 			BorderLeft(true).
 			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(theme.Current().Border)).
+			BorderForeground(lipgloss.Color(th.Border)).
 			PaddingLeft(1)
-		return label + "\n" + border.Render(taView)
+		rendered = label + "\n" + border.Render(taView)
 
 	case block.Quote:
 		bar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
+			Foreground(lipgloss.Color(th.Muted)).
 			Render("\u2502 ")
 		// Prepend the bar to each line of the textarea view.
 		lines := strings.Split(taView, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
 		}
-		return strings.Join(lines, "\n")
+		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
 		w := m.width
@@ -120,13 +131,20 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		if w > 40 {
 			w = 40
 		}
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
+		rendered = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(th.Muted)).
 			Render(strings.Repeat("\u2500", w))
 
 	default:
-		return taView
+		rendered = taView
 	}
+
+	// Prepend the accent-colored active block indicator to each line.
+	lines := strings.Split(rendered, "\n")
+	for i, l := range lines {
+		lines[i] = indicator + " " + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderInactiveBlock renders a block as styled static text (no cursor).

@@ -1099,5 +1099,68 @@ func stripAnsi(s string) string {
 	return string(out)
 }
 
+func TestEmptyDocumentStartsWithOneParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("empty document should have exactly 1 block, got %d", m.BlockCount())
+	}
+
+	if m.blocks[0].Type != 0 { // block.Paragraph == 0
+		t.Fatalf("empty document should start with Paragraph block, got type %d", m.blocks[0].Type)
+	}
+
+	if m.blocks[0].Content != "" {
+		t.Fatalf("empty document paragraph should have empty content, got %q", m.blocks[0].Content)
+	}
+
+	if m.active != 0 {
+		t.Fatalf("active block should be 0, got %d", m.active)
+	}
+}
+
+func TestStatusBarContainsCommandsHint(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = updated.(Model)
+
+	view := m.View()
+	if !containsPlainText(view, "/ for commands") {
+		t.Fatal("status bar should contain '/ for commands' hint")
+	}
+}
+
+func TestHelpContainsBlockTypePalette(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+	if !containsPlainText(view, "Block type palette") {
+		t.Fatal("help overlay should contain 'Block type palette' for / keybinding")
+	}
+}
+
+func TestHelpDoesNotContainStaleEntries(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+
+	stale := []string{"Ctrl+P", "Ctrl+E"}
+	for _, s := range stale {
+		if containsPlainText(view, s) {
+			t.Fatalf("help overlay should NOT contain stale entry %q", s)
+		}
+	}
+}
+
 // Verify strings import is used.
 var _ = strings.Contains
