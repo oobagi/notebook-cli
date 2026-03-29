@@ -1,0 +1,202 @@
+package editor
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook/internal/theme"
+)
+
+// palette is the "/" command palette for changing a block's type.
+type palette struct {
+	visible  bool
+	items    []paletteItem
+	filtered []int  // indices into items matching current filter
+	filter   string // typed text after /
+	cursor   int    // selection in filtered list
+	blockIdx int    // which block triggered the palette
+}
+
+// paletteItem describes one entry in the palette.
+type paletteItem struct {
+	Label string
+	Type  block.BlockType
+	Icon  string
+}
+
+// defaultPaletteItems returns the full list of block-type entries.
+func defaultPaletteItems() []paletteItem {
+	return []paletteItem{
+		{Icon: "\u00b6", Label: "Paragraph", Type: block.Paragraph},
+		{Icon: "H1", Label: "Heading 1", Type: block.Heading1},
+		{Icon: "H2", Label: "Heading 2", Type: block.Heading2},
+		{Icon: "H3", Label: "Heading 3", Type: block.Heading3},
+		{Icon: "\u2022", Label: "Bullet List", Type: block.BulletList},
+		{Icon: "1.", Label: "Numbered List", Type: block.NumberedList},
+		{Icon: "\u2610", Label: "Checklist", Type: block.Checklist},
+		{Icon: "``", Label: "Code Block", Type: block.CodeBlock},
+		{Icon: ">", Label: "Quote", Type: block.Quote},
+		{Icon: "\u2014", Label: "Divider", Type: block.Divider},
+	}
+}
+
+// newPalette creates a palette with the default items and all indices visible.
+func newPalette() palette {
+	items := defaultPaletteItems()
+	filtered := make([]int, len(items))
+	for i := range items {
+		filtered[i] = i
+	}
+	return palette{
+		items:    items,
+		filtered: filtered,
+	}
+}
+
+// open makes the palette visible for the given block index and resets state.
+func (p *palette) open(blockIdx int) {
+	p.visible = true
+	p.blockIdx = blockIdx
+	p.filter = ""
+	p.cursor = 0
+	p.refilter()
+}
+
+// close hides the palette.
+func (p *palette) close() {
+	p.visible = false
+	p.filter = ""
+	p.cursor = 0
+}
+
+// refilter rebuilds the filtered index list based on the current filter text.
+func (p *palette) refilter() {
+	if p.filter == "" {
+		p.filtered = make([]int, len(p.items))
+		for i := range p.items {
+			p.filtered[i] = i
+		}
+		p.cursor = 0
+		return
+	}
+
+	lower := strings.ToLower(p.filter)
+	var result []int
+	for i, item := range p.items {
+		if strings.Contains(strings.ToLower(item.Label), lower) {
+			result = append(result, i)
+		}
+	}
+	p.filtered = result
+	if p.cursor >= len(p.filtered) {
+		p.cursor = len(p.filtered) - 1
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
+}
+
+// addFilterRune appends a rune to the filter and refilters.
+func (p *palette) addFilterRune(r rune) {
+	p.filter += string(r)
+	p.refilter()
+}
+
+// deleteFilterRune removes the last rune from the filter. If the filter is
+// already empty, it returns false to signal the palette should close.
+func (p *palette) deleteFilterRune() bool {
+	if p.filter == "" {
+		return false
+	}
+	runes := []rune(p.filter)
+	p.filter = string(runes[:len(runes)-1])
+	p.refilter()
+	return true
+}
+
+// moveUp moves the cursor up in the filtered list.
+func (p *palette) moveUp() {
+	if p.cursor > 0 {
+		p.cursor--
+	}
+}
+
+// moveDown moves the cursor down in the filtered list.
+func (p *palette) moveDown() {
+	if p.cursor < len(p.filtered)-1 {
+		p.cursor++
+	}
+}
+
+// selected returns the currently highlighted item, or nil if none.
+func (p *palette) selected() *paletteItem {
+	if len(p.filtered) == 0 {
+		return nil
+	}
+	if p.cursor < 0 || p.cursor >= len(p.filtered) {
+		return nil
+	}
+	return &p.items[p.filtered[p.cursor]]
+}
+
+// render draws the palette as a floating box.
+func (p *palette) render(width int) string {
+	if !p.visible || len(p.filtered) == 0 {
+		return ""
+	}
+
+	th := theme.Current()
+
+	// Build rows.
+	var rows []string
+	for i, idx := range p.filtered {
+		item := p.items[idx]
+		icon := lipgloss.NewStyle().
+			Width(4).
+			Align(lipgloss.Right).
+			Foreground(lipgloss.Color(th.Muted)).
+			Render(item.Icon)
+
+		label := item.Label
+		if i == p.cursor {
+			label = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color(th.Accent)).
+				Render(label)
+			icon = lipgloss.NewStyle().
+				Width(4).
+				Align(lipgloss.Right).
+				Bold(true).
+				Foreground(lipgloss.Color(th.Accent)).
+				Render(item.Icon)
+		}
+
+		rows = append(rows, icon+" "+label)
+	}
+
+	content := strings.Join(rows, "\n")
+
+	// Filter display.
+	filterLine := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(th.Muted)).
+		Render("/" + p.filter)
+
+	body := filterLine + "\n" + content
+
+	boxWidth := 28
+	if boxWidth > width-4 {
+		boxWidth = width - 4
+	}
+	if boxWidth < 20 {
+		boxWidth = 20
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(th.Border)).
+		Padding(0, 1).
+		Width(boxWidth)
+
+	return box.Render(body)
+}

@@ -61,6 +61,7 @@ type Model struct {
 	clipboard   string // line-level clipboard for Ctrl+Y
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
+	palette     palette // "/" command palette for block type insertion
 }
 
 type statusKind int
@@ -104,6 +105,7 @@ func New(cfg Config) Model {
 		initial:   cfg.Content,
 		width:     defaultWidth,
 		height:    defaultHeight,
+		palette:   newPalette(),
 	}
 }
 
@@ -605,6 +607,36 @@ func (m *Model) pasteLine() {
 	}
 }
 
+// applyPaletteSelection changes the active block's type to the selected
+// palette item type. Special handling is applied for dividers and code blocks.
+func (m *Model) applyPaletteSelection(bt block.BlockType) {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return
+	}
+
+	m.blocks[m.active].Type = bt
+
+	switch bt {
+	case block.Divider:
+		// Dividers have no editable content.
+		m.blocks[m.active].Content = ""
+		m.textareas[m.active].SetValue("")
+	case block.CodeBlock:
+		// Reconfigure textarea for multi-line editing.
+		m.textareas[m.active].SetHeight(3)
+	default:
+		if isMultiLine(bt) {
+			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
+			if lines < 3 {
+				lines = 3
+			}
+			m.textareas[m.active].SetHeight(lines)
+		} else {
+			m.textareas[m.active].SetHeight(1)
+		}
+	}
+}
+
 // isAtFirstLine returns true if the cursor is on the first line of the
 // active textarea.
 func (m Model) isAtFirstLine() bool {
@@ -678,6 +710,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusStyle = statusNone
 				return m, nil
 			}
+			return m, nil
+		}
+
+		// When palette is visible, intercept all keys.
+		if m.palette.visible {
+			switch msg.Type {
+			case tea.KeyUp:
+				m.palette.moveUp()
+				return m, nil
+			case tea.KeyDown:
+				m.palette.moveDown()
+				return m, nil
+			case tea.KeyEnter:
+				if sel := m.palette.selected(); sel != nil {
+					m.applyPaletteSelection(sel.Type)
+				}
+				m.palette.close()
+				m.updateViewport()
+				return m, nil
+			case tea.KeyEsc:
+				m.palette.close()
+				m.updateViewport()
+				return m, nil
+			case tea.KeyBackspace:
+				if !m.palette.deleteFilterRune() {
+					m.palette.close()
+					m.updateViewport()
+				}
+				return m, nil
+			case tea.KeyRunes:
+				for _, r := range msg.Runes {
+					m.palette.addFilterRune(r)
+				}
+				return m, nil
+			}
+			// Ignore other keys while palette is open.
 			return m, nil
 		}
 
@@ -785,6 +853,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			bt := m.blocks[m.active].Type
 
+			// Handle "/" at position 0 to open the command palette.
+			if keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '/' {
+				ta := &m.textareas[m.active]
+				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
+					m.palette.open(m.active)
+					m.updateViewport()
+					return m, nil
+				}
+			}
+
 			// Handle Enter key for block creation.
 			if keyMsg.Type == tea.KeyEnter {
 				if !isMultiLine(bt) {
@@ -866,10 +944,16 @@ func (m *Model) updateViewport() {
 }
 
 // renderAllBlocks renders each block and joins them vertically.
+// When the command palette is visible, it is rendered below the active block.
 func (m Model) renderAllBlocks() string {
 	var parts []string
 	for i := range m.blocks {
 		parts = append(parts, m.renderBlock(i))
+		if m.palette.visible && i == m.active {
+			if pv := m.palette.render(m.width); pv != "" {
+				parts = append(parts, pv)
+			}
+		}
 	}
 	return strings.Join(parts, "\n")
 }
@@ -906,6 +990,7 @@ func (m Model) renderHelpOverlay() string {
   Backspace Merge/delete block
   Alt+Up    Move block up
   Alt+Down  Move block down
+  /         Block type palette
 
   Press Ctrl+G or Esc to close`
 
