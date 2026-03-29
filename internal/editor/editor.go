@@ -592,9 +592,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "up":
 				m.palette.moveUp()
+				m.updateViewport()
 				return m, nil
 			case "down":
 				m.palette.moveDown()
+				m.updateViewport()
 				return m, nil
 			case "enter":
 				if sel := m.palette.selected(); sel != nil {
@@ -788,28 +790,47 @@ func (m *Model) updateViewport() {
 	m.viewport.SetContent(content)
 
 	// Auto-scroll: calculate the cursor's actual line in the rendered output
-	// and clamp the viewport so that line is always visible.
-	if m.active >= 0 && m.active < len(m.blocks) {
+	// and ensure the viewport shows it. We compute the offset from scratch
+	// because SetContent may reset the viewport's internal scroll state.
+	if m.active >= 0 && m.active < len(m.blocks) && m.active < len(m.textareas) {
+		// Count rendered lines for all blocks before the active one,
+		// including the "\n" join separators between blocks.
 		lineOffset := 0
 		for i := 0; i < m.active; i++ {
 			rendered := m.renderBlock(i)
 			lineOffset += strings.Count(rendered, "\n") + 1
+			// Account for the "\n" join separator in renderAllBlocks.
+			lineOffset++
+			// Account for palette rendered after a preceding block.
+			if m.palette.visible && i == m.palette.blockIdx {
+				if pv := m.palette.render(m.width); pv != "" {
+					lineOffset += strings.Count(pv, "\n") + 1
+					lineOffset++ // join separator after palette
+				}
+			}
 		}
 
-		// Cursor line within the rendered content.
-		cursorLine := lineOffset + m.textareas[m.active].Line()
+		// Account for chrome lines the active block's renderActiveBlock
+		// prepends before the textarea content.
+		chromeLines := 0
+		if m.active > 0 && m.blocks[m.active].Type == block.Heading1 {
+			chromeLines = 1 // "\n" prefix for non-first H1
+		}
+		if m.blocks[m.active].Type == block.CodeBlock {
+			chromeLines = 1 // label + "\n" before bordered textarea
+		}
 
+		cursorLine := lineOffset + chromeLines + m.textareas[m.active].Line()
+
+		// Always ensure the cursor line is visible. Prefer keeping the
+		// current scroll position when the cursor is already on screen.
 		yOffset := m.viewport.YOffset
-
-		// If the cursor is above the visible area, scroll up.
 		if cursorLine < yOffset {
 			yOffset = cursorLine
 		}
-		// If the cursor is below the visible area, scroll down.
 		if cursorLine >= yOffset+m.viewport.Height {
 			yOffset = cursorLine - m.viewport.Height + 1
 		}
-		// Never scroll above the top of the document.
 		if yOffset < 0 {
 			yOffset = 0
 		}
