@@ -580,6 +580,7 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 		"Ctrl+K", "Cut line",
 		"Ctrl+Y", "Paste line",
 		"Ctrl+U", "Delete to line start",
+		"Ctrl+D", "Toggle checkbox",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -804,6 +805,92 @@ func TestCtrlEIsNoOp(t *testing.T) {
 	}
 	if m.quitPrompt {
 		t.Fatal("Ctrl+E should not show quit prompt")
+	}
+}
+
+func TestCtrlDTogglesCheckboxUncheckedToChecked(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [ ] buy milk"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+
+	content := m.Content()
+	if content != "- [x] buy milk" {
+		t.Fatalf("expected %q, got %q", "- [x] buy milk", content)
+	}
+}
+
+func TestCtrlDTogglesCheckboxCheckedToUnchecked(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [x] buy milk"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+
+	content := m.Content()
+	if content != "- [ ] buy milk" {
+		t.Fatalf("expected %q, got %q", "- [ ] buy milk", content)
+	}
+}
+
+func TestCtrlDNoOpOnNonCheckboxLine(t *testing.T) {
+	m := New(Config{Title: "test", Content: "just a normal line"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	contentBefore := m.Content()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+
+	if m.Content() != contentBefore {
+		t.Fatalf("Ctrl+D on non-checkbox line should be no-op, got %q", m.Content())
+	}
+}
+
+func TestCtrlDTogglesAsteriskCheckbox(t *testing.T) {
+	m := New(Config{Title: "test", Content: "* [ ] task one"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Toggle unchecked to checked.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+
+	content := m.Content()
+	if content != "* [x] task one" {
+		t.Fatalf("expected %q, got %q", "* [x] task one", content)
+	}
+
+	// Toggle checked back to unchecked.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+
+	content = m.Content()
+	if content != "* [ ] task one" {
+		t.Fatalf("expected %q, got %q", "* [ ] task one", content)
+	}
+}
+
+func TestHelpContainsToggleCheckbox(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Show help.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+
+	if !containsPlainText(view, "Ctrl+D") {
+		t.Fatal("help overlay should contain Ctrl+D keybinding")
+	}
+	if !containsPlainText(view, "Toggle checkbox") {
+		t.Fatal("help overlay should contain 'Toggle checkbox' description")
 	}
 }
 
