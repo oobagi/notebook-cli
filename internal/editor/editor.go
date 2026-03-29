@@ -921,25 +921,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateViewport renders all blocks and sets the viewport content, then
-// auto-scrolls to keep the active block visible.
+// auto-scrolls to keep the active block's cursor line visible.
 func (m *Model) updateViewport() {
 	content := m.renderAllBlocks()
 	m.viewport.SetContent(content)
 
-	// Auto-scroll: calculate where the active block starts in the rendered
-	// output and ensure it is visible.
+	// Auto-scroll: calculate the cursor's actual line in the rendered output
+	// and clamp the viewport so that line is always visible.
 	if m.active >= 0 && m.active < len(m.blocks) {
 		lineOffset := 0
 		for i := 0; i < m.active; i++ {
 			rendered := m.renderBlock(i)
 			lineOffset += strings.Count(rendered, "\n") + 1
 		}
-		// Try to center the active block in the viewport.
-		target := lineOffset - m.viewport.Height/3
-		if target < 0 {
-			target = 0
+
+		// Cursor line within the rendered content.
+		cursorLine := lineOffset + m.textareas[m.active].Line()
+
+		yOffset := m.viewport.YOffset
+
+		// If the cursor is above the visible area, scroll up.
+		if cursorLine < yOffset {
+			yOffset = cursorLine
 		}
-		m.viewport.SetYOffset(target)
+		// If the cursor is below the visible area, scroll down.
+		if cursorLine >= yOffset+m.viewport.Height {
+			yOffset = cursorLine - m.viewport.Height + 1
+		}
+		// Never scroll above the top of the document.
+		if yOffset < 0 {
+			yOffset = 0
+		}
+
+		m.viewport.SetYOffset(yOffset)
 	}
 }
 
