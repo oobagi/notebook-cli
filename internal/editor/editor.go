@@ -1031,7 +1031,7 @@ func (m Model) renderStatusBar() string {
 	if m.status != "" {
 		right = m.status
 	} else {
-		right = "Ctrl+S save \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
+		right = "/ for commands \u00B7 Ctrl+S save \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
 	}
 
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
