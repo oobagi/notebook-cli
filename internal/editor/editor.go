@@ -1,4 +1,5 @@
-// Package editor provides a Bubble Tea TUI for editing markdown notes.
+// Package editor provides a Bubble Tea TUI for editing markdown notes
+// using a block-based editing surface where each block has its own textarea.
 package editor
 
 import (
@@ -7,9 +8,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/oobagi/notebook/internal/render"
+	"github.com/oobagi/notebook/internal/block"
 	"github.com/oobagi/notebook/internal/theme"
 )
 
@@ -32,14 +34,6 @@ type saveErrMsg struct{ err error }
 // savedQuitMsg is sent after a successful save-then-quit.
 type savedQuitMsg struct{ content string }
 
-// previewTickMsg is sent after the debounce interval to trigger preview rendering.
-// The seq field is compared against Model.previewSeq to implement true debounce:
-// only the most recent tick (matching the current seq) triggers a render.
-type previewTickMsg struct{ seq int }
-
-// previewDebounce is the delay before re-rendering the preview after a text change.
-const previewDebounce = 150 * time.Millisecond
-
 // statusTimeoutMsg is sent after the status auto-dismiss delay.
 // The generation field is compared against Model.statusGen to ensure
 // only the most recent status message is cleared.
@@ -48,28 +42,25 @@ type statusTimeoutMsg struct{ generation int }
 // statusTimeout is the delay before auto-dismissing a transient status message.
 const statusTimeout = 4 * time.Second
 
-// minSplitWidth is the minimum terminal width required to show the split pane.
-// Below this, the preview is auto-hidden.
-const minSplitWidth = 40
-
-// Model is the Bubble Tea model for the editor.
+// Model is the Bubble Tea model for the block-based editor.
 type Model struct {
-	textarea       textarea.Model
-	config         Config
-	initial        string
-	width          int
-	height         int
-	status         string
-	statusStyle    statusKind
-	quitPrompt     bool
-	quitting       bool
-	showPreview    bool
-	showHelp       bool
-	clipboard      string
-	preview        string
-	previewDirty   bool
-	previewSeq int
-	statusGen  int // generation counter for status auto-dismiss
+	blocks    []block.Block    // the data model
+	textareas []textarea.Model // one textarea per block
+	active    int              // index of focused block
+	viewport  viewport.Model   // scrollable container
+
+	config      Config
+	initial     string
+	width       int
+	height      int
+	status      string
+	statusStyle statusKind
+	quitPrompt  bool
+	quitting    bool
+	showHelp    bool
+	clipboard   string // line-level clipboard for Ctrl+Y
+	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
+	statusGen   int    // generation counter for status auto-dismiss
 }
 
 type statusKind int
@@ -81,7 +72,7 @@ const (
 	statusWarning
 )
 
-// defaultWidth and defaultHeight are sensible initial textarea dimensions so the
+// defaultWidth and defaultHeight are sensible initial dimensions so the
 // cursor is visible even before the first WindowSizeMsg arrives.
 const (
 	defaultWidth  = 80
@@ -90,83 +81,108 @@ const (
 
 // New creates a new editor Model from the given config.
 func New(cfg Config) Model {
-	ta := textarea.New()
-	ta.SetValue(cfg.Content)
-	ta.ShowLineNumbers = false
-	ta.Focus()
+	blocks := block.Parse(cfg.Content)
+	textareas := make([]textarea.Model, len(blocks))
 
-	// Set initial dimensions so the cursor viewport is valid before
-	// WindowSizeMsg arrives.
-	ta.SetWidth(defaultWidth)
-	ta.SetHeight(defaultHeight - 1) // reserve 1 line for the status bar
+	for i, b := range blocks {
+		textareas[i] = newTextareaForBlock(b, defaultWidth)
+	}
+
+	// Focus the first block.
+	if len(textareas) > 0 {
+		textareas[0].Focus()
+	}
+
+	vp := viewport.New(defaultWidth, defaultHeight-1)
 
 	return Model{
-		textarea:    ta,
-		config:      cfg,
-		initial:     cfg.Content,
-		width:       defaultWidth,
-		height:      defaultHeight,
-		showPreview: true,
+		blocks:    blocks,
+		textareas: textareas,
+		active:    0,
+		viewport:  vp,
+		config:    cfg,
+		initial:   cfg.Content,
+		width:     defaultWidth,
+		height:    defaultHeight,
 	}
 }
 
+// newTextareaForBlock creates a textarea configured for the given block type.
+func newTextareaForBlock(b block.Block, width int) textarea.Model {
+	ta := textarea.New()
+	ta.SetValue(b.Content)
+	ta.ShowLineNumbers = false
+	ta.SetWidth(width)
+
+	// Code blocks and paragraphs are multi-line; others are single-line.
+	switch b.Type {
+	case block.CodeBlock, block.Paragraph, block.Quote:
+		// Multi-line: allow enough height for content.
+		lines := strings.Count(b.Content, "\n") + 1
+		if lines < 3 {
+			lines = 3
+		}
+		ta.SetHeight(lines)
+	default:
+		// Single-line blocks.
+		ta.SetHeight(1)
+	}
+
+	ta.Blur()
+	return ta
+}
+
 // Init returns the initial command for the editor (start cursor blinking).
-// The first preview render is triggered by the initial WindowSizeMsg.
 func (m Model) Init() tea.Cmd {
 	return textarea.Blink
 }
 
 // modified returns true if the content has been changed from the initial value.
 func (m Model) modified() bool {
-	return m.textarea.Value() != m.initial
+	return m.Content() != m.initial
 }
 
-// Content returns the current text content.
+// Content returns the current text content by syncing block data from
+// textareas and serializing back to markdown.
 func (m Model) Content() string {
-	return m.textarea.Value()
+	synced := m.syncBlocks()
+	return block.Serialize(synced)
 }
 
-// textareaWidth returns the width the textarea should use given the current
-// preview visibility and total terminal width.
-func (m Model) textareaWidth() int {
-	if m.showPreview && m.width >= minSplitWidth {
-		return m.width / 2
+// syncBlocks copies current textarea values back into block data and returns
+// the updated slice. It does not mutate the receiver.
+func (m Model) syncBlocks() []block.Block {
+	result := make([]block.Block, len(m.blocks))
+	copy(result, m.blocks)
+	for i := range result {
+		if i < len(m.textareas) {
+			result[i].Content = m.textareas[i].Value()
+		}
 	}
-	return m.width
+	return result
 }
 
-// previewWidth returns the width available for the preview pane.
-func (m Model) previewWidth() int {
-	if !m.showPreview || m.width < minSplitWidth {
-		return 0
-	}
-	// Total width minus left pane minus 1-column border.
-	return m.width - m.width/2 - 1
+// BlockCount returns the number of blocks in the editor.
+func (m Model) BlockCount() int {
+	return len(m.blocks)
 }
 
-// resizeTextarea updates the textarea dimensions for the current layout.
-func (m *Model) resizeTextarea() {
-	m.textarea.SetWidth(m.textareaWidth())
-	// Reserve 1 line for the status bar.
-	if m.height > 1 {
-		m.textarea.SetHeight(m.height - 1)
+// resizeTextareas updates all textarea widths for the current layout.
+func (m *Model) resizeTextareas() {
+	w := m.width
+	if w <= 0 {
+		w = defaultWidth
 	}
-}
-
-// renderPreview renders the current content as markdown for the preview pane.
-func (m *Model) renderPreview() {
-	pw := m.previewWidth()
-	if pw <= 0 {
-		m.preview = ""
-		return
+	for i := range m.textareas {
+		m.textareas[i].SetWidth(w)
 	}
-	content := m.textarea.Value()
-	if content == "" {
-		m.preview = ""
-		return
+	// Update viewport dimensions (reserve 1 line for status bar).
+	h := m.height - 1
+	if h < 1 {
+		h = 1
 	}
-	m.preview = render.RenderMarkdown(content, pw)
-	m.previewDirty = false
+	m.viewport.Width = w
+	m.viewport.Height = h
 }
 
 // scheduleStatusDismiss increments the generation counter and returns a tick
@@ -179,44 +195,144 @@ func (m *Model) scheduleStatusDismiss() tea.Cmd {
 	})
 }
 
-// schedulePreviewTick increments the sequence counter and returns a tick command.
-// Only the tick matching the current sequence will trigger a render, implementing
-// a true debounce (renders after the last change, not the first).
-func (m *Model) schedulePreviewTick() tea.Cmd {
-	m.previewSeq++
-	seq := m.previewSeq
-	return tea.Tick(previewDebounce, func(t time.Time) tea.Msg {
-		return previewTickMsg{seq: seq}
-	})
+// focusBlock switches focus from the current block to the block at index idx.
+func (m *Model) focusBlock(idx int) {
+	if idx < 0 || idx >= len(m.textareas) {
+		return
+	}
+	if m.active >= 0 && m.active < len(m.textareas) {
+		// Sync content from old active textarea back to block.
+		m.blocks[m.active].Content = m.textareas[m.active].Value()
+		m.textareas[m.active].Blur()
+	}
+	m.active = idx
+	m.textareas[idx].Focus()
 }
 
-// cursorLine returns the zero-based line index where the textarea cursor is.
-func (m Model) cursorLine() int {
-	return m.textarea.Line()
+// navigateUp moves focus to the previous block, placing cursor at end.
+func (m *Model) navigateUp() {
+	if m.active <= 0 {
+		return
+	}
+	m.focusBlock(m.active - 1)
+	// Place cursor at the end of the previous block's textarea.
+	ta := &m.textareas[m.active]
+	ta.CursorEnd()
 }
 
-// cutLine removes the current line from the textarea and stores it in the
-// clipboard. It returns the cut text.
-func (m *Model) cutLine() string {
-	value := m.textarea.Value()
+// navigateDown moves focus to the next block, placing cursor at start.
+func (m *Model) navigateDown() {
+	if m.active >= len(m.textareas)-1 {
+		return
+	}
+	m.focusBlock(m.active + 1)
+	// Place cursor at the start of the next block's textarea.
+	ta := &m.textareas[m.active]
+	ta.CursorStart()
+}
+
+// cutBlock removes the active block and stores it in the block clipboard.
+func (m *Model) cutBlock() {
+	if len(m.blocks) <= 1 {
+		// Don't remove the last block; store it and clear it instead.
+		b := m.blocks[m.active]
+		b.Content = m.textareas[m.active].Value()
+		m.blockClip = &b
+		m.blocks[m.active] = block.Block{Type: block.Paragraph, Content: ""}
+		m.textareas[m.active].SetValue("")
+		return
+	}
+
+	b := m.blocks[m.active]
+	b.Content = m.textareas[m.active].Value()
+	m.blockClip = &b
+
+	idx := m.active
+	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
+	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
+
+	// Adjust active index.
+	if m.active >= len(m.blocks) {
+		m.active = len(m.blocks) - 1
+	}
+	if m.active < 0 {
+		m.active = 0
+	}
+	m.textareas[m.active].Focus()
+}
+
+// toggleCheckbox toggles the Checked field on the active block if it is a
+// Checklist block. For non-checklist blocks, it is a no-op.
+func (m *Model) toggleCheckbox() {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return
+	}
+	if m.blocks[m.active].Type != block.Checklist {
+		return
+	}
+	m.blocks[m.active].Checked = !m.blocks[m.active].Checked
+}
+
+// deleteToLineStart removes all text from the cursor to the start of the
+// current line in the active textarea.
+func (m *Model) deleteToLineStart() {
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return
+	}
+	ta := &m.textareas[m.active]
+	value := ta.Value()
 	lines := strings.Split(value, "\n")
 
-	line := m.cursorLine()
+	line := ta.Line()
+	if line < 0 || line >= len(lines) {
+		return
+	}
+
+	col := ta.LineInfo().ColumnOffset
+	if col <= 0 {
+		return
+	}
+
+	runes := []rune(lines[line])
+	if col > len(runes) {
+		col = len(runes)
+	}
+	lines[line] = string(runes[col:])
+
+	ta.SetValue(strings.Join(lines, "\n"))
+
+	// Reposition cursor.
+	ta.SetCursor(0)
+	for ta.Line() > line {
+		ta.CursorUp()
+	}
+	for ta.Line() < line {
+		ta.CursorDown()
+	}
+}
+
+// cutLine removes the current line from the active textarea and stores it
+// in the line clipboard.
+func (m *Model) cutLine() string {
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return ""
+	}
+	ta := &m.textareas[m.active]
+	value := ta.Value()
+	lines := strings.Split(value, "\n")
+
+	line := ta.Line()
 	if line < 0 || line >= len(lines) {
 		return ""
 	}
 
 	cut := lines[line]
-
-	// Remove the line.
 	newLines := make([]string, 0, len(lines)-1)
 	newLines = append(newLines, lines[:line]...)
 	newLines = append(newLines, lines[line+1:]...)
 
-	m.textarea.SetValue(strings.Join(newLines, "\n"))
+	ta.SetValue(strings.Join(newLines, "\n"))
 
-	// Reposition cursor: stay on the same line index, clamped to the new
-	// line count. Move to the start of the line for simplicity.
 	newLineCount := len(newLines)
 	targetLine := line
 	if targetLine >= newLineCount {
@@ -225,26 +341,31 @@ func (m *Model) cutLine() string {
 	if targetLine < 0 {
 		targetLine = 0
 	}
-	m.textarea.SetCursor(0)
-	for m.textarea.Line() > targetLine {
-		m.textarea.CursorUp()
+	ta.SetCursor(0)
+	for ta.Line() > targetLine {
+		ta.CursorUp()
 	}
-	for m.textarea.Line() < targetLine {
-		m.textarea.CursorDown()
+	for ta.Line() < targetLine {
+		ta.CursorDown()
 	}
 
 	return cut
 }
 
-// pasteLine inserts the clipboard content at the current cursor line.
+// pasteLine inserts the line clipboard content at the current cursor line
+// in the active textarea.
 func (m *Model) pasteLine() {
 	if m.clipboard == "" {
 		return
 	}
-	value := m.textarea.Value()
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return
+	}
+	ta := &m.textareas[m.active]
+	value := ta.Value()
 	lines := strings.Split(value, "\n")
 
-	line := m.cursorLine()
+	line := ta.Line()
 	if line < 0 {
 		line = 0
 	}
@@ -252,95 +373,38 @@ func (m *Model) pasteLine() {
 		line = len(lines)
 	}
 
-	// Insert the clipboard as a new line before the current line.
 	newLines := make([]string, 0, len(lines)+1)
 	newLines = append(newLines, lines[:line]...)
 	newLines = append(newLines, m.clipboard)
 	newLines = append(newLines, lines[line:]...)
 
-	m.textarea.SetValue(strings.Join(newLines, "\n"))
+	ta.SetValue(strings.Join(newLines, "\n"))
 
-	// Position cursor on the pasted line.
-	m.textarea.SetCursor(0)
-	for m.textarea.Line() < line {
-		m.textarea.CursorDown()
+	ta.SetCursor(0)
+	for ta.Line() < line {
+		ta.CursorDown()
 	}
 }
 
-// toggleCheckbox toggles a markdown checkbox on the current line.
-// It converts "- [ ] " to "- [x] " and vice versa, and similarly for
-// asterisk bullets ("* [ ] " / "* [x] "). If the current line does not
-// contain a checkbox pattern, the method is a no-op.
-func (m *Model) toggleCheckbox() {
-	value := m.textarea.Value()
-	lines := strings.Split(value, "\n")
-
-	line := m.cursorLine()
-	if line < 0 || line >= len(lines) {
-		return
+// isAtFirstLine returns true if the cursor is on the first line of the
+// active textarea.
+func (m Model) isAtFirstLine() bool {
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return false
 	}
-
-	cur := lines[line]
-	var updated string
-	switch {
-	case strings.Contains(cur, "- [ ] "):
-		updated = strings.Replace(cur, "- [ ] ", "- [x] ", 1)
-	case strings.Contains(cur, "- [x] "):
-		updated = strings.Replace(cur, "- [x] ", "- [ ] ", 1)
-	case strings.Contains(cur, "* [ ] "):
-		updated = strings.Replace(cur, "* [ ] ", "* [x] ", 1)
-	case strings.Contains(cur, "* [x] "):
-		updated = strings.Replace(cur, "* [x] ", "* [ ] ", 1)
-	default:
-		return // not a checkbox line — no-op
-	}
-
-	lines[line] = updated
-	m.textarea.SetValue(strings.Join(lines, "\n"))
-
-	// Restore cursor to the same line.
-	m.textarea.SetCursor(0)
-	for m.textarea.Line() < line {
-		m.textarea.CursorDown()
-	}
+	return m.textareas[m.active].Line() == 0
 }
 
-// deleteToLineStart removes all text from the cursor to the start of the
-// current line. If the cursor is already at the start of the line, this is a
-// no-op.
-func (m *Model) deleteToLineStart() {
-	value := m.textarea.Value()
-	lines := strings.Split(value, "\n")
-
-	line := m.cursorLine()
-	if line < 0 || line >= len(lines) {
-		return
+// isAtLastLine returns true if the cursor is on the last line of the
+// active textarea.
+func (m Model) isAtLastLine() bool {
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return false
 	}
-
-	col := m.textarea.LineInfo().ColumnOffset
-	if col <= 0 {
-		return
-	}
-
-	// Remove everything before the cursor on the current line.
-	// ColumnOffset counts rune positions (not display width), so convert to
-	// rune slice for correct slicing of multi-byte/double-width characters.
-	runes := []rune(lines[line])
-	if col > len(runes) {
-		col = len(runes)
-	}
-	lines[line] = string(runes[col:])
-
-	m.textarea.SetValue(strings.Join(lines, "\n"))
-
-	// Reposition the cursor to the target line, column 0.
-	m.textarea.SetCursor(0)
-	for m.textarea.Line() > line {
-		m.textarea.CursorUp()
-	}
-	for m.textarea.Line() < line {
-		m.textarea.CursorDown()
-	}
+	ta := m.textareas[m.active]
+	value := ta.Value()
+	lineCount := strings.Count(value, "\n") + 1
+	return ta.Line() >= lineCount-1
 }
 
 // Update handles messages and updates the model.
@@ -349,14 +413,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.resizeTextarea()
-		m.previewDirty = true
-		return m, m.schedulePreviewTick()
-
-	case previewTickMsg:
-		if msg.seq == m.previewSeq && m.previewDirty {
-			m.renderPreview()
-		}
+		m.resizeTextareas()
+		m.updateViewport()
 		return m, nil
 
 	case statusTimeoutMsg:
@@ -381,9 +439,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y", "enter":
 				m.quitPrompt = false
-				// Save then quit.
 				if m.config.Save != nil {
-					content := m.textarea.Value()
+					content := m.Content()
 					return m, func() tea.Msg {
 						if err := m.config.Save(content); err != nil {
 							return saveErrMsg{err: err}
@@ -391,7 +448,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return savedQuitMsg{content: content}
 					}
 				}
-				// No save function configured — just quit.
 				m.quitting = true
 				return m, tea.Quit
 			case "n", "N", "ctrl+c":
@@ -403,7 +459,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusStyle = statusNone
 				return m, nil
 			}
-			// Ignore all other keys while in the prompt.
 			return m, nil
 		}
 
@@ -419,37 +474,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+k":
-			m.clipboard = m.cutLine()
-			m.previewDirty = true
-			return m, m.schedulePreviewTick()
+			m.cutBlock()
+			m.updateViewport()
+			return m, nil
 
 		case "ctrl+u":
 			m.deleteToLineStart()
-			m.previewDirty = true
-			return m, m.schedulePreviewTick()
+			m.updateViewport()
+			return m, nil
 
 		case "ctrl+d":
 			m.toggleCheckbox()
-			m.previewDirty = true
-			return m, m.schedulePreviewTick()
+			m.updateViewport()
+			return m, nil
 
 		case "ctrl+y":
 			m.pasteLine()
-			m.previewDirty = true
-			return m, m.schedulePreviewTick()
-
-		case "ctrl+p":
-			m.showPreview = !m.showPreview
-			m.resizeTextarea()
-			if m.showPreview {
-				m.previewDirty = true
-				return m, m.schedulePreviewTick()
-			}
+			m.updateViewport()
 			return m, nil
 
 		case "ctrl+s":
 			if m.config.Save != nil {
-				content := m.textarea.Value()
+				content := m.Content()
 				return m, func() tea.Msg {
 					if err := m.config.Save(content); err != nil {
 						return saveErrMsg{err: err}
@@ -472,6 +518,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+
+		case "up":
+			if m.isAtFirstLine() && m.active > 0 {
+				m.navigateUp()
+				m.updateViewport()
+				return m, nil
+			}
+
+		case "down":
+			if m.isAtLastLine() && m.active < len(m.textareas)-1 {
+				m.navigateDown()
+				m.updateViewport()
+				return m, nil
+			}
 		}
 
 	case savedMsg:
@@ -491,19 +551,82 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.scheduleStatusDismiss()
 	}
 
-	// Track content before the textarea processes the message so we can
-	// detect changes and schedule a preview re-render.
-	contentBefore := m.textarea.Value()
+	// Forward remaining messages to the active textarea.
+	if m.active >= 0 && m.active < len(m.textareas) {
+		// Block Enter key in single-line blocks to prevent newlines
+		// from corrupting the block structure.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEnter {
+			bt := m.blocks[m.active].Type
+			if bt != block.Paragraph && bt != block.CodeBlock && bt != block.Quote {
+				return m, nil
+			}
+		}
 
-	var cmd tea.Cmd
-	m.textarea, cmd = m.textarea.Update(msg)
+		var cmd tea.Cmd
+		m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
 
-	if m.textarea.Value() != contentBefore {
-		m.previewDirty = true
-		cmd = tea.Batch(cmd, m.schedulePreviewTick())
+		// Grow multi-line textareas dynamically as the user types.
+		bt := m.blocks[m.active].Type
+		if bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote {
+			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
+			if lines < 3 {
+				lines = 3
+			}
+			m.textareas[m.active].SetHeight(lines)
+		}
+
+		m.updateViewport()
+		return m, cmd
 	}
 
-	return m, cmd
+	return m, nil
+}
+
+// updateViewport renders all blocks and sets the viewport content, then
+// auto-scrolls to keep the active block visible.
+func (m *Model) updateViewport() {
+	content := m.renderAllBlocks()
+	m.viewport.SetContent(content)
+
+	// Auto-scroll: calculate where the active block starts in the rendered
+	// output and ensure it is visible.
+	if m.active >= 0 && m.active < len(m.blocks) {
+		lineOffset := 0
+		for i := 0; i < m.active; i++ {
+			rendered := m.renderBlock(i)
+			lineOffset += strings.Count(rendered, "\n") + 1
+		}
+		// Try to center the active block in the viewport.
+		target := lineOffset - m.viewport.Height/3
+		if target < 0 {
+			target = 0
+		}
+		m.viewport.SetYOffset(target)
+	}
+}
+
+// renderAllBlocks renders each block and joins them vertically.
+func (m Model) renderAllBlocks() string {
+	var parts []string
+	for i := range m.blocks {
+		parts = append(parts, m.renderBlock(i))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// View renders the editor UI.
+func (m Model) View() string {
+	if m.quitting {
+		return ""
+	}
+
+	if m.showHelp {
+		return m.renderHelpOverlay()
+	}
+
+	statusBar := m.renderStatusBar()
+
+	return m.viewport.View() + "\n" + statusBar
 }
 
 // renderHelpOverlay builds the full-screen help panel.
@@ -514,9 +637,8 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+S    Save
   Ctrl+Q    Quit
   Ctrl+C    Force quit (no save)
-  Ctrl+P    Toggle preview
   Ctrl+G    Toggle this help
-  Ctrl+K    Cut line
+  Ctrl+K    Cut block
   Ctrl+Y    Paste line
   Ctrl+U    Delete to line start
   Ctrl+D    Toggle checkbox
@@ -541,55 +663,7 @@ func (m Model) renderHelpOverlay() string {
 
 	rendered := box.Render(help)
 
-	// Center the box in the terminal.
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
-}
-
-// View renders the editor UI.
-func (m Model) View() string {
-	if m.quitting {
-		return ""
-	}
-
-	if m.showHelp {
-		return m.renderHelpOverlay()
-	}
-
-	statusBar := m.renderStatusBar()
-
-	if !m.showPreview || m.width < minSplitWidth {
-		return m.textarea.View() + "\n" + statusBar
-	}
-
-	// Split-pane layout: editor left, border, preview right.
-	editorHeight := m.height - 1
-	if editorHeight < 1 {
-		editorHeight = 1
-	}
-
-	leftWidth := m.width / 2
-	rightWidth := m.width - leftWidth - 1 // 1 col for border
-
-	// Build the vertical border (thin dim line of │ characters).
-	borderStyle := lipgloss.NewStyle().Faint(true)
-	var borderLines []string
-	for i := 0; i < editorHeight; i++ {
-		borderLines = append(borderLines, borderStyle.Render("│"))
-	}
-	border := strings.Join(borderLines, "\n")
-
-	// Constrain the preview pane.
-	previewStyle := lipgloss.NewStyle().
-		Width(rightWidth).
-		Height(editorHeight)
-
-	leftPane := m.textarea.View()
-
-	rightPane := previewStyle.Render(m.preview)
-
-	split := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, border, rightPane)
-
-	return split + "\n" + statusBar
 }
 
 // renderStatusBar builds the bottom status bar.
@@ -599,13 +673,11 @@ func (m Model) renderStatusBar() string {
 		width = 80
 	}
 
-	// Left side: title + modified indicator.
 	left := m.config.Title
 	if m.modified() {
 		left += " [modified]"
 	}
 
-	// Right side: status message or keybinding hints.
 	var right string
 	if m.status != "" {
 		right = m.status
@@ -613,7 +685,6 @@ func (m Model) renderStatusBar() string {
 		right = "Ctrl+S save \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
 	}
 
-	// Calculate gap between left and right.
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
@@ -621,7 +692,6 @@ func (m Model) renderStatusBar() string {
 
 	bar := left + strings.Repeat(" ", gap) + right
 
-	// Style based on current status.
 	style := lipgloss.NewStyle().Width(width)
 	switch m.statusStyle {
 	case statusSuccess:
