@@ -692,6 +692,372 @@ func TestHelpContainsToggleCheckbox(t *testing.T) {
 	}
 }
 
+// ---------- Block operations tests ----------
+
+func TestEnterOnSingleLineBlockCreatesNewBlock(t *testing.T) {
+	// Heading: Enter should create a new paragraph below.
+	m := New(Config{Title: "test", Content: "# My Title"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("expected 1 block, got %d", m.BlockCount())
+	}
+
+	// Press Enter.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter, got %d", m.BlockCount())
+	}
+
+	// New block should be focused (index 1).
+	if m.active != 1 {
+		t.Fatalf("expected active block to be 1, got %d", m.active)
+	}
+
+	// New block should be a paragraph.
+	if m.blocks[1].Type != 0 { // block.Paragraph == 0
+		t.Fatalf("expected new block to be Paragraph, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestEnterOnChecklistCreatesNewChecklistItem(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [ ] first item"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Press Enter.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter, got %d", m.BlockCount())
+	}
+
+	// New block should be a checklist item.
+	if m.blocks[1].Type != 6 { // block.Checklist == 6
+		t.Fatalf("expected new block to be Checklist, got type %d", m.blocks[1].Type)
+	}
+
+	// New checklist item should be unchecked.
+	if m.blocks[1].Checked {
+		t.Fatal("new checklist item should be unchecked")
+	}
+}
+
+func TestEnterOnBulletListCreatesNewBulletItem(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- bullet one"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 4 { // block.BulletList == 4
+		t.Fatalf("expected new block to be BulletList, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestEnterOnNumberedListCreatesNewNumberedItem(t *testing.T) {
+	m := New(Config{Title: "test", Content: "1. first"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 5 { // block.NumberedList == 5
+		t.Fatalf("expected new block to be NumberedList, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestBackspaceOnEmptyBlockDeletesIt(t *testing.T) {
+	content := "# Title\n\nParagraph"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	blocksBefore := m.BlockCount()
+
+	// Navigate to the empty paragraph block (block 1, the blank line).
+	m.focusBlock(1)
+	// Verify it's empty.
+	if m.textareas[1].Value() != "" {
+		t.Fatalf("expected empty block, got %q", m.textareas[1].Value())
+	}
+
+	// Press Backspace.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	if m.BlockCount() >= blocksBefore {
+		t.Fatalf("expected block count to decrease: was %d, now %d", blocksBefore, m.BlockCount())
+	}
+}
+
+func TestBackspaceOnNonEmptyBlockMergesWithPrevious(t *testing.T) {
+	content := "# Title\n\nworld"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Navigate to the "world" block (block 2).
+	m.focusBlock(2)
+	// Put cursor at start (should already be there after focus).
+	m.textareas[m.active].CursorStart()
+
+	blocksBefore := m.BlockCount()
+
+	// Press Backspace at position 0.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	if m.BlockCount() >= blocksBefore {
+		t.Fatalf("expected block count to decrease after merge: was %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	// The previous block should now contain merged content.
+	mergedContent := m.textareas[m.active].Value()
+	if mergedContent == "" {
+		t.Fatal("merged block should have content")
+	}
+}
+
+func TestCannotDeleteLastBlock(t *testing.T) {
+	m := New(Config{Title: "test", Content: "only block"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("expected 1 block, got %d", m.BlockCount())
+	}
+
+	// Clear content and try to delete.
+	m.textareas[0].SetValue("")
+
+	// Press Backspace on empty last block.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// Should still have at least one block.
+	if m.BlockCount() < 1 {
+		t.Fatal("should always have at least one block")
+	}
+}
+
+func TestAltUpMovesBlockUp(t *testing.T) {
+	content := "# Title\n\nParagraph\n\n- bullet"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Focus the bullet block (last block, index depends on parsing).
+	lastIdx := m.BlockCount() - 1
+	m.focusBlock(lastIdx)
+
+	blockTypeBefore := m.blocks[lastIdx].Type
+	blockAboveBefore := m.blocks[lastIdx-1].Type
+
+	// Press Alt+Up.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	m = updated.(Model)
+
+	// The block that was at lastIdx should now be at lastIdx-1.
+	if m.blocks[lastIdx-1].Type != blockTypeBefore {
+		t.Fatalf("block should have moved up: expected type %d at position %d, got %d",
+			blockTypeBefore, lastIdx-1, m.blocks[lastIdx-1].Type)
+	}
+	if m.blocks[lastIdx].Type != blockAboveBefore {
+		t.Fatalf("previous block should have moved down: expected type %d at position %d, got %d",
+			blockAboveBefore, lastIdx, m.blocks[lastIdx].Type)
+	}
+	if m.active != lastIdx-1 {
+		t.Fatalf("active index should follow the moved block: expected %d, got %d", lastIdx-1, m.active)
+	}
+}
+
+func TestAltDownMovesBlockDown(t *testing.T) {
+	content := "# Title\n\nParagraph\n\n- bullet"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Focus block 0.
+	m.focusBlock(0)
+	blockTypeBefore := m.blocks[0].Type
+	blockBelowBefore := m.blocks[1].Type
+
+	// Press Alt+Down.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	m = updated.(Model)
+
+	if m.blocks[1].Type != blockTypeBefore {
+		t.Fatalf("block should have moved down: expected type %d at position 1, got %d",
+			blockTypeBefore, m.blocks[1].Type)
+	}
+	if m.blocks[0].Type != blockBelowBefore {
+		t.Fatalf("next block should have moved up: expected type %d at position 0, got %d",
+			blockBelowBefore, m.blocks[0].Type)
+	}
+	if m.active != 1 {
+		t.Fatalf("active index should follow the moved block: expected 1, got %d", m.active)
+	}
+}
+
+func TestAltUpNoOpAtTop(t *testing.T) {
+	content := "# Title\n\nParagraph"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Already at block 0.
+	if m.active != 0 {
+		t.Fatalf("expected active to be 0, got %d", m.active)
+	}
+
+	blocksBefore := m.BlockCount()
+	typeBefore := m.blocks[0].Type
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	m = updated.(Model)
+
+	if m.active != 0 {
+		t.Fatalf("active should still be 0 after Alt+Up at top, got %d", m.active)
+	}
+	if m.BlockCount() != blocksBefore {
+		t.Fatal("block count should not change")
+	}
+	if m.blocks[0].Type != typeBefore {
+		t.Fatal("block order should not change")
+	}
+}
+
+func TestAltDownNoOpAtBottom(t *testing.T) {
+	content := "# Title\n\nParagraph"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	lastIdx := m.BlockCount() - 1
+	m.focusBlock(lastIdx)
+
+	blocksBefore := m.BlockCount()
+	typeBefore := m.blocks[lastIdx].Type
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	m = updated.(Model)
+
+	if m.active != lastIdx {
+		t.Fatalf("active should still be %d after Alt+Down at bottom, got %d", lastIdx, m.active)
+	}
+	if m.BlockCount() != blocksBefore {
+		t.Fatal("block count should not change")
+	}
+	if m.blocks[lastIdx].Type != typeBefore {
+		t.Fatal("block order should not change")
+	}
+}
+
+func TestEnterAtEndOfMultiLineBlockCreatesNewParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: "Hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to end of the paragraph.
+	m.textareas[0].CursorEnd()
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("expected 1 block, got %d", m.BlockCount())
+	}
+
+	// Press Enter at end of content.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter at end, got %d", m.BlockCount())
+	}
+
+	// New block should be focused.
+	if m.active != 1 {
+		t.Fatalf("expected active to be 1, got %d", m.active)
+	}
+}
+
+func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+
+	keybindings := []string{
+		"Enter", "New block below",
+		"Backspace", "Merge/delete block",
+		"Alt+Up", "Move block up",
+		"Alt+Down", "Move block down",
+	}
+	for _, kb := range keybindings {
+		if !containsPlainText(view, kb) {
+			t.Fatalf("help overlay should contain %q", kb)
+		}
+	}
+}
+
+func TestInsertBlockAfterMiddle(t *testing.T) {
+	content := "# Title\n\nParagraph\n\n- bullet"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	blocksBefore := m.BlockCount()
+
+	// Focus block 0 and press Enter to create new block after it.
+	m.focusBlock(0)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore+1 {
+		t.Fatalf("expected %d blocks, got %d", blocksBefore+1, m.BlockCount())
+	}
+
+	// Active should be at the newly inserted block.
+	if m.active != 1 {
+		t.Fatalf("expected active to be 1, got %d", m.active)
+	}
+}
+
+func TestDeleteBlockFocusesPrevious(t *testing.T) {
+	content := "# Title\n\nParagraph\n\n- bullet"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Focus the empty paragraph (block 1) and delete it.
+	m.focusBlock(1)
+	// Block 1 should be the empty paragraph between title and paragraph text.
+	m.textareas[1].SetValue("")
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// Should have focused the previous block (0).
+	if m.active != 0 {
+		t.Fatalf("expected active to be 0 after deleting block 1, got %d", m.active)
+	}
+}
+
 // containsPlainText checks if a string contains the target text,
 // ignoring any ANSI escape sequences.
 func containsPlainText(s, target string) bool {
