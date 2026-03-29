@@ -113,7 +113,7 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 	ta := textarea.New()
 	ta.SetValue(b.Content)
 	ta.ShowLineNumbers = false
-	ta.SetWidth(width)
+	ta.SetWidth(width - 2)
 
 	// Code blocks and paragraphs are multi-line; others are single-line.
 	switch b.Type {
@@ -175,7 +175,7 @@ func (m *Model) resizeTextareas() {
 		w = defaultWidth
 	}
 	for i := range m.textareas {
-		m.textareas[i].SetWidth(w)
+		m.textareas[i].SetWidth(w - 2)
 	}
 	// Update viewport dimensions (reserve 1 line for status bar).
 	h := m.height - 1
