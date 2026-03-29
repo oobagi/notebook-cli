@@ -77,3 +77,20 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 - [x] [#96 Show community styles in theme picker](https://github.com/oobagi/notebook/issues/96)
 - [x] [#97 CI validation for community style JSON files](https://github.com/oobagi/notebook/issues/97)
 - [x] [#98 Contributing guide for community styles](https://github.com/oobagi/notebook/issues/98)
+
+## Phase 12: Block Data Model
+
+- [ ] [#117 Fix Cmd+Backspace should delete to start of line in editor](https://github.com/oobagi/notebook/issues/117)
+- [ ] [#118 Fix checklists don't work in editor](https://github.com/oobagi/notebook/issues/118)
+- [ ] [#119 Block type definition and markdown parser](https://github.com/oobagi/notebook/issues/119)
+- [ ] [#120 Block-to-markdown serializer with round-trip tests](https://github.com/oobagi/notebook/issues/120)
+
+## Phase 13: Block Editor Core
+
+- [ ] [#121 Replace textarea with block list widget](https://github.com/oobagi/notebook/issues/121)
+- [ ] [#122 Block operations — create, delete, merge, reorder](https://github.com/oobagi/notebook/issues/122)
+
+## Phase 14: Command Palette & Polish
+
+- [ ] [#123 / command palette for block type insertion](https://github.com/oobagi/notebook/issues/123)
+- [ ] [#124 Checklist toggle, visual polish, help overlay update](https://github.com/oobagi/notebook/issues/124)
