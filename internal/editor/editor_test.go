@@ -480,9 +480,6 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 		"Ctrl+C", "Force quit",
 		"Ctrl+G", "Toggle this help",
 		"Ctrl+K", "Cut block",
-		"Ctrl+Y", "Paste line",
-		"Ctrl+U", "Delete to line start",
-		"Ctrl+D", "Toggle checkbox",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -510,45 +507,6 @@ func TestHelpBlocksOtherKeys(t *testing.T) {
 	}
 	if !m.showHelp {
 		t.Fatal("help should still be showing")
-	}
-}
-
-func TestCtrlDTogglesCheckbox(t *testing.T) {
-	m := New(Config{Title: "test", Content: "- [ ] buy milk"})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Toggle unchecked to checked.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	m = updated.(Model)
-
-	content := m.Content()
-	if content != "- [x] buy milk" {
-		t.Fatalf("expected %q, got %q", "- [x] buy milk", content)
-	}
-
-	// Toggle checked back to unchecked.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	m = updated.(Model)
-
-	content = m.Content()
-	if content != "- [ ] buy milk" {
-		t.Fatalf("expected %q, got %q", "- [ ] buy milk", content)
-	}
-}
-
-func TestCtrlDNoOpOnNonCheckboxBlock(t *testing.T) {
-	m := New(Config{Title: "test", Content: "just a normal line"})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	contentBefore := m.Content()
-
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	m = updated.(Model)
-
-	if m.Content() != contentBefore {
-		t.Fatalf("Ctrl+D on non-checkbox block should be no-op, got %q", m.Content())
 	}
 }
 
@@ -671,24 +629,6 @@ func TestCtrlEIsNoOp(t *testing.T) {
 	}
 	if m.quitPrompt {
 		t.Fatal("Ctrl+E should not show quit prompt")
-	}
-}
-
-func TestHelpContainsToggleCheckbox(t *testing.T) {
-	m := New(Config{Title: "test", Content: "hello"})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
-	m = updated.(Model)
-
-	view := m.View()
-
-	if !containsPlainText(view, "Ctrl+D") {
-		t.Fatal("help overlay should contain Ctrl+D keybinding")
-	}
-	if !containsPlainText(view, "Toggle checkbox") {
-		t.Fatal("help overlay should contain 'Toggle checkbox' description")
 	}
 }
 
@@ -1154,7 +1094,7 @@ func TestHelpDoesNotContainStaleEntries(t *testing.T) {
 
 	view := m.View()
 
-	stale := []string{"Ctrl+P", "Ctrl+E"}
+	stale := []string{"Ctrl+P", "Ctrl+E", "Ctrl+U", "Ctrl+D", "Ctrl+Y"}
 	for _, s := range stale {
 		if containsPlainText(view, s) {
 			t.Fatalf("help overlay should NOT contain stale entry %q", s)
