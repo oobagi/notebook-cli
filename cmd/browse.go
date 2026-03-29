@@ -12,6 +12,11 @@ import (
 // a note, the browser quits, the editor launches, and the browser
 // re-enters after the editor exits.
 func runBrowser() error {
+	// Seed the welcome note on first launch (no-op after the first time).
+	if err := store.EnsureWelcome(); err != nil {
+		return fmt.Errorf("seed welcome note: %w", err)
+	}
+
 	var lastBook string
 	var lastCursor, lastSavedCursor int
 	for {
