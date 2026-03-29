@@ -715,35 +715,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// When palette is visible, intercept all keys.
 		if m.palette.visible {
-			switch msg.Type {
-			case tea.KeyUp:
+			switch msg.String() {
+			case "up":
 				m.palette.moveUp()
 				return m, nil
-			case tea.KeyDown:
+			case "down":
 				m.palette.moveDown()
 				return m, nil
-			case tea.KeyEnter:
+			case "enter":
 				if sel := m.palette.selected(); sel != nil {
 					m.applyPaletteSelection(sel.Type)
 				}
 				m.palette.close()
 				m.updateViewport()
 				return m, nil
-			case tea.KeyEsc:
+			case "esc":
 				m.palette.close()
 				m.updateViewport()
 				return m, nil
-			case tea.KeyBackspace:
+			case "backspace":
 				if !m.palette.deleteFilterRune() {
 					m.palette.close()
 					m.updateViewport()
 				}
 				return m, nil
-			case tea.KeyRunes:
-				for _, r := range msg.Runes {
-					m.palette.addFilterRune(r)
+			default:
+				if msg.Type == tea.KeyRunes {
+					for _, r := range msg.Runes {
+						m.palette.addFilterRune(r)
+					}
+					return m, nil
 				}
-				return m, nil
 			}
 			// Ignore other keys while palette is open.
 			return m, nil
