@@ -80,10 +80,10 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 12: Block Data Model
 
-- [ ] [#117 Fix Cmd+Backspace should delete to start of line in editor](https://github.com/oobagi/notebook/issues/117)
-- [ ] [#118 Fix checklists don't work in editor](https://github.com/oobagi/notebook/issues/118)
-- [ ] [#119 Block type definition and markdown parser](https://github.com/oobagi/notebook/issues/119)
-- [ ] [#120 Block-to-markdown serializer with round-trip tests](https://github.com/oobagi/notebook/issues/120)
+- [x] [#117 Fix Cmd+Backspace should delete to start of line in editor](https://github.com/oobagi/notebook/issues/117)
+- [x] [#118 Fix checklists don't work in editor](https://github.com/oobagi/notebook/issues/118)
+- [x] [#119 Block type definition and markdown parser](https://github.com/oobagi/notebook/issues/119)
+- [x] [#120 Block-to-markdown serializer with round-trip tests](https://github.com/oobagi/notebook/issues/120)
 
 ## Phase 13: Block Editor Core
 

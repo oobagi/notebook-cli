@@ -22,6 +22,7 @@ go vet ./...                  # Lint
 ```
 cmd/           CLI command definitions (Cobra commands)
 internal/
+  block/       Block type definitions, markdown parser, and serializer
   browser/     TUI notebook/note browser with fuzzy search (Bubble Tea)
   clipboard/   System clipboard and OSC 52 clipboard support
   config/      TOML configuration file (~/.config/notebook/config.toml)
