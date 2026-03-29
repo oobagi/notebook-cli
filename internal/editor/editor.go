@@ -231,6 +231,225 @@ func (m *Model) navigateDown() {
 	ta.CursorStart()
 }
 
+// isMultiLine returns true if the block type allows multi-line content.
+func isMultiLine(bt block.BlockType) bool {
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote
+}
+
+// insertBlockAfter inserts a new block after the given index, creates a
+// textarea for it, and focuses the new block.
+func (m *Model) insertBlockAfter(idx int, b block.Block) {
+	if idx < 0 || idx >= len(m.blocks) {
+		return
+	}
+	ta := newTextareaForBlock(b, m.width)
+
+	// Insert into blocks slice.
+	newBlocks := make([]block.Block, 0, len(m.blocks)+1)
+	newBlocks = append(newBlocks, m.blocks[:idx+1]...)
+	newBlocks = append(newBlocks, b)
+	newBlocks = append(newBlocks, m.blocks[idx+1:]...)
+	m.blocks = newBlocks
+
+	// Insert into textareas slice.
+	newTAs := make([]textarea.Model, 0, len(m.textareas)+1)
+	newTAs = append(newTAs, m.textareas[:idx+1]...)
+	newTAs = append(newTAs, ta)
+	newTAs = append(newTAs, m.textareas[idx+1:]...)
+	m.textareas = newTAs
+
+	// Focus the new block.
+	m.focusBlock(idx + 1)
+}
+
+// deleteBlock removes the block at the given index. If it is the last block,
+// it converts it to an empty paragraph instead of deleting.
+func (m *Model) deleteBlock(idx int) {
+	if len(m.blocks) <= 1 {
+		// Convert last block to empty paragraph.
+		m.blocks[0] = block.Block{Type: block.Paragraph, Content: ""}
+		m.textareas[0] = newTextareaForBlock(m.blocks[0], m.width)
+		m.active = 0
+		m.textareas[0].Focus()
+		return
+	}
+
+	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
+	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
+
+	// Adjust active index.
+	if idx >= len(m.blocks) {
+		m.active = len(m.blocks) - 1
+	} else if idx > 0 {
+		m.active = idx - 1
+	} else {
+		m.active = 0
+	}
+	m.textareas[m.active].Focus()
+}
+
+// mergeBlockUp merges block at idx into block at idx-1. The merged block
+// keeps the type of the previous block. Cursor is placed at the merge point.
+func (m *Model) mergeBlockUp(idx int) {
+	if idx <= 0 || idx >= len(m.blocks) {
+		return
+	}
+
+	// Sync content from textarea.
+	currentContent := m.textareas[idx].Value()
+	prevContent := m.textareas[idx-1].Value()
+
+	// Remember the merge point (end of previous content).
+	mergeCol := len([]rune(prevContent))
+
+	// Merge content into previous block.
+	var merged string
+	if prevContent == "" {
+		merged = currentContent
+	} else if currentContent == "" {
+		merged = prevContent
+	} else {
+		merged = prevContent + "\n" + currentContent
+	}
+
+	// Update previous block content.
+	m.blocks[idx-1].Content = merged
+	m.textareas[idx-1].SetValue(merged)
+
+	// For multi-line blocks, grow the textarea.
+	if isMultiLine(m.blocks[idx-1].Type) {
+		lines := strings.Count(merged, "\n") + 1
+		if lines < 3 {
+			lines = 3
+		}
+		m.textareas[idx-1].SetHeight(lines)
+	}
+
+	// Remove the current block.
+	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
+	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
+
+	// Focus previous block and position cursor at merge point.
+	m.active = idx - 1
+	m.textareas[m.active].Focus()
+
+	// Position cursor at the merge point.
+	m.textareas[m.active].SetCursor(mergeCol)
+}
+
+// swapBlocks swaps the block at idx with the block at idx+delta (delta is
+// -1 for up, +1 for down). No-op at boundaries.
+func (m *Model) swapBlocks(delta int) {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return
+	}
+	target := m.active + delta
+	if target < 0 || target >= len(m.blocks) {
+		return
+	}
+
+	// Sync current textarea content before swap.
+	m.blocks[m.active].Content = m.textareas[m.active].Value()
+	m.blocks[target].Content = m.textareas[target].Value()
+
+	// Swap blocks.
+	m.blocks[m.active], m.blocks[target] = m.blocks[target], m.blocks[m.active]
+	m.textareas[m.active], m.textareas[target] = m.textareas[target], m.textareas[m.active]
+
+	// Move focus to the new position.
+	m.textareas[m.active].Blur()
+	m.active = target
+	m.textareas[m.active].Focus()
+}
+
+// handleEnter processes the Enter key for block creation/splitting.
+func (m *Model) handleEnter() {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return
+	}
+
+	bt := m.blocks[m.active].Type
+	content := m.textareas[m.active].Value()
+
+	if isMultiLine(bt) {
+		// Multi-line block: only create new block if cursor is at the very end.
+		ta := &m.textareas[m.active]
+		cursorLine := ta.Line()
+		lines := strings.Split(content, "\n")
+		totalLines := len(lines)
+		isLastLine := cursorLine >= totalLines-1
+
+		if isLastLine {
+			col := ta.LineInfo().ColumnOffset
+			lastLineRunes := []rune(lines[totalLines-1])
+			if col >= len(lastLineRunes) {
+				// Cursor is at the very end of the last line.
+				// Create new empty paragraph below.
+				m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph, Content: ""})
+				return
+			}
+		}
+		// Otherwise, let the textarea handle Enter normally (insert newline).
+		return
+	}
+
+	// Single-line blocks: create a new block below.
+	var newBlock block.Block
+	switch bt {
+	case block.Checklist:
+		newBlock = block.Block{Type: block.Checklist, Content: "", Checked: false}
+	case block.BulletList:
+		newBlock = block.Block{Type: block.BulletList, Content: ""}
+	case block.NumberedList:
+		newBlock = block.Block{Type: block.NumberedList, Content: ""}
+	default:
+		// Headings, dividers, etc. create a paragraph.
+		newBlock = block.Block{Type: block.Paragraph, Content: ""}
+	}
+
+	m.insertBlockAfter(m.active, newBlock)
+}
+
+// handleBackspace processes Backspace at position 0 for block deletion/merging.
+// Returns true if the backspace was handled (caller should not forward to textarea).
+func (m *Model) handleBackspace() bool {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return false
+	}
+
+	ta := &m.textareas[m.active]
+
+	// Check if cursor is at position 0 (line 0, column 0).
+	if ta.Line() != 0 {
+		return false
+	}
+	if ta.LineInfo().ColumnOffset != 0 {
+		return false
+	}
+
+	content := ta.Value()
+
+	if content == "" {
+		// Empty block: delete it, focus previous.
+		if m.active == 0 {
+			if len(m.blocks) <= 1 {
+				return true // Already empty paragraph, nothing to do.
+			}
+		}
+		m.deleteBlock(m.active)
+		m.textareas[m.active].CursorEnd()
+		return true
+	}
+
+	// Non-empty block at position 0: merge with previous block.
+	if m.active == 0 {
+		return false // No previous block to merge into.
+	}
+
+	m.mergeBlockUp(m.active)
+	return true
+}
+
 // cutBlock removes the active block and stores it in the block clipboard.
 func (m *Model) cutBlock() {
 	if len(m.blocks) <= 1 {
@@ -532,6 +751,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			}
+
+		case "alt+up":
+			m.swapBlocks(-1)
+			m.updateViewport()
+			return m, nil
+
+		case "alt+down":
+			m.swapBlocks(1)
+			m.updateViewport()
+			return m, nil
 		}
 
 	case savedMsg:
@@ -553,12 +782,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward remaining messages to the active textarea.
 	if m.active >= 0 && m.active < len(m.textareas) {
-		// Block Enter key in single-line blocks to prevent newlines
-		// from corrupting the block structure.
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEnter {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			bt := m.blocks[m.active].Type
-			if bt != block.Paragraph && bt != block.CodeBlock && bt != block.Quote {
-				return m, nil
+
+			// Handle Enter key for block creation.
+			if keyMsg.Type == tea.KeyEnter {
+				if !isMultiLine(bt) {
+					// Single-line blocks: create new block below.
+					m.handleEnter()
+					m.updateViewport()
+					return m, nil
+				}
+				// Multi-line blocks: check if cursor is at the very end.
+				ta := &m.textareas[m.active]
+				content := ta.Value()
+				lines := strings.Split(content, "\n")
+				totalLines := len(lines)
+				cursorLine := ta.Line()
+				isLastLine := cursorLine >= totalLines-1
+
+				if isLastLine {
+					col := ta.LineInfo().ColumnOffset
+					lastLineRunes := []rune(lines[totalLines-1])
+					if col >= len(lastLineRunes) {
+						m.handleEnter()
+						m.updateViewport()
+						return m, nil
+					}
+				}
+				// Otherwise fall through to let textarea handle it.
+			}
+
+			// Handle Backspace at position 0 for delete/merge.
+			if keyMsg.Type == tea.KeyBackspace {
+				if m.handleBackspace() {
+					m.updateViewport()
+					return m, nil
+				}
 			}
 		}
 
@@ -567,7 +827,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Grow multi-line textareas dynamically as the user types.
 		bt := m.blocks[m.active].Type
-		if bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote {
+		if isMultiLine(bt) {
 			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
 			if lines < 3 {
 				lines = 3
@@ -642,6 +902,10 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+Y    Paste line
   Ctrl+U    Delete to line start
   Ctrl+D    Toggle checkbox
+  Enter     New block below
+  Backspace Merge/delete block
+  Alt+Up    Move block up
+  Alt+Down  Move block down
 
   Press Ctrl+G or Esc to close`
 
@@ -658,7 +922,7 @@ func (m Model) renderHelpOverlay() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
-		Width(36).
+		Width(38).
 		Align(lipgloss.Left)
 
 	rendered := box.Render(help)
