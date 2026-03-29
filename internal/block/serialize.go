@@ -82,6 +82,11 @@ func Serialize(blocks []Block) string {
 
 		case Divider:
 			lines = append(lines, "---")
+
+		default:
+			if b.Content != "" {
+				lines = append(lines, strings.Split(b.Content, "\n")...)
+			}
 		}
 	}
 

@@ -115,8 +115,7 @@ func Parse(markdown string) []Block {
 		}
 
 		// --- Numbered list items ---
-		if isNumberedItem(line) {
-			_, content := parseNumberedItem(line)
+		if _, content, ok := parseNumberedItem(line); ok {
 			blocks = append(blocks, Block{
 				Type:    NumberedList,
 				Content: content,
@@ -148,23 +147,10 @@ func Parse(markdown string) []Block {
 		// --- Paragraph (merge consecutive non-special lines) ---
 		var paraLines []string
 		for i < len(lines) {
-			l := lines[i]
-			if l == "" ||
-				strings.HasPrefix(l, "```") ||
-				strings.HasPrefix(l, "# ") ||
-				strings.HasPrefix(l, "## ") ||
-				strings.HasPrefix(l, "### ") ||
-				strings.HasPrefix(l, "- ") ||
-				strings.HasPrefix(l, "* ") ||
-				strings.HasPrefix(l, "> ") || l == ">" ||
-				strings.HasPrefix(l, "- [ ] ") ||
-				strings.HasPrefix(l, "- [x] ") ||
-				strings.HasPrefix(l, "- [X] ") ||
-				isNumberedItem(l) ||
-				isDivider(l) {
+			if isBlockStart(lines[i]) {
 				break
 			}
-			paraLines = append(paraLines, l)
+			paraLines = append(paraLines, lines[i])
 			i++
 		}
 		blocks = append(blocks, Block{
@@ -176,21 +162,34 @@ func Parse(markdown string) []Block {
 	return blocks
 }
 
+// isBlockStart reports whether a line begins a new block (i.e. is not plain
+// paragraph text). Used by the paragraph merger to know when to stop.
+func isBlockStart(line string) bool {
+	if line == "" || line == ">" {
+		return true
+	}
+	if strings.HasPrefix(line, "```") ||
+		strings.HasPrefix(line, "# ") ||
+		strings.HasPrefix(line, "## ") ||
+		strings.HasPrefix(line, "### ") ||
+		strings.HasPrefix(line, "- ") ||
+		strings.HasPrefix(line, "* ") ||
+		strings.HasPrefix(line, "> ") {
+		return true
+	}
+	if _, _, ok := parseNumberedItem(line); ok {
+		return true
+	}
+	return isDivider(line)
+}
+
 // isDivider reports whether a line is a thematic break (---, ***, or ___).
 func isDivider(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if len(trimmed) < 3 {
 		return false
 	}
-	switch {
-	case allSameChar(trimmed, '-'):
-		return true
-	case allSameChar(trimmed, '*'):
-		return true
-	case allSameChar(trimmed, '_'):
-		return true
-	}
-	return false
+	return allSameChar(trimmed, '-') || allSameChar(trimmed, '*') || allSameChar(trimmed, '_')
 }
 
 // allSameChar reports whether s consists entirely of character c.
@@ -203,31 +202,15 @@ func allSameChar(s string, c byte) bool {
 	return true
 }
 
-// isNumberedItem reports whether a line starts with one or more ASCII digits
-// followed by ". " (dot-space).
-func isNumberedItem(line string) bool {
-	if len(line) == 0 {
-		return false
-	}
-	i := 0
-	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
-		i++
-	}
-	if i == 0 {
-		return false
-	}
-	return strings.HasPrefix(line[i:], ". ")
-}
-
-// parseNumberedItem splits "123. text" into the number prefix and text.
-// Returns empty strings if line does not match the pattern.
-func parseNumberedItem(line string) (prefix, content string) {
+// parseNumberedItem splits "123. text" into the number prefix, text, and
+// whether the line matched. Combines detection and extraction in one pass.
+func parseNumberedItem(line string) (prefix, content string, ok bool) {
 	i := 0
 	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
 		i++
 	}
 	if i == 0 || i+2 > len(line) || line[i] != '.' || line[i+1] != ' ' {
-		return "", ""
+		return "", "", false
 	}
-	return line[:i], line[i+2:]
+	return line[:i], line[i+2:], true
 }
