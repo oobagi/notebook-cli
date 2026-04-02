@@ -1205,13 +1205,13 @@ func TestCtrlJInsertsNewlineInQuote(t *testing.T) {
 }
 
 func TestCtrlJNoOpOnSingleLineBlock(t *testing.T) {
-	// On a heading (single-line), Ctrl+J should do nothing.
+	// On a heading (single-line), Ctrl+J should be a no-op.
 	m := New(Config{Title: "test", Content: "# My Title"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	contentBefore := m.textareas[0].Value()
 	blocksBefore := m.BlockCount()
+	contentBefore := m.textareas[0].Value()
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	m = updated.(Model)
@@ -1231,8 +1231,8 @@ func TestCtrlJNoOpOnBulletList(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	contentBefore := m.textareas[0].Value()
 	blocksBefore := m.BlockCount()
+	contentBefore := m.textareas[0].Value()
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	m = updated.(Model)
@@ -1640,6 +1640,194 @@ func TestHeadingTextareaHeightUpdatesOnType(t *testing.T) {
 	h := m.textareas[0].Height()
 	if h <= 1 {
 		t.Fatalf("heading textarea should have grown after typing long content, got height %d", h)
+	}
+}
+
+// ---------- Block splitting on Enter tests ----------
+
+func TestEnterAtBeginningOfHeadingSplits(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# My Title"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Cursor should be at end by default. Move to beginning.
+	m.textareas[0].CursorStart()
+
+	// Press Enter.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+
+	// First block should be empty paragraph (empty heading → paragraph).
+	if m.blocks[0].Type != block.Paragraph {
+		t.Fatalf("first block should be Paragraph, got %s", m.blocks[0].Type)
+	}
+	if m.textareas[0].Value() != "" {
+		t.Fatalf("first block should be empty, got %q", m.textareas[0].Value())
+	}
+
+	// Second block should be Heading1 with the content.
+	if m.blocks[1].Type != block.Heading1 {
+		t.Fatalf("second block should be Heading1, got %s", m.blocks[1].Type)
+	}
+	if m.textareas[1].Value() != "My Title" {
+		t.Fatalf("second block should have 'My Title', got %q", m.textareas[1].Value())
+	}
+
+	// Cursor should be on the second block.
+	if m.active != 1 {
+		t.Fatalf("active should be 1, got %d", m.active)
+	}
+}
+
+func TestEnterInMiddleOfHeadingSplits(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Hello World"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to position 5 ("Hello|World").
+	m.textareas[0].CursorStart()
+	m.textareas[0].SetCursor(5)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+
+	// First block stays as Heading1 with "Hello".
+	if m.blocks[0].Type != block.Heading1 {
+		t.Fatalf("first block should be Heading1, got %s", m.blocks[0].Type)
+	}
+	if m.textareas[0].Value() != "Hello" {
+		t.Fatalf("first block should have 'Hello', got %q", m.textareas[0].Value())
+	}
+
+	// Second block is Paragraph with " World".
+	if m.blocks[1].Type != block.Paragraph {
+		t.Fatalf("second block should be Paragraph, got %s", m.blocks[1].Type)
+	}
+	if m.textareas[1].Value() != " World" {
+		t.Fatalf("second block should have ' World', got %q", m.textareas[1].Value())
+	}
+}
+
+func TestEnterAtBeginningOfBulletSplits(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- my item"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.textareas[0].CursorStart()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+
+	// First block: empty BulletList.
+	if m.blocks[0].Type != block.BulletList {
+		t.Fatalf("first block should be BulletList, got %s", m.blocks[0].Type)
+	}
+	if m.textareas[0].Value() != "" {
+		t.Fatalf("first block should be empty, got %q", m.textareas[0].Value())
+	}
+
+	// Second block: BulletList with content.
+	if m.blocks[1].Type != block.BulletList {
+		t.Fatalf("second block should be BulletList, got %s", m.blocks[1].Type)
+	}
+	if m.textareas[1].Value() != "my item" {
+		t.Fatalf("second block should have 'my item', got %q", m.textareas[1].Value())
+	}
+}
+
+func TestEnterAtEndOfBlockStillWorks(t *testing.T) {
+	// Existing behavior: Enter at end creates empty block below.
+	m := New(Config{Title: "test", Content: "# Title"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Put cursor explicitly at the end.
+	m.textareas[0].CursorEnd()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+
+	// First block keeps content.
+	if m.textareas[0].Value() != "Title" {
+		t.Fatalf("first block should have 'Title', got %q", m.textareas[0].Value())
+	}
+
+	// Second block is empty paragraph.
+	if m.blocks[1].Type != block.Paragraph {
+		t.Fatalf("second block should be Paragraph, got %s", m.blocks[1].Type)
+	}
+	if m.textareas[1].Value() != "" {
+		t.Fatalf("second block should be empty, got %q", m.textareas[1].Value())
+	}
+}
+
+func TestEnterSplitsMultiLineParagraph(t *testing.T) {
+	// Paragraph with two lines, cursor at beginning of second line.
+	m := New(Config{Title: "test", Content: "line one\nline two"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to beginning of second line.
+	ta := &m.textareas[0]
+	ta.CursorStart()
+	ta.CursorDown()
+	// CursorDown should put us on line 1 (second logical line).
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+
+	// First block: "line one"
+	if m.textareas[0].Value() != "line one" {
+		t.Fatalf("first block should have 'line one', got %q", m.textareas[0].Value())
+	}
+
+	// Second block: "line two"
+	if m.textareas[1].Value() != "line two" {
+		t.Fatalf("second block should have 'line two', got %q", m.textareas[1].Value())
+	}
+}
+
+func TestCtrlWTogglesWordWrap(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if !m.wordWrap {
+		t.Fatal("word wrap should be on by default")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	m = updated.(Model)
+
+	if m.wordWrap {
+		t.Fatal("Ctrl+W should toggle word wrap off")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	m = updated.(Model)
+
+	if !m.wordWrap {
+		t.Fatal("Ctrl+W should toggle word wrap back on")
 	}
 }
 

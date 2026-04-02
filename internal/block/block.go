@@ -50,6 +50,34 @@ func (bt BlockType) String() string {
 	}
 }
 
+// Short returns a compact abbreviation of a BlockType for gutter labels.
+func (bt BlockType) Short() string {
+	switch bt {
+	case Paragraph:
+		return "p"
+	case Heading1:
+		return "h1"
+	case Heading2:
+		return "h2"
+	case Heading3:
+		return "h3"
+	case BulletList:
+		return "ul"
+	case NumberedList:
+		return "ol"
+	case Checklist:
+		return "cx"
+	case CodeBlock:
+		return "cd"
+	case Quote:
+		return "qt"
+	case Divider:
+		return "hr"
+	default:
+		return "?"
+	}
+}
+
 // Block holds a single parsed content block.
 type Block struct {
 	Type     BlockType // kind of block

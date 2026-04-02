@@ -52,8 +52,10 @@ func openFile(path string) error {
 	originalMode := info.Mode().Perm()
 
 	cfg := editor.Config{
-		Title:   filepath.Base(absPath),
-		Content: string(data),
+		Title:    filepath.Base(absPath),
+		FilePath: absPath,
+		FileSize: info.Size(),
+		Content:  string(data),
 		Save: func(content string) error {
 			return os.WriteFile(absPath, []byte(content), originalMode)
 		},

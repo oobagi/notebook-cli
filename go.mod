@@ -2,6 +2,8 @@ module github.com/oobagi/notebook
 
 go 1.24.2
 
+replace github.com/charmbracelet/bubbles v1.0.0 => ./fork/bubbles
+
 require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10

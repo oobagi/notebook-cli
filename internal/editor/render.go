@@ -1,13 +1,93 @@
 package editor
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/oobagi/notebook/internal/block"
 	"github.com/oobagi/notebook/internal/theme"
 )
+
+// renderHeader builds the header bar displayed at the top of the editor.
+// It shows the title on the left and file path + size on the right.
+func (m Model) renderHeader() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true)
+	metaStyle := lipgloss.NewStyle().Faint(true)
+
+	left := titleStyle.Render(m.config.Title)
+
+	var rightParts []string
+	if m.config.FilePath != "" {
+		displayPath := m.config.FilePath
+		if home, err := os.UserHomeDir(); err == nil {
+			displayPath = strings.Replace(displayPath, home, "~", 1)
+		}
+		rightParts = append(rightParts, displayPath)
+	}
+	if m.config.FileSize > 0 {
+		rightParts = append(rightParts, humanSize(m.config.FileSize))
+	}
+	right := metaStyle.Render(strings.Join(rightParts, " \u00B7 "))
+
+	// If everything doesn't fit, truncate the right side.
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 2 {
+		// Drop the file path, keep just the size.
+		if m.config.FileSize > 0 {
+			right = metaStyle.Render(humanSize(m.config.FileSize))
+		} else {
+			right = ""
+		}
+		gap = width - lipgloss.Width(left) - lipgloss.Width(right)
+		if gap < 1 {
+			gap = 1
+		}
+	}
+
+	bar := left + strings.Repeat(" ", gap) + right
+
+	return lipgloss.NewStyle().Width(width).Render(bar)
+}
+
+// humanSize formats a byte count into a human-readable string.
+func humanSize(bytes int64) string {
+	switch {
+	case bytes < 1024:
+		return fmt.Sprintf("%d B", bytes)
+	case bytes < 1024*1024:
+		kb := float64(bytes) / 1024
+		return formatFloat(kb) + " KB"
+	case bytes < 1024*1024*1024:
+		mb := float64(bytes) / (1024 * 1024)
+		return formatFloat(mb) + " MB"
+	default:
+		gb := float64(bytes) / (1024 * 1024 * 1024)
+		return formatFloat(gb) + " GB"
+	}
+}
+
+// formatFloat formats a float to one decimal place, dropping the ".0" suffix.
+func formatFloat(f float64) string {
+	s := fmt.Sprintf("%.1f", f)
+	if strings.HasSuffix(s, ".0") {
+		return s[:len(s)-2]
+	}
+	return s
+}
 
 // renderDebugInfo builds the debug panel that shows block metadata.
 // It is displayed between the viewport and the status bar when debug mode
@@ -59,9 +139,24 @@ func (m Model) renderDebugInfo() string {
 				Render("  <- active")
 		}
 
+		// Measure actual view width for diagnostics.
+		viewW := 0
+		if i < len(m.textareas) {
+			for _, vl := range strings.Split(m.textareas[i].View(), "\n") {
+				if lw := lipgloss.Width(vl); lw > viewW {
+					viewW = lw
+				}
+			}
+		}
+
+		taW := 0
+		if i < len(m.textareas) {
+			taW = m.textareas[i].Width()
+		}
+
 		line := muted.Render(fmt.Sprintf(
-			"[%d] %-12s \"%s\"  h:%d",
-			i, b.Type.String(), preview, h,
+			"[%d] %-12s \"%s\"  h:%d  taW:%d  viewW:%d  pfx:%d",
+			i, b.Type.String(), preview, h, taW, viewW, blockPrefixWidth(b.Type),
 		)) + marker
 
 		lines = append(lines, line)
@@ -95,23 +190,99 @@ func (m Model) renderBlock(idx int) string {
 	if isActive {
 		return m.renderActiveBlock(idx, b, content)
 	}
-	return renderInactiveBlock(b, content, m.width)
+	return renderInactiveBlock(b, content, m.width, m.wordWrap, m.blocks, idx)
 }
 
-// renderActiveBlock renders the block that currently has focus, showing
-// the textarea for editing with a left-margin accent indicator.
+// renderActiveBlock renders the block that currently has focus.
+// We render the content ourselves (same wrapping as inactive blocks)
+// and draw the cursor at the correct position using the textarea's
+// cursor model. This gives us full control over line width.
 func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	if idx < 0 || idx >= len(m.textareas) {
 		return ""
 	}
 
 	ta := m.textareas[idx]
-	taView := ta.View()
+	content := ta.Value()
+
+	// Content width for this block type.
+	contentWidth := m.width - gutterWidth - blockPrefixWidth(b.Type)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	if !m.wordWrap {
+		contentWidth = 1000
+	}
+
+	// Divider: selected as a unit — render highlighted hr, no cursor.
+	if b.Type == block.Divider {
+		w := m.width - gutterWidth
+		if w <= 0 {
+			w = 40
+		}
+		if w > 40 {
+			w = 40
+		}
+		accent := theme.Current().Accent
+		rendered := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(accent)).
+			Render(strings.Repeat("\u2500", w))
+		label := fmt.Sprintf("%2s", b.Type.Short())
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
+		return accentStyle.Render(label) + " " + accentStyle.Render("│") + " " + rendered
+	}
+
+	// Get cursor position from the textarea.
+	li := ta.LineInfo()
+	cursorRawRow := ta.Line()
+	cursorColInWrap := li.ColumnOffset
+	cursorWrapRow := li.RowOffset
+
+	// Map (rawRow, wrapRow) to a visual line index and insert cursor.
+	rawLines := strings.Split(content, "\n")
+	var visualLines []string
+	cursorVisIdx := 0
+
+	for rawIdx, raw := range rawLines {
+		segs := textarea.Wrap([]rune(raw), contentWidth)
+		if len(segs) == 0 {
+			segs = [][]rune{{}}
+		}
+		for wIdx, seg := range segs {
+			line := string(seg)
+			visIdx := len(visualLines)
+
+			if rawIdx == cursorRawRow && wIdx == cursorWrapRow {
+				cursorVisIdx = visIdx
+				// Insert cursor character.
+				runes := []rune(line)
+				col := cursorColInWrap
+				if col > len(runes) {
+					col = len(runes)
+				}
+				before := string(runes[:col])
+				curChar := " "
+				after := ""
+				if col < len(runes) {
+					curChar = string(runes[col : col+1])
+					after = string(runes[col+1:])
+				}
+				ta.Cursor.SetChar(curChar)
+				line = before + ta.Cursor.View() + after
+			}
+
+			// Pad to contentWidth.
+			if pad := contentWidth - lipgloss.Width(line); pad > 0 {
+				line += strings.Repeat(" ", pad)
+			}
+			visualLines = append(visualLines, line)
+		}
+	}
+
+	_ = cursorVisIdx
+	taView := strings.Join(visualLines, "\n")
 
 	th := theme.Current()
-	indicator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(th.Accent)).
-		Render("\u258e")
 
 	var rendered string
 
@@ -121,10 +292,6 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			Bold(true).
 			Foreground(lipgloss.Color(th.Accent))
 		rendered = style.Render(taView)
-		// Add blank line above H1 unless it's the first block.
-		if idx > 0 {
-			rendered = "\n" + rendered
-		}
 
 	case block.Heading2:
 		style := lipgloss.NewStyle().Bold(true)
@@ -138,7 +305,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(th.Muted)).
 			Render("  \u2022  ")
-		rendered = prefix + taView
+		rendered = prefixFirstLine(prefix, taView)
 
 	case block.NumberedList:
 		num := 1
@@ -152,71 +319,168 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(th.Muted)).
 			Render(fmt.Sprintf("  %d. ", num))
-		rendered = prefix + taView
+		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
-		var marker string
 		if b.Checked {
-			marker = "  \u2611 "
+			prefix := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(th.Accent)).
+				Bold(true).
+				Render(" [x] ")
+			faintText := lipgloss.NewStyle().Faint(true).Render(taView)
+			rendered = prefixFirstLine(prefix, faintText)
 		} else {
-			marker = "  \u2610 "
+			prefix := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(th.Muted)).
+				Render(" [ ] ")
+			rendered = prefixFirstLine(prefix, taView)
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render(marker)
-		rendered = prefix + taView
 
 	case block.CodeBlock:
-		label := ""
+		codeContent := taView
 		if b.Language != "" {
-			label = lipgloss.NewStyle().
+			langLabel := lipgloss.NewStyle().
 				Faint(true).
-				Render(" " + b.Language)
+				Render(b.Language)
+			codeContent = langLabel + "\n" + taView
 		}
-		border := lipgloss.NewStyle().
-			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder()).
+		codeStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(th.Border)).
-			PaddingLeft(1)
-		rendered = label + "\n" + border.Render(taView)
+			PaddingLeft(1).
+			PaddingRight(1)
+		rendered = codeStyle.Render(codeContent)
 
 	case block.Quote:
 		bar := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(th.Muted)).
 			Render("\u2502 ")
-		// Prepend the bar to each line of the textarea view.
 		lines := strings.Split(taView, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
 		}
 		rendered = strings.Join(lines, "\n")
 
-	case block.Divider:
-		w := m.width
-		if w <= 0 {
-			w = 40
-		}
-		if w > 40 {
-			w = 40
-		}
-		rendered = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render(strings.Repeat("\u2500", w))
-
 	default:
 		rendered = taView
 	}
 
-	// Prepend the accent-colored active block indicator to each line.
+	// Build gutter with block type label.
+	label := fmt.Sprintf("%2s", b.Type.Short())
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
+	sepStr := accentStyle.Render("│")
+	labelStr := accentStyle.Render(label)
+	blankLabel := accentStyle.Render("  ")
+
 	lines := strings.Split(rendered, "\n")
 	for i, l := range lines {
-		lines[i] = indicator + " " + l
+		if i == 0 {
+			lines[i] = labelStr + " " + sepStr + " " + l
+		} else {
+			lines[i] = blankLabel + " " + sepStr + " " + l
+		}
+	}
+
+	// Truncate any line that exceeds terminal width.
+	for i, l := range lines {
+		if lipgloss.Width(l) > m.width {
+			if m.wordWrap {
+				lines[i] = ansi.Truncate(l, m.width, "")
+			} else {
+				lines[i] = ansi.Truncate(l, m.width, "\u2192")
+			}
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// prefixFirstLine prepends a prefix to the first line of a multiline string,
+// indenting continuation lines with spaces of matching width so wrapped
+// content aligns with the first line's text.
+func prefixFirstLine(prefix, content string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return prefix
+	}
+	indent := strings.Repeat(" ", lipgloss.Width(prefix))
+	lines[0] = prefix + lines[0]
+	for i := 1; i < len(lines); i++ {
+		lines[i] = indent + lines[i]
 	}
 	return strings.Join(lines, "\n")
 }
 
+// wrapText wraps content using the same word-wrap + hard-break algorithm
+// as the forked textarea, so active and inactive blocks render identically.
+func wrapText(content string, width int) string {
+	if width <= 0 {
+		width = 1
+	}
+	rawLines := strings.Split(content, "\n")
+	var out []string
+	for _, raw := range rawLines {
+		wrapped := textarea.Wrap([]rune(raw), width)
+		if len(wrapped) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for _, seg := range wrapped {
+			out = append(out, string(seg))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// highlightCode applies syntax highlighting to code using chroma.
+// Returns the original content unchanged if the language is unknown or highlighting fails.
+func highlightCode(code, language string) string {
+	lexer := lexers.Get(language)
+	if lexer == nil {
+		lexer = lexers.Analyse(code)
+	}
+	if lexer == nil {
+		return code
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	styleName := "monokai"
+	if theme.Current().Background == "light" {
+		styleName = "github"
+	}
+	style := styles.Get(styleName)
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return code
+	}
+
+	var buf bytes.Buffer
+	err = formatters.TTY16m.Format(&buf, style, iterator)
+	if err != nil {
+		return code
+	}
+
+	// Trim trailing newline that chroma may add.
+	result := buf.String()
+	result = strings.TrimRight(result, "\n")
+	return result
+}
+
 // renderInactiveBlock renders a block as styled static text (no cursor).
-func renderInactiveBlock(b block.Block, content string, width int) string {
+func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int) string {
+	// Compute the available content width, matching the active block's calculation.
+	contentWidth := width - gutterWidth - blockPrefixWidth(b.Type)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	// Wrap content to fit within the available width.
+	wrapped := content
+	if wordWrap {
+		wrapped = wrapText(content, contentWidth)
+	}
+
 	var rendered string
 
 	switch b.Type {
@@ -224,69 +488,82 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 		style := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color(theme.Current().Accent))
-		rendered = "\n" + style.Render(content) + "\n"
+		rendered = style.Render(wrapped)
 
 	case block.Heading2:
 		style := lipgloss.NewStyle().Bold(true)
-		rendered = style.Render(content)
+		rendered = style.Render(wrapped)
 
 	case block.Heading3:
 		style := lipgloss.NewStyle().Bold(true).Faint(true)
-		rendered = style.Render(content)
+		rendered = style.Render(wrapped)
 
 	case block.BulletList:
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render("  \u2022  ")
-		rendered = prefix + content
+		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
-		// Inactive numbered list items don't know their sequence position
-		// from this function alone; the caller should handle sequencing.
-		// We use a placeholder that will be replaced at render time.
+		num := 1
+		for i := idx - 1; i >= 0; i-- {
+			if blocks[i].Type == block.NumberedList {
+				num++
+			} else {
+				break
+			}
+		}
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render("  -  ")
-		rendered = prefix + content
+			Render(fmt.Sprintf("  %d. ", num))
+		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
-		var marker string
 		if b.Checked {
-			marker = "  \u2611 "
+			prefix := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.Current().Accent)).
+				Bold(true).
+				Render(" [x] ")
+			faintText := lipgloss.NewStyle().Faint(true).Render(wrapped)
+			rendered = prefixFirstLine(prefix, faintText)
 		} else {
-			marker = "  \u2610 "
+			prefix := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.Current().Muted)).
+				Render(" [ ] ")
+			rendered = prefixFirstLine(prefix, wrapped)
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render(marker)
-		rendered = prefix + content
 
 	case block.CodeBlock:
-		label := ""
+		highlighted := wrapped
 		if b.Language != "" {
-			label = lipgloss.NewStyle().
-				Faint(true).
-				Render(" " + b.Language)
+			highlighted = highlightCode(wrapped, b.Language)
 		}
-		border := lipgloss.NewStyle().
-			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder()).
+		codeContent := highlighted
+		if b.Language != "" {
+			langLabel := lipgloss.NewStyle().
+				Faint(true).
+				Render(b.Language)
+			codeContent = langLabel + "\n" + highlighted
+		}
+		codeStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(theme.Current().Border)).
-			PaddingLeft(1)
-		rendered = label + "\n" + border.Render(content)
+			PaddingLeft(1).
+			PaddingRight(1)
+		rendered = codeStyle.Render(codeContent)
 
 	case block.Quote:
 		bar := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render("\u2502 ")
-		lines := strings.Split(content, "\n")
+		lines := strings.Split(wrapped, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
 		}
 		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
-		w := width
+		w := width - gutterWidth
 		if w <= 0 {
 			w = 40
 		}
@@ -298,22 +575,40 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 			Render(strings.Repeat("\u2500", w))
 
 	case block.Paragraph:
-		if content == "" {
+		if wrapped == "" {
 			rendered = ""
 		} else {
-			rendered = content
+			rendered = wrapped
 		}
 
 	default:
-		rendered = content
+		rendered = wrapped
 	}
 
-	// Prepend 2-space left padding to each line to match the active block's
-	// accent indicator width (▎ + space = 2 characters), so text stays at
-	// the same column regardless of whether the block is selected.
+	// Build gutter with block type label (muted for inactive blocks).
+	label := fmt.Sprintf("%2s", b.Type.Short())
+	mutedStyle := lipgloss.NewStyle().Faint(true)
+	sepStr := mutedStyle.Render("│")
+	labelStr := mutedStyle.Render(label)
+	blankLabel := mutedStyle.Render("  ")
+
 	lines := strings.Split(rendered, "\n")
 	for i, l := range lines {
-		lines[i] = "  " + l
+		if i == 0 {
+			lines[i] = labelStr + " " + sepStr + " " + l
+		} else {
+			lines[i] = blankLabel + " " + sepStr + " " + l
+		}
 	}
+
+	// In no-wrap mode, truncate lines to terminal width.
+	if !wordWrap {
+		for i, l := range lines {
+			if lipgloss.Width(l) > width {
+				lines[i] = ansi.Truncate(l, width, "\u2192")
+			}
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
