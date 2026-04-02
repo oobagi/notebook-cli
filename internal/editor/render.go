@@ -9,6 +9,74 @@ import (
 	"github.com/oobagi/notebook/internal/theme"
 )
 
+// renderDebugInfo builds the debug panel that shows block metadata.
+// It is displayed between the viewport and the status bar when debug mode
+// is active (Ctrl+D).
+func (m Model) renderDebugInfo() string {
+	th := theme.Current()
+	muted := lipgloss.NewStyle().Faint(true)
+
+	// Summary line.
+	summary := muted.Render(fmt.Sprintf(
+		"DEBUG  blocks:%d  active:%d  viewport:%dx%d  scroll:%d",
+		len(m.blocks), m.active,
+		m.viewport.Width, m.viewport.Height,
+		m.viewport.YOffset,
+	))
+
+	// One line per block.
+	var lines []string
+	for i, b := range m.blocks {
+		content := b.Content
+		if i < len(m.textareas) {
+			content = m.textareas[i].Value()
+		}
+
+		// Content preview: first 30 chars, truncated with "...".
+		preview := content
+		if preview == "" {
+			preview = "(empty)"
+		} else {
+			// Replace newlines with spaces for the preview.
+			preview = strings.ReplaceAll(preview, "\n", " ")
+			previewRunes := []rune(preview)
+			if len(previewRunes) > 30 {
+				preview = string(previewRunes[:30]) + "..."
+			}
+		}
+
+		// Textarea height.
+		h := 0
+		if i < len(m.textareas) {
+			h = m.textareas[i].Height()
+		}
+
+		// Active marker.
+		marker := ""
+		if i == m.active {
+			marker = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(th.Accent)).
+				Render("  <- active")
+		}
+
+		line := muted.Render(fmt.Sprintf(
+			"[%d] %-12s \"%s\"  h:%d",
+			i, b.Type.String(), preview, h,
+		)) + marker
+
+		lines = append(lines, line)
+	}
+
+	// Top border line.
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	border := muted.Render(strings.Repeat("\u2500", w))
+
+	return border + "\n" + summary + "\n" + strings.Join(lines, "\n")
+}
+
 // renderBlock renders a single block. The active block shows its textarea;
 // inactive blocks show styled static text.
 func (m Model) renderBlock(idx int) string {
@@ -149,26 +217,28 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 // renderInactiveBlock renders a block as styled static text (no cursor).
 func renderInactiveBlock(b block.Block, content string, width int) string {
+	var rendered string
+
 	switch b.Type {
 	case block.Heading1:
 		style := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color(theme.Current().Accent))
-		return "\n" + style.Render(content) + "\n"
+		rendered = "\n" + style.Render(content) + "\n"
 
 	case block.Heading2:
 		style := lipgloss.NewStyle().Bold(true)
-		return style.Render(content)
+		rendered = style.Render(content)
 
 	case block.Heading3:
 		style := lipgloss.NewStyle().Bold(true).Faint(true)
-		return style.Render(content)
+		rendered = style.Render(content)
 
 	case block.BulletList:
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render("  \u2022  ")
-		return prefix + content
+		rendered = prefix + content
 
 	case block.NumberedList:
 		// Inactive numbered list items don't know their sequence position
@@ -177,7 +247,7 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render("  -  ")
-		return prefix + content
+		rendered = prefix + content
 
 	case block.Checklist:
 		var marker string
@@ -189,7 +259,7 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 		prefix := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render(marker)
-		return prefix + content
+		rendered = prefix + content
 
 	case block.CodeBlock:
 		label := ""
@@ -203,7 +273,7 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color(theme.Current().Border)).
 			PaddingLeft(1)
-		return label + "\n" + border.Render(content)
+		rendered = label + "\n" + border.Render(content)
 
 	case block.Quote:
 		bar := lipgloss.NewStyle().
@@ -213,7 +283,7 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 		for i, l := range lines {
 			lines[i] = bar + l
 		}
-		return strings.Join(lines, "\n")
+		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
 		w := width
@@ -223,17 +293,27 @@ func renderInactiveBlock(b block.Block, content string, width int) string {
 		if w > 40 {
 			w = 40
 		}
-		return lipgloss.NewStyle().
+		rendered = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.Current().Muted)).
 			Render(strings.Repeat("\u2500", w))
 
 	case block.Paragraph:
 		if content == "" {
-			return ""
+			rendered = ""
+		} else {
+			rendered = content
 		}
-		return content
 
 	default:
-		return content
+		rendered = content
 	}
+
+	// Prepend 2-space left padding to each line to match the active block's
+	// accent indicator width (▎ + space = 2 characters), so text stays at
+	// the same column regardless of whether the block is selected.
+	lines := strings.Split(rendered, "\n")
+	for i, l := range lines {
+		lines[i] = "  " + l
+	}
+	return strings.Join(lines, "\n")
 }

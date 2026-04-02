@@ -4,6 +4,8 @@ package editor
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,6 +63,8 @@ type Model struct {
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
+	debug       bool     // when true, show debug panel with block info
+	debugLog    *os.File // debug log file, nil when debug mode is off
 }
 
 type statusKind int
@@ -121,7 +125,7 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 		// Multi-line: allow enough height for content.
 		lines := strings.Count(b.Content, "\n") + 1
 		minLines := 3
-		if b.Type == block.Paragraph {
+		if b.Type == block.Paragraph || b.Type == block.Quote {
 			minLines = 1
 		}
 		if lines < minLines {
@@ -129,8 +133,20 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 		}
 		ta.SetHeight(lines)
 	default:
-		// Single-line blocks.
-		ta.SetHeight(1)
+		// Single-line blocks: default height is 1, but headings may
+		// need more if their content wraps beyond the available width.
+		h := 1
+		if (b.Type == block.Heading1 || b.Type == block.Heading2 || b.Type == block.Heading3) && width > 2 {
+			contentWidth := width - 4 // account for indicator + padding
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+			contentLen := len([]rune(b.Content))
+			if contentLen > contentWidth {
+				h = (contentLen + contentWidth - 1) / contentWidth // ceiling division
+			}
+		}
+		ta.SetHeight(h)
 	}
 
 	ta.Blur()
@@ -172,6 +188,23 @@ func (m Model) BlockCount() int {
 	return len(m.blocks)
 }
 
+// statusBarHeight returns the number of terminal lines the rendered status
+// bar will occupy. When the bar text is wider than the terminal, lipgloss
+// wraps it onto multiple lines; this helper accounts for that.
+func (m Model) statusBarHeight() int {
+	rendered := m.renderStatusBar()
+	return strings.Count(rendered, "\n") + 1
+}
+
+// debugPanelHeight returns the number of terminal lines the debug panel
+// occupies when visible: 1 border + 1 summary + 1 per block.
+func (m Model) debugPanelHeight() int {
+	if !m.debug {
+		return 0
+	}
+	return 1 + 1 + len(m.blocks) // border + summary + one line per block
+}
+
 // resizeTextareas updates all textarea widths for the current layout.
 func (m *Model) resizeTextareas() {
 	w := m.width
@@ -181,8 +214,25 @@ func (m *Model) resizeTextareas() {
 	for i := range m.textareas {
 		m.textareas[i].SetWidth(w - 2)
 	}
-	// Update viewport dimensions (reserve 1 line for status bar).
-	h := m.height - 1
+	// Recalculate heading textarea heights for the new width.
+	for i, b := range m.blocks {
+		if b.Type == block.Heading1 || b.Type == block.Heading2 || b.Type == block.Heading3 {
+			contentWidth := w - 4
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+			content := m.textareas[i].Value()
+			contentLen := len([]rune(content))
+			h := 1
+			if contentLen > contentWidth {
+				h = (contentLen + contentWidth - 1) / contentWidth
+			}
+			m.textareas[i].SetHeight(h)
+		}
+	}
+	// Update viewport dimensions, reserving space for the status bar which
+	// may wrap to multiple lines on narrow terminals, and the debug panel.
+	h := m.height - m.statusBarHeight() - m.debugPanelHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -205,6 +255,7 @@ func (m *Model) focusBlock(idx int) {
 	if idx < 0 || idx >= len(m.textareas) {
 		return
 	}
+	m.debugf("FOCUS %d → %d", m.active, idx)
 	if m.active >= 0 && m.active < len(m.textareas) {
 		// Sync content from old active textarea back to block.
 		m.blocks[m.active].Content = m.textareas[m.active].Value()
@@ -247,6 +298,7 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	if idx < 0 || idx >= len(m.blocks) {
 		return
 	}
+	m.debugf("INSERT block type=%s after [%d]", b.Type, idx)
 	ta := newTextareaForBlock(b, m.width)
 
 	// Insert into blocks slice.
@@ -265,11 +317,13 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 
 	// Focus the new block.
 	m.focusBlock(idx + 1)
+	m.debugBlockState("after INSERT")
 }
 
 // deleteBlock removes the block at the given index. If it is the last block,
 // it converts it to an empty paragraph instead of deleting.
 func (m *Model) deleteBlock(idx int) {
+	m.debugf("DELETE block[%d] (total=%d)", idx, len(m.blocks))
 	if len(m.blocks) <= 1 {
 		// Convert last block to empty paragraph.
 		m.blocks[0] = block.Block{Type: block.Paragraph, Content: ""}
@@ -290,7 +344,9 @@ func (m *Model) deleteBlock(idx int) {
 	} else {
 		m.active = 0
 	}
+
 	m.textareas[m.active].Focus()
+	m.debugBlockState("after DELETE")
 }
 
 // mergeBlockUp merges block at idx into block at idx-1. The merged block
@@ -303,6 +359,7 @@ func (m *Model) mergeBlockUp(idx int) {
 	// Sync content from textarea.
 	currentContent := m.textareas[idx].Value()
 	prevContent := m.textareas[idx-1].Value()
+	m.debugf("MERGE block[%d] into block[%d]: %q + %q", idx, idx-1, prevContent, currentContent)
 
 	// Remember the merge point (end of previous content).
 	mergeCol := len([]rune(prevContent))
@@ -321,17 +378,27 @@ func (m *Model) mergeBlockUp(idx int) {
 	m.blocks[idx-1].Content = merged
 	m.textareas[idx-1].SetValue(merged)
 
-	// For multi-line blocks, grow the textarea.
+	// If the target block was empty, adopt the source block's type so that
+	// merging a heading into an empty paragraph preserves the heading type.
+	if prevContent == "" {
+		m.blocks[idx-1].Type = m.blocks[idx].Type
+		m.blocks[idx-1].Language = m.blocks[idx].Language
+		m.blocks[idx-1].Checked = m.blocks[idx].Checked
+	}
+
+	// Reconfigure textarea height for the (possibly changed) block type.
 	if isMultiLine(m.blocks[idx-1].Type) {
 		lines := strings.Count(merged, "\n") + 1
 		minLines := 3
-		if m.blocks[idx-1].Type == block.Paragraph {
+		if m.blocks[idx-1].Type == block.Paragraph || m.blocks[idx-1].Type == block.Quote {
 			minLines = 1
 		}
 		if lines < minLines {
 			lines = minLines
 		}
 		m.textareas[idx-1].SetHeight(lines)
+	} else {
+		m.textareas[idx-1].SetHeight(1)
 	}
 
 	// Remove the current block.
@@ -344,11 +411,13 @@ func (m *Model) mergeBlockUp(idx int) {
 
 	// Position cursor at the merge point.
 	m.textareas[m.active].SetCursor(mergeCol)
+	m.debugBlockState("after MERGE")
 }
 
 // swapBlocks swaps the block at idx with the block at idx+delta (delta is
 // -1 for up, +1 for down). No-op at boundaries.
 func (m *Model) swapBlocks(delta int) {
+	m.debugf("SWAP block[%d] delta=%d", m.active, delta)
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
@@ -379,6 +448,7 @@ func (m *Model) handleEnter() {
 
 	bt := m.blocks[m.active].Type
 	content := m.textareas[m.active].Value()
+	m.debugf("ENTER on block[%d] type=%s multiline=%v", m.active, m.blocks[m.active].Type, isMultiLine(m.blocks[m.active].Type))
 
 	if isMultiLine(bt) {
 		// Multi-line block: only create new block if cursor is at the very end.
@@ -394,15 +464,29 @@ func (m *Model) handleEnter() {
 			if col >= len(lastLineRunes) {
 				// Cursor is at the very end of the last line.
 				// Create new empty paragraph below.
+				m.debugf("ENTER → new block after [%d]", m.active)
 				m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph, Content: ""})
 				return
 			}
 		}
 		// Otherwise, let the textarea handle Enter normally (insert newline).
+		m.debugf("ENTER → newline in multiline block[%d]", m.active)
 		return
 	}
 
 	// Single-line blocks: create a new block below.
+	// For list-type blocks, pressing Enter on an empty item exits the list
+	// by converting the current block to a paragraph (like Notion, Google Docs).
+	if content == "" && (bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist) {
+		m.debugf("ENTER → exit list, convert to paragraph")
+		m.blocks[m.active].Type = block.Paragraph
+		m.blocks[m.active].Checked = false
+		ta := newTextareaForBlock(m.blocks[m.active], m.width)
+		ta.Focus()
+		m.textareas[m.active] = ta
+		return
+	}
+
 	var newBlock block.Block
 	switch bt {
 	case block.Checklist:
@@ -416,6 +500,7 @@ func (m *Model) handleEnter() {
 		newBlock = block.Block{Type: block.Paragraph, Content: ""}
 	}
 
+	m.debugf("ENTER → new block after [%d]", m.active)
 	m.insertBlockAfter(m.active, newBlock)
 }
 
@@ -427,6 +512,7 @@ func (m *Model) handleBackspace() bool {
 	}
 
 	ta := &m.textareas[m.active]
+	m.debugf("BACKSPACE on block[%d] line=%d col=%d content=%q", m.active, ta.Line(), ta.LineInfo().ColumnOffset, ta.Value())
 
 	// Check if cursor is at position 0 (line 0, column 0).
 	if ta.Line() != 0 {
@@ -445,6 +531,7 @@ func (m *Model) handleBackspace() bool {
 				return true // Already empty paragraph, nothing to do.
 			}
 		}
+		m.debugf("BACKSPACE → delete empty block[%d]", m.active)
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
 		return true
@@ -455,12 +542,14 @@ func (m *Model) handleBackspace() bool {
 		return false // No previous block to merge into.
 	}
 
+	m.debugf("BACKSPACE → merge block[%d] into block[%d]", m.active, m.active-1)
 	m.mergeBlockUp(m.active)
 	return true
 }
 
 // cutBlock removes the active block and stores it in the block clipboard.
 func (m *Model) cutBlock() {
+	m.debugf("CUT block[%d] type=%s", m.active, m.blocks[m.active].Type)
 	if len(m.blocks) <= 1 {
 		// Don't remove the last block; store it and clear it instead.
 		b := m.blocks[m.active]
@@ -486,7 +575,9 @@ func (m *Model) cutBlock() {
 	if m.active < 0 {
 		m.active = 0
 	}
+
 	m.textareas[m.active].Focus()
+	m.debugBlockState("after CUT")
 }
 
 // applyPaletteSelection changes the active block's type to the selected
@@ -495,6 +586,7 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
+	m.debugf("PALETTE → change block[%d] to %s", m.active, bt)
 
 	m.blocks[m.active].Type = bt
 
@@ -510,7 +602,7 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		if isMultiLine(bt) {
 			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
 			minLines := 3
-			if bt == block.Paragraph {
+			if bt == block.Paragraph || bt == block.Quote {
 				minLines = 1
 			}
 			if lines < minLines {
@@ -544,8 +636,65 @@ func (m Model) isAtLastLine() bool {
 	return ta.Line() >= lineCount-1
 }
 
+// debugf writes a timestamped line to the debug log file.
+// It is a no-op when debug logging is off.
+func (m *Model) debugf(format string, args ...interface{}) {
+	if m.debugLog == nil {
+		return
+	}
+	ts := time.Now().Format("15:04:05.000")
+	fmt.Fprintf(m.debugLog, "[%s] %s\n", ts, fmt.Sprintf(format, args...))
+}
+
+// debugBlockState logs the full block state to the debug log file.
+func (m *Model) debugBlockState(label string) {
+	if m.debugLog == nil {
+		return
+	}
+	m.debugf("%s — blocks:%d active:%d", label, len(m.blocks), m.active)
+	for i, b := range m.blocks {
+		content := b.Content
+		if i < len(m.textareas) {
+			content = m.textareas[i].Value()
+		}
+		// Escape newlines for readability
+		content = strings.ReplaceAll(content, "\n", "\\n")
+		if len(content) > 60 {
+			content = content[:60] + "..."
+		}
+		active := ""
+		if i == m.active {
+			active = " ← active"
+		}
+		h := 0
+		if i < len(m.textareas) {
+			h = m.textareas[i].Height()
+		}
+		m.debugf("  [%d] %-12s h:%-2d %q%s", i, b.Type.String(), h, content, active)
+	}
+}
+
+// truncate shortens a string for debug logging, escaping newlines.
+func truncate(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Debug logging for incoming messages.
+	if m.debugLog != nil {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			m.debugf("KEY %q (type=%d)", msg.String(), msg.Type)
+		case tea.WindowSizeMsg:
+			m.debugf("RESIZE %dx%d", msg.Width, msg.Height)
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -585,9 +734,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return savedQuitMsg{content: content}
 					}
 				}
+				if m.debugLog != nil {
+					m.debugLog.Close()
+				}
 				m.quitting = true
 				return m, tea.Quit
 			case "n", "N", "ctrl+c":
+				if m.debugLog != nil {
+					m.debugLog.Close()
+				}
 				m.quitting = true
 				return m, tea.Quit
 			case "esc":
@@ -624,14 +779,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "backspace":
 				if !m.palette.deleteFilterRune() {
 					m.palette.close()
-					m.updateViewport()
 				}
+				m.updateViewport()
 				return m, nil
 			default:
 				if msg.Type == tea.KeyRunes {
 					for _, r := range msg.Runes {
 						m.palette.addFilterRune(r)
 					}
+					m.updateViewport()
 					return m, nil
 				}
 			}
@@ -648,6 +804,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+g":
 			m.showHelp = true
+			return m, nil
+
+		case "ctrl+d":
+			m.debug = !m.debug
+			if m.debug {
+				// Open debug log file.
+				if home, err := os.UserHomeDir(); err == nil {
+					logPath := filepath.Join(home, ".notebook-debug.log")
+					if f, err := os.Create(logPath); err == nil {
+						m.debugLog = f
+						m.debugf("=== DEBUG SESSION START ===")
+						m.debugf("title=%q width=%d height=%d", m.config.Title, m.width, m.height)
+						m.debugBlockState("initial state")
+					}
+				}
+			} else {
+				// Close debug log file.
+				if m.debugLog != nil {
+					m.debugLog.Close()
+					m.debugLog = nil
+				}
+			}
+			m.resizeTextareas()
+			m.updateViewport()
 			return m, nil
 
 		case "ctrl+k":
@@ -674,10 +854,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusStyle = statusWarning
 				return m, nil
 			}
+			if m.debugLog != nil {
+				m.debugLog.Close()
+			}
 			m.quitting = true
 			return m, tea.Quit
 
 		case "ctrl+c":
+			if m.debugLog != nil {
+				m.debugLog.Close()
+			}
 			m.quitting = true
 			return m, tea.Quit
 
@@ -706,12 +892,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+u":
+			ta := &m.textareas[m.active]
+			info := ta.LineInfo()
+			if info.CharOffset > 0 {
+				// Delete from cursor to start of current line.
+				cursorLine := ta.Line()
+				lines := strings.Split(ta.Value(), "\n")
+				lineRunes := []rune(lines[cursorLine])
+				lines[cursorLine] = string(lineRunes[info.CharOffset:])
+				ta.SetValue(strings.Join(lines, "\n"))
+				// Reposition cursor to column 0 of the same line.
+				ta.CursorStart()
+				for i := 0; i < cursorLine; i++ {
+					ta.CursorDown()
+				}
+				m.updateViewport()
+				return m, nil
+			}
+			// Cursor at column 0: merge/delete block or join lines.
 			if m.handleBackspace() {
 				m.updateViewport()
 				return m, nil
 			}
 			m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyBackspace})
 			m.updateViewport()
+			return m, nil
+
+		case "ctrl+j":
+			// Ctrl+J (LF) inserts a newline within the current block,
+			// bypassing the Enter handler that creates new blocks.
+			// Terminals may send this for Shift+Enter or Ctrl+Enter.
+			// For multi-line blocks, forward as Enter to the textarea.
+			// For single-line blocks, no-op.
+			if m.active >= 0 && m.active < len(m.blocks) && isMultiLine(m.blocks[m.active].Type) {
+				m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyEnter})
+				// Grow textarea height for the new line.
+				lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
+				minLines := 3
+				if m.blocks[m.active].Type == block.Paragraph {
+					minLines = 1
+				}
+				if lines < minLines {
+					lines = minLines
+				}
+				m.textareas[m.active].SetHeight(lines)
+				m.updateViewport()
+			}
 			return m, nil
 		}
 
@@ -723,6 +949,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case savedQuitMsg:
 		m.initial = msg.content
+		if m.debugLog != nil {
+			m.debugLog.Close()
+		}
 		m.quitting = true
 		return m, tea.Quit
 
@@ -787,18 +1016,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
 
+		if m.debugLog != nil {
+			newContent := m.textareas[m.active].Value()
+			m.debugf("TEXTAREA updated block[%d]: %q", m.active, truncate(newContent, 60))
+		}
+
 		// Grow multi-line textareas dynamically as the user types.
 		bt := m.blocks[m.active].Type
 		if isMultiLine(bt) {
 			lines := strings.Count(m.textareas[m.active].Value(), "\n") + 1
 			minLines := 3
-			if bt == block.Paragraph {
+			if bt == block.Paragraph || bt == block.Quote {
 				minLines = 1
 			}
 			if lines < minLines {
 				lines = minLines
 			}
 			m.textareas[m.active].SetHeight(lines)
+		} else if bt == block.Heading1 || bt == block.Heading2 || bt == block.Heading3 {
+			contentWidth := m.width - 4
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+			contentLen := len([]rune(m.textareas[m.active].Value()))
+			h := 1
+			if contentLen > contentWidth {
+				h = (contentLen + contentWidth - 1) / contentWidth
+			}
+			m.textareas[m.active].SetHeight(h)
 		}
 
 		m.updateViewport()
@@ -811,6 +1056,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateViewport renders all blocks and sets the viewport content, then
 // auto-scrolls to keep the active block's cursor line visible.
 func (m *Model) updateViewport() {
+	// Recalculate viewport height to account for status bar wrapping which
+	// may change as content is modified (e.g. "[modified]" indicator),
+	// and the debug panel when active.
+	h := m.height - m.statusBarHeight() - m.debugPanelHeight()
+	if h < 1 {
+		h = 1
+	}
+	m.viewport.Height = h
+
 	content := m.renderAllBlocks()
 	m.viewport.SetContent(content)
 
@@ -891,6 +1145,11 @@ func (m Model) View() string {
 
 	statusBar := m.renderStatusBar()
 
+	if m.debug {
+		debugPanel := m.renderDebugInfo()
+		return m.viewport.View() + "\n" + debugPanel + "\n" + statusBar
+	}
+
 	return m.viewport.View() + "\n" + statusBar
 }
 
@@ -902,9 +1161,11 @@ func (m Model) renderHelpOverlay() string {
   Ctrl+S    Save
   Ctrl+Q    Quit
   Ctrl+C    Force quit (no save)
+  Ctrl+D    Toggle debug
   Ctrl+G    Toggle this help
   Ctrl+K    Cut block
   Enter     New block below
+  Ctrl+J    Newline within block
   Backspace Merge/delete block
   Alt+Up    Move block up
   Alt+Down  Move block down
@@ -941,6 +1202,13 @@ func (m Model) renderStatusBar() string {
 	}
 
 	left := m.config.Title
+	if m.debug {
+		debugLabel := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.Current().Warning)).
+			Bold(true).
+			Render(" DEBUG (~/.notebook-debug.log)")
+		left += debugLabel
+	}
 	if m.modified() {
 		left += " [modified]"
 	}
