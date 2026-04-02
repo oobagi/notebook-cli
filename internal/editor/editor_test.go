@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/oobagi/notebook/internal/block"
 )
 
 func TestNewParsesBlocks(t *testing.T) {
@@ -1094,11 +1095,551 @@ func TestHelpDoesNotContainStaleEntries(t *testing.T) {
 
 	view := m.View()
 
-	stale := []string{"Ctrl+P", "Ctrl+E", "Ctrl+U", "Ctrl+D", "Ctrl+Y"}
+	stale := []string{"Ctrl+P", "Ctrl+E", "Ctrl+U", "Ctrl+Y"}
 	for _, s := range stale {
 		if containsPlainText(view, s) {
 			t.Fatalf("help overlay should NOT contain stale entry %q", s)
 		}
+	}
+}
+
+// ---------- Ctrl+J (newline within block) tests ----------
+
+func TestCtrlJInsertsNewlineInParagraphAtEnd(t *testing.T) {
+	// Ctrl+J at the end of a paragraph should insert a newline, NOT create a new block.
+	m := New(Config{Title: "test", Content: "Hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to end.
+	m.textareas[0].CursorEnd()
+
+	blocksBefore := m.BlockCount()
+
+	// Press Ctrl+J.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	// Block count should NOT increase (no new block created).
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	// Content should contain a newline.
+	content := m.textareas[0].Value()
+	if !strings.Contains(content, "\n") {
+		t.Fatalf("Ctrl+J should insert newline, got %q", content)
+	}
+
+	// Should still be in the same block.
+	if m.active != 0 {
+		t.Fatalf("should remain in block 0, got %d", m.active)
+	}
+}
+
+func TestCtrlJInsertsNewlineInParagraphMidContent(t *testing.T) {
+	// Ctrl+J mid-content inserts a newline at cursor position.
+	m := New(Config{Title: "test", Content: "Hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	blocksBefore := m.BlockCount()
+
+	// Press Ctrl+J (cursor is at start, which is mid-content).
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	content := m.textareas[0].Value()
+	if !strings.Contains(content, "\n") {
+		t.Fatalf("Ctrl+J should insert newline, got %q", content)
+	}
+}
+
+func TestCtrlJInsertsNewlineInCodeBlock(t *testing.T) {
+	m := New(Config{Title: "test", Content: "```go\nfmt.Println()\n```"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// The code block should be focused.
+	m.textareas[0].CursorEnd()
+
+	blocksBefore := m.BlockCount()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J in code block should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	content := m.textareas[0].Value()
+	// Should have more newlines than before.
+	if strings.Count(content, "\n") < 1 {
+		t.Fatalf("Ctrl+J should insert newline in code block, got %q", content)
+	}
+}
+
+func TestCtrlJInsertsNewlineInQuote(t *testing.T) {
+	m := New(Config{Title: "test", Content: "> A quote"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.textareas[0].CursorEnd()
+	blocksBefore := m.BlockCount()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J in quote should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	content := m.textareas[0].Value()
+	if !strings.Contains(content, "\n") {
+		t.Fatalf("Ctrl+J should insert newline in quote, got %q", content)
+	}
+}
+
+func TestCtrlJNoOpOnSingleLineBlock(t *testing.T) {
+	// On a heading (single-line), Ctrl+J should do nothing.
+	m := New(Config{Title: "test", Content: "# My Title"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	contentBefore := m.textareas[0].Value()
+	blocksBefore := m.BlockCount()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J on heading should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	if m.textareas[0].Value() != contentBefore {
+		t.Fatalf("Ctrl+J on heading should not modify content: was %q, now %q", contentBefore, m.textareas[0].Value())
+	}
+}
+
+func TestCtrlJNoOpOnBulletList(t *testing.T) {
+	// Bullet list items are single-line; Ctrl+J should be a no-op.
+	m := New(Config{Title: "test", Content: "- bullet item"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	contentBefore := m.textareas[0].Value()
+	blocksBefore := m.BlockCount()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("Ctrl+J on bullet should not create new block: had %d, now %d", blocksBefore, m.BlockCount())
+	}
+
+	if m.textareas[0].Value() != contentBefore {
+		t.Fatalf("Ctrl+J on bullet should not modify content: was %q, now %q", contentBefore, m.textareas[0].Value())
+	}
+}
+
+func TestEnterStillCreatesBlockAtEndOfParagraph(t *testing.T) {
+	// Regression: Enter at end of paragraph should STILL create a new block.
+	m := New(Config{Title: "test", Content: "Hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.textareas[0].CursorEnd()
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("Enter at end should create new block: expected 2, got %d", m.BlockCount())
+	}
+
+	if m.active != 1 {
+		t.Fatalf("Enter at end should focus new block: expected 1, got %d", m.active)
+	}
+}
+
+func TestHelpContainsCtrlJKeybinding(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(Model)
+
+	view := m.View()
+	if !containsPlainText(view, "Ctrl+J") {
+		t.Fatal("help overlay should contain Ctrl+J keybinding")
+	}
+	if !containsPlainText(view, "Newline within block") {
+		t.Fatal("help overlay should contain 'Newline within block' description")
+	}
+}
+
+// ---------- Empty list item Enter → Paragraph tests ----------
+
+func TestEnterOnEmptyBulletConvertsToParagraph(t *testing.T) {
+	// Start with a bullet that has content, then create an empty bullet via Enter.
+	m := New(Config{Title: "test", Content: "- bullet one"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Press Enter on the non-empty bullet to create a new empty bullet.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+	if m.active != 1 {
+		t.Fatalf("expected active to be 1, got %d", m.active)
+	}
+	if m.blocks[1].Type != 4 { // block.BulletList == 4
+		t.Fatalf("expected new block to be BulletList, got type %d", m.blocks[1].Type)
+	}
+
+	// Now press Enter on the empty bullet — should convert it to a paragraph.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	// Block count should remain 2 (no new block created).
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter on empty bullet, got %d", m.BlockCount())
+	}
+	// The current block should now be a Paragraph.
+	if m.blocks[1].Type != 0 { // block.Paragraph == 0
+		t.Fatalf("expected empty bullet to become Paragraph, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestEnterOnEmptyNumberedListConvertsToParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: "1. first"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Press Enter to create a new empty numbered list item.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 5 { // block.NumberedList == 5
+		t.Fatalf("expected new block to be NumberedList, got type %d", m.blocks[1].Type)
+	}
+
+	// Press Enter on the empty numbered list item.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter on empty numbered item, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 0 { // block.Paragraph == 0
+		t.Fatalf("expected empty numbered item to become Paragraph, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestEnterOnEmptyChecklistConvertsToParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [ ] task one"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Press Enter to create a new empty checklist item.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 6 { // block.Checklist == 6
+		t.Fatalf("expected new block to be Checklist, got type %d", m.blocks[1].Type)
+	}
+
+	// Press Enter on the empty checklist item.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter on empty checklist, got %d", m.BlockCount())
+	}
+	if m.blocks[1].Type != 0 { // block.Paragraph == 0
+		t.Fatalf("expected empty checklist to become Paragraph, got type %d", m.blocks[1].Type)
+	}
+}
+
+func TestEnterOnNonEmptyBulletStillCreatesNewBullet(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- bullet one"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("expected 1 block, got %d", m.BlockCount())
+	}
+
+	// Press Enter on the non-empty bullet.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after Enter on non-empty bullet, got %d", m.BlockCount())
+	}
+	// The new block should be a BulletList, not a Paragraph.
+	if m.blocks[1].Type != 4 { // block.BulletList == 4
+		t.Fatalf("expected new block to be BulletList, got type %d", m.blocks[1].Type)
+	}
+	// The original block should still be a BulletList.
+	if m.blocks[0].Type != 4 { // block.BulletList == 4
+		t.Fatalf("original block should still be BulletList, got type %d", m.blocks[0].Type)
+	}
+}
+
+// TestDeleteBlockThenEnterNoExtraBlankLines verifies that deleting a block
+// followed by pressing Enter does not produce excess vertical space (issue #155).
+// The root cause was that deleteBlock would focus an empty separator paragraph
+// left over from the parsed markdown, and pressing Enter on it created a second
+// empty paragraph — visually producing a double blank line.
+func TestDeleteBlockThenEnterNoExtraBlankLines(t *testing.T) {
+	// "# Title\n\nParagraph one\n\nParagraph two" parses to five blocks:
+	//   [0] H1 "Title"
+	//   [1] Paragraph ""   (separator)
+	//   [2] Paragraph "Paragraph one"
+	//   [3] Paragraph ""   (separator)
+	//   [4] Paragraph "Paragraph two"
+	m := New(Config{Title: "test", Content: "# Title\n\nParagraph one\n\nParagraph two"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.BlockCount() != 5 {
+		t.Fatalf("expected 5 blocks initially, got %d", m.BlockCount())
+	}
+
+	// Focus "Paragraph two" (block 4), clear it, then backspace to delete.
+	m.focusBlock(4)
+	m.textareas[4].SetValue("")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// Only the deleted block should be removed, leaving 4 blocks:
+	// H1, separator, Paragraph one, separator.
+	if m.BlockCount() != 4 {
+		t.Fatalf("expected 4 blocks after delete (only one block removed), got %d", m.BlockCount())
+	}
+}
+
+// TestCtrlKThenEnterNoExtraBlankLines verifies that Ctrl+K (cut block) followed
+// by Enter also does not produce extra blank lines (issue #155).
+func TestCtrlKThenEnterNoExtraBlankLines(t *testing.T) {
+	m := New(Config{Title: "test", Content: "first\n\nsecond\n\nthird"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.BlockCount() != 5 {
+		t.Fatalf("expected 5 blocks, got %d", m.BlockCount())
+	}
+
+	// Focus "third" (block 4) and cut it.
+	m.focusBlock(4)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	// Only the cut block should be removed, leaving 4 blocks.
+	if m.BlockCount() != 4 {
+		t.Fatalf("expected 4 blocks after cut (only one block removed), got %d", m.BlockCount())
+	}
+}
+
+// TestDeleteBlockCleansSeparatorOnly verifies that the separator cleanup in
+// deleteBlock only removes truly empty paragraphs, not content blocks.
+func TestDeleteBlockCleansSeparatorOnly(t *testing.T) {
+	// Create blocks without separators: "first", "second", "third"
+	m := New(Config{Title: "test", Content: "first"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.insertBlockAfter(0, block.Block{Type: block.Paragraph, Content: "second"})
+	m.insertBlockAfter(1, block.Block{Type: block.Paragraph, Content: "third"})
+	m.focusBlock(0)
+
+	if m.BlockCount() != 3 {
+		t.Fatalf("expected 3 blocks, got %d", m.BlockCount())
+	}
+
+	// Delete "third" (block 2)
+	m.focusBlock(2)
+	m.textareas[2].SetValue("")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// "second" is non-empty, so it should NOT be removed.
+	if m.BlockCount() != 2 {
+		t.Fatalf("expected 2 blocks after delete, got %d", m.BlockCount())
+	}
+	if m.textareas[m.active].Value() != "second" {
+		t.Fatalf("active should be 'second', got %q", m.textareas[m.active].Value())
+	}
+}
+
+func TestDeleteBlockDoesNotDeleteExtra(t *testing.T) {
+	// Create: Heading, empty paragraph, another empty paragraph, text paragraph
+	content := "# Title\n\n\nText"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Focus the second empty paragraph (block 2).
+	m.focusBlock(2)
+	if m.textareas[2].Value() != "" {
+		t.Fatalf("expected empty block at index 2, got %q", m.textareas[2].Value())
+	}
+
+	blocksBefore := m.BlockCount()
+
+	// Press Backspace to delete the empty block.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// Should have removed exactly one block.
+	if m.BlockCount() != blocksBefore-1 {
+		t.Fatalf("expected exactly one block removed: was %d, now %d", blocksBefore, m.BlockCount())
+	}
+}
+
+func TestCutBlockDoesNotDeleteExtra(t *testing.T) {
+	content := "# Title\n\n\nText"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Focus the second empty paragraph (block 2).
+	m.focusBlock(2)
+	blocksBefore := m.BlockCount()
+
+	// Cut the block.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+
+	// Should have removed exactly one block.
+	if m.BlockCount() != blocksBefore-1 {
+		t.Fatalf("expected exactly one block removed: was %d, now %d", blocksBefore, m.BlockCount())
+	}
+}
+
+func TestMergeHeadingIntoEmptyBlockPreservesType(t *testing.T) {
+	// Empty paragraph followed by a heading.
+	content := "\n# Important Title"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Find the heading block.
+	headingIdx := -1
+	for i, b := range m.blocks {
+		if b.Type == block.Heading1 {
+			headingIdx = i
+			break
+		}
+	}
+	if headingIdx < 0 {
+		t.Fatal("could not find Heading1 block")
+	}
+	if headingIdx == 0 {
+		t.Fatal("heading should not be the first block (need empty block before it)")
+	}
+
+	// Focus the heading and put cursor at start.
+	m.focusBlock(headingIdx)
+	m.textareas[m.active].CursorStart()
+
+	// Press Backspace to merge into the empty block above.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// The merged block should be a Heading1, not a Paragraph.
+	if m.blocks[m.active].Type != block.Heading1 {
+		t.Fatalf("merged block should be Heading1, got %s", m.blocks[m.active].Type)
+	}
+
+	// Content should be preserved.
+	if m.textareas[m.active].Value() != "Important Title" {
+		t.Fatalf("content should be preserved, got %q", m.textareas[m.active].Value())
+	}
+}
+
+func TestMergeIntoNonEmptyBlockKeepsTargetType(t *testing.T) {
+	// Non-empty paragraph followed by heading — merge should keep paragraph type.
+	content := "existing text\n# Title"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Find the heading block.
+	headingIdx := -1
+	for i, b := range m.blocks {
+		if b.Type == block.Heading1 {
+			headingIdx = i
+			break
+		}
+	}
+	if headingIdx < 0 {
+		t.Fatal("could not find Heading1 block")
+	}
+
+	// Focus the heading and put cursor at start.
+	m.focusBlock(headingIdx)
+	m.textareas[m.active].CursorStart()
+
+	// Press Backspace to merge into the block above.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	// The merged block should keep the target's type (Paragraph).
+	if m.blocks[m.active].Type != block.Paragraph {
+		t.Fatalf("merged block should keep Paragraph type, got %s", m.blocks[m.active].Type)
+	}
+}
+
+func TestHeadingTextareaGrowsWithWrapping(t *testing.T) {
+	// Create a heading that's longer than the terminal width.
+	longTitle := strings.Repeat("a", 120)
+	content := "# " + longTitle
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// The heading textarea should have height > 1 to account for wrapping.
+	h := m.textareas[0].Height()
+	if h <= 1 {
+		t.Fatalf("heading textarea should wrap: content is 120 chars in 80-wide terminal, but height is %d", h)
+	}
+}
+
+func TestHeadingTextareaHeightUpdatesOnType(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Short"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	m = updated.(Model)
+
+	// Height should be 1 for short heading.
+	if m.textareas[0].Height() != 1 {
+		t.Fatalf("short heading should have height 1, got %d", m.textareas[0].Height())
+	}
+
+	// Type enough text to cause wrapping (make it longer than 40 chars).
+	for _, ch := range "this is a much longer heading that wraps" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = updated.(Model)
+	}
+
+	h := m.textareas[0].Height()
+	if h <= 1 {
+		t.Fatalf("heading textarea should have grown after typing long content, got height %d", h)
 	}
 }
 

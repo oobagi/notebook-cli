@@ -22,6 +22,34 @@ const (
 	Divider                       // ---, ***, or ___
 )
 
+// String returns the human-readable name of a BlockType.
+func (bt BlockType) String() string {
+	switch bt {
+	case Paragraph:
+		return "Paragraph"
+	case Heading1:
+		return "Heading1"
+	case Heading2:
+		return "Heading2"
+	case Heading3:
+		return "Heading3"
+	case BulletList:
+		return "BulletList"
+	case NumberedList:
+		return "NumberedList"
+	case Checklist:
+		return "Checklist"
+	case CodeBlock:
+		return "CodeBlock"
+	case Quote:
+		return "Quote"
+	case Divider:
+		return "Divider"
+	default:
+		return "Unknown"
+	}
+}
+
 // Block holds a single parsed content block.
 type Block struct {
 	Type     BlockType // kind of block

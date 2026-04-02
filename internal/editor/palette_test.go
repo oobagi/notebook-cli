@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -224,6 +225,33 @@ func TestPaletteRenderNotEmpty(t *testing.T) {
 	rendered := p.render(80)
 	if rendered == "" {
 		t.Fatal("palette render should not be empty when visible")
+	}
+}
+
+func TestPaletteRenderEmptyState(t *testing.T) {
+	p := newPalette()
+	p.open(0)
+
+	// Type a filter that matches nothing.
+	for _, r := range "zzz" {
+		p.addFilterRune(r)
+	}
+
+	if len(p.filtered) != 0 {
+		t.Fatalf("expected no filtered items for 'zzz', got %d", len(p.filtered))
+	}
+
+	rendered := p.render(80)
+	if rendered == "" {
+		t.Fatal("palette should still render when filter has no matches")
+	}
+
+	if !strings.Contains(rendered, "No matches") {
+		t.Fatalf("palette should show 'No matches' text, got %q", rendered)
+	}
+
+	if !strings.Contains(rendered, "/zzz") {
+		t.Fatalf("palette should still show the filter input '/zzz', got %q", rendered)
 	}
 }
 

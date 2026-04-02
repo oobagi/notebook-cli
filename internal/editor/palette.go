@@ -142,47 +142,54 @@ func (p *palette) selected() *paletteItem {
 
 // render draws the palette as a floating box.
 func (p *palette) render(width int) string {
-	if !p.visible || len(p.filtered) == 0 {
+	if !p.visible {
 		return ""
 	}
 
 	th := theme.Current()
-
-	// Build rows.
-	var rows []string
-	for i, idx := range p.filtered {
-		item := p.items[idx]
-		icon := lipgloss.NewStyle().
-			Width(4).
-			Align(lipgloss.Right).
-			Foreground(lipgloss.Color(th.Muted)).
-			Render(item.Icon)
-
-		label := item.Label
-		if i == p.cursor {
-			label = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color(th.Accent)).
-				Render(label)
-			icon = lipgloss.NewStyle().
-				Width(4).
-				Align(lipgloss.Right).
-				Bold(true).
-				Foreground(lipgloss.Color(th.Accent)).
-				Render(item.Icon)
-		}
-
-		rows = append(rows, icon+" "+label)
-	}
-
-	content := strings.Join(rows, "\n")
 
 	// Filter display.
 	filterLine := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(th.Muted)).
 		Render("/" + p.filter)
 
-	body := filterLine + "\n" + content
+	var body string
+
+	if len(p.filtered) == 0 {
+		noMatch := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(th.Muted)).
+			Render("No matches")
+		body = filterLine + "\n" + noMatch
+	} else {
+		// Build rows.
+		var rows []string
+		for i, idx := range p.filtered {
+			item := p.items[idx]
+			icon := lipgloss.NewStyle().
+				Width(4).
+				Align(lipgloss.Right).
+				Foreground(lipgloss.Color(th.Muted)).
+				Render(item.Icon)
+
+			label := item.Label
+			if i == p.cursor {
+				label = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color(th.Accent)).
+					Render(label)
+				icon = lipgloss.NewStyle().
+					Width(4).
+					Align(lipgloss.Right).
+					Bold(true).
+					Foreground(lipgloss.Color(th.Accent)).
+					Render(item.Icon)
+			}
+
+			rows = append(rows, icon+" "+label)
+		}
+
+		body = filterLine + "\n" + strings.Join(rows, "\n")
+	}
 
 	boxWidth := 28
 	if boxWidth > width-4 {
