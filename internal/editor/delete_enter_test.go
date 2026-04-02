@@ -128,13 +128,9 @@ func TestDeleteBlockRecalculatesHeight(t *testing.T) {
 	value := ta.Value()
 	expectedLines := strings.Count(value, "\n") + 1
 
-	// For paragraphs, minLines is 1; for code/quote, minLines is 3.
-	minLines := 1
-	if m.blocks[m.active].Type == block.CodeBlock || m.blocks[m.active].Type == block.Quote {
-		minLines = 3
-	}
-	if expectedLines < minLines {
-		expectedLines = minLines
+	// All block types use minLines = 1.
+	if expectedLines < 1 {
+		expectedLines = 1
 	}
 
 	// Read the height by checking the textarea's view line count.
@@ -147,5 +143,35 @@ func TestDeleteBlockRecalculatesHeight(t *testing.T) {
 	if renderedLines < expectedLines {
 		t.Fatalf("textarea should have at least %d rendered lines, got %d",
 			expectedLines, renderedLines)
+	}
+}
+
+// TestDeleteLastNonParagraphBlockRevertsToParagraph verifies that pressing
+// backspace on the only block when it is a non-paragraph type (e.g., numbered
+// list) converts it to an empty paragraph rather than doing nothing.
+func TestDeleteLastNonParagraphBlockRevertsToParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Manually set block 0 to a NumberedList with empty content.
+	m.blocks[0] = block.Block{Type: block.NumberedList, Content: ""}
+	m.textareas[0].SetValue("")
+	m.focusBlock(0)
+
+	if m.blocks[0].Type != block.NumberedList {
+		t.Fatalf("expected NumberedList, got %s", m.blocks[0].Type)
+	}
+
+	// Press Backspace on the empty numbered list block.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+
+	if m.BlockCount() != 1 {
+		t.Fatalf("expected 1 block, got %d", m.BlockCount())
+	}
+
+	if m.blocks[0].Type != block.Paragraph {
+		t.Fatalf("expected Paragraph after backspace, got %s", m.blocks[0].Type)
 	}
 }

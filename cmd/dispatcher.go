@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -237,9 +238,17 @@ func editNote(w io.Writer, book, note string) error {
 		return fmt.Errorf("edit note %q/%q: %w", book, note, err)
 	}
 
+	var fileSize int64
+	notePath := filepath.Join(store.NotebookDir(book), note+".md")
+	if fi, err := os.Stat(notePath); err == nil {
+		fileSize = fi.Size()
+	}
+
 	cfg := editor.Config{
-		Title:   book + " \u203A " + note,
-		Content: n.Content,
+		Title:    book + " \u203A " + note,
+		FilePath: notePath,
+		FileSize: fileSize,
+		Content:  n.Content,
 		Save: func(content string) error {
 			return store.UpdateNote(book, note, content)
 		},
