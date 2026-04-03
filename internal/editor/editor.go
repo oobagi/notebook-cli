@@ -914,7 +914,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wordWrap = !m.wordWrap
 			m.resizeTextareas()
 			m.updateViewport()
-			m.cursorCmd = m.textareas[m.active].Focus()
 			return m, nil
 
 		case "ctrl+u":
