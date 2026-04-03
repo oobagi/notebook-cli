@@ -12,6 +12,7 @@ import (
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/model"
+	"github.com/oobagi/notebook/internal/recents"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
 )
@@ -30,8 +31,9 @@ type Config struct {
 
 // Selection represents a note the user chose to open.
 type Selection struct {
-	Book string
-	Note string
+	Book     string
+	Note     string
+	FilePath string // non-empty for external file selections
 }
 
 // Model is the Bubble Tea model for the notebook/note browser.
@@ -68,6 +70,11 @@ type Model struct {
 	// Temporary status message shown in the status bar.
 	statusText string
 	statusGen  int // generation counter for auto-dismiss
+
+	// Recents view fields.
+	recentsView    bool            // whether recents tab is active at L0
+	recentEntries  []recents.Entry // loaded recent entries
+	filteredRecent []int           // indices into recentEntries after filtering
 
 	// Theme picker fields.
 	themeMode      bool   // theme picker overlay visible
@@ -132,6 +139,11 @@ type notesLoadedMsg struct {
 	notes []model.Note
 }
 
+// recentsLoadedMsg carries the loaded recents list.
+type recentsLoadedMsg struct {
+	entries []recents.Entry
+}
+
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
 	if m.level == 1 {
@@ -182,6 +194,20 @@ func (m Model) loadNotes(book string) tea.Cmd {
 			return errMsg{err}
 		}
 		return notesLoadedMsg{notes: notes}
+	}
+}
+
+func (m Model) loadRecents() tea.Cmd {
+	return func() tea.Msg {
+		entries, err := recents.Load(recents.DefaultPath())
+		if err != nil {
+			return errMsg{err}
+		}
+		// Prune stale entries once at load time.
+		entries = recents.Prune(entries, m.store.Root)
+		// Persist pruned list (best-effort).
+		_ = recents.Save(recents.DefaultPath(), entries)
+		return recentsLoadedMsg{entries: entries}
 	}
 }
 
@@ -241,7 +267,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case recentsLoadedMsg:
+		m.recentEntries = msg.entries
+		m.resetFilter()
+		return m, nil
+
 	case reloadMsg:
+		if m.recentsView {
+			return m, m.loadRecents()
+		}
 		if m.level == 0 {
 			return m, m.loadNotebooks()
 		}
@@ -317,6 +351,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.Type {
+	case tea.KeyTab:
+		// Toggle between notebooks and recents at L0.
+		if m.level == 0 {
+			m.recentsView = !m.recentsView
+			m.cursor = 0
+			m.filter = ""
+			m.filtering = false
+			m.filtered = nil
+			if m.recentsView {
+				return m, m.loadRecents()
+			}
+			return m, m.loadNotebooks()
+		}
+		return m, nil
+
 	case tea.KeyUp:
 		if m.cursor > 0 {
 			m.cursor--
@@ -357,12 +406,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if s == "d" {
+			if m.recentsView {
+				return m.removeRecentEntry()
+			}
 			return m.startDelete()
 		}
-		if s == "r" {
+		if s == "r" && !m.recentsView {
 			return m.startRename()
 		}
-		if s == "n" {
+		if s == "n" && !m.recentsView {
 			return m.startCreate()
 		}
 		if s == "c" && m.level == 1 {
@@ -669,6 +721,29 @@ func (m Model) copyNote() (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) removeRecentEntry() (tea.Model, tea.Cmd) {
+	if len(m.filteredRecent) == 0 {
+		return m, nil
+	}
+	if m.cursor >= len(m.filteredRecent) {
+		return m, nil
+	}
+	idx := m.filteredRecent[m.cursor]
+	target := m.recentEntries[idx]
+
+	return m, func() tea.Msg {
+		entries, err := recents.Load(recents.DefaultPath())
+		if err != nil {
+			return statusMsg{fmt.Sprintf("Could not load recents: %s", err)}
+		}
+		entries = recents.Remove(entries, target)
+		if err := recents.Save(recents.DefaultPath(), entries); err != nil {
+			return statusMsg{fmt.Sprintf("Could not save recents: %s", err)}
+		}
+		return reloadMsg{}
+	}
+}
+
 func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	m.themeMode = true
 
@@ -968,6 +1043,24 @@ func (m Model) renderThemeOverlay() string {
 
 func (m *Model) applyFilter() {
 	query := strings.ToLower(m.filter)
+
+	if m.recentsView {
+		m.filteredRecent = nil
+		for i, e := range m.recentEntries {
+			label := recentEntryLabel(e)
+			if query == "" || strings.Contains(strings.ToLower(label), query) {
+				m.filteredRecent = append(m.filteredRecent, i)
+			}
+		}
+		if m.cursor >= len(m.filteredRecent) {
+			m.cursor = len(m.filteredRecent) - 1
+		}
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		return
+	}
+
 	m.filtered = nil
 
 	if m.level == 0 {
@@ -996,6 +1089,21 @@ func (m *Model) resetFilter() {
 	m.filter = ""
 	m.filtering = false
 	m.filtered = nil
+	m.filteredRecent = nil
+
+	if m.recentsView {
+		m.filteredRecent = make([]int, len(m.recentEntries))
+		for i := range m.recentEntries {
+			m.filteredRecent[i] = i
+		}
+		if m.cursor >= len(m.filteredRecent) {
+			m.cursor = len(m.filteredRecent) - 1
+		}
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		return
+	}
 
 	if m.level == 0 {
 		m.filtered = make([]int, len(m.notebooks))
@@ -1018,10 +1126,37 @@ func (m *Model) resetFilter() {
 }
 
 func (m Model) listLen() int {
+	if m.recentsView {
+		return len(m.filteredRecent)
+	}
 	return len(m.filtered)
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+	// Handle recents view selection.
+	if m.recentsView {
+		if len(m.filteredRecent) == 0 {
+			return m, nil
+		}
+		if m.cursor >= len(m.filteredRecent) {
+			return m, nil
+		}
+		idx := m.filteredRecent[m.cursor]
+		entry := m.recentEntries[idx]
+		switch entry.Type {
+		case "store":
+			m.selected = &Selection{
+				Book: entry.Notebook,
+				Note: entry.Name,
+			}
+		case "external":
+			m.selected = &Selection{
+				FilePath: entry.Path,
+			}
+		}
+		return m, tea.Quit
+	}
+
 	if len(m.filtered) == 0 {
 		return m, nil
 	}
@@ -1054,6 +1189,15 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleEsc() (tea.Model, tea.Cmd) {
+	if m.recentsView {
+		m.recentsView = false
+		m.cursor = 0
+		m.filter = ""
+		m.filtering = false
+		m.filtered = nil
+		m.filteredRecent = nil
+		return m, m.loadNotebooks()
+	}
 	if m.level == 1 {
 		m.level = 0
 		m.cursor = m.savedCursor
@@ -1070,7 +1214,22 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 // renderHelpOverlay builds the centered help panel.
 func (m Model) renderHelpOverlay() string {
 	var help string
-	if m.level == 0 {
+	if m.recentsView {
+		help = `  Keybindings
+  ───────────────────────────
+
+  ↑/↓       Navigate
+  Enter      Open note/file
+  d          Remove from recents
+  Tab        Switch to notebooks
+  t          Theme picker
+  /          Search
+  Esc        Back to notebooks
+  q          Quit
+  ?          Toggle help
+
+  Press ? or Esc to close`
+	} else if m.level == 0 {
 		help = `  Keybindings
   ───────────────────────────
 
@@ -1079,6 +1238,7 @@ func (m Model) renderHelpOverlay() string {
   n          New notebook
   d          Delete notebook
   r          Rename notebook
+  Tab        Switch to recents
   t          Theme picker
   /          Search
   q          Quit
@@ -1176,13 +1336,26 @@ func (m Model) View() string {
 
 func (m Model) renderBreadcrumb() string {
 	style := lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	if m.level == 0 {
-		return style.Render("notebook")
+	dim := lipgloss.NewStyle().Faint(true)
+
+	if m.recentsView {
+		active := style.Render("Recent")
+		inactive := dim.Render("Notebooks")
+		return fmt.Sprintf(" %s  %s", active, inactive)
 	}
-	return style.Render(fmt.Sprintf("notebook \u203A %s", storage.DisplayName(m.currentBook)))
+
+	if m.level == 0 {
+		active := style.Render("Notebooks")
+		inactive := dim.Render("Recent")
+		return fmt.Sprintf(" %s  %s", active, inactive)
+	}
+	return fmt.Sprintf(" %s", style.Render(fmt.Sprintf("notebook \u203A %s", storage.DisplayName(m.currentBook))))
 }
 
 func (m Model) renderContent(maxLines int) string {
+	if m.recentsView {
+		return m.renderRecentList(maxLines)
+	}
 	if m.level == 0 {
 		return m.renderNotebookList(maxLines)
 	}
@@ -1239,6 +1412,102 @@ func (m Model) renderNoteList(maxLines int) string {
 	}
 
 	return b.String()
+}
+
+func (m Model) renderRecentList(maxLines int) string {
+	if len(m.recentEntries) == 0 {
+		return m.renderEmptyRecents()
+	}
+
+	if len(m.filteredRecent) == 0 && m.filtering {
+		return "  No matches\n"
+	}
+
+	var b strings.Builder
+	visible := m.visibleRange(len(m.filteredRecent), maxLines)
+
+	for vi, fi := range visible {
+		idx := m.filteredRecent[fi]
+		e := m.recentEntries[idx]
+		selected := fi == m.cursor
+		line := m.formatRecentLine(e, selected)
+		b.WriteString(line)
+		if vi < len(visible)-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
+	bullet := "  "
+	label := recentEntryLabel(e)
+	display := label
+	timeStr := relativeTime(e.LastEdited)
+
+	if selected {
+		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		bullet = bulletStyle.Render("\u25CF") + " "
+		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		display = nameStyle.Render(label)
+	}
+
+	return fmt.Sprintf("%s%s    %s",
+		padRight(bullet, 2),
+		padRight(display, m.recentNameColWidth()),
+		timeStr,
+	)
+}
+
+func (m Model) recentNameColWidth() int {
+	maxLen := 0
+	for _, e := range m.recentEntries {
+		if dl := len(recentEntryLabel(e)); dl > maxLen {
+			maxLen = dl
+		}
+	}
+	if maxLen < 10 {
+		maxLen = 10
+	}
+	return maxLen
+}
+
+// recentEntryLabel returns the display label for a recent entry.
+func recentEntryLabel(e recents.Entry) string {
+	switch e.Type {
+	case "store":
+		return storage.DisplayName(e.Notebook) + " \u203A " + storage.DisplayName(e.Name)
+	case "external":
+		return shortenHome(e.Path)
+	}
+	return ""
+}
+
+// shortenHome replaces the home directory prefix with ~/ for display.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+func (m Model) renderEmptyRecents() string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height - 4
+	if h < 1 {
+		h = 1
+	}
+	dim := lipgloss.NewStyle().Faint(true)
+	msg := "No recent notes.\n\nNotes appear here after you edit and save them."
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
 }
 
 // visibleRange returns the slice of filtered indices to display,
@@ -1408,6 +1677,14 @@ func (m Model) renderStatusBar() string {
 			after = after[1:]
 		}
 		return dim.Render("  Filter: "+before) + cursor.Render(cursorChar) + dim.Render(after+" \u00B7 Esc clear \u00B7 Enter select")
+	}
+
+	if m.recentsView {
+		return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 q quit \u00B7 ? help")
+	}
+
+	if m.level == 0 {
+		return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 Tab recents \u00B7 / search \u00B7 q quit \u00B7 ? help")
 	}
 
 	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help")

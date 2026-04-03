@@ -43,12 +43,21 @@ func runBrowser() error {
 			return nil
 		}
 
-		// Launch editor for the selected note.
-		lastBook = sel.Book
 		lastCursor = final.Cursor()
 		lastSavedCursor = final.SavedCursor()
-		if err := editNote(os.Stderr, sel.Book, sel.Note); err != nil {
-			return fmt.Errorf("edit note: %w", err)
+
+		// External file selection from recents.
+		if sel.FilePath != "" {
+			lastBook = ""
+			if err := openFile(sel.FilePath); err != nil {
+				return fmt.Errorf("open file: %w", err)
+			}
+		} else {
+			// Launch editor for the selected note.
+			lastBook = sel.Book
+			if err := editNote(os.Stderr, sel.Book, sel.Note); err != nil {
+				return fmt.Errorf("edit note: %w", err)
+			}
 		}
 
 		// Loop back to re-enter the browser.
