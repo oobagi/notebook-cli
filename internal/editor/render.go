@@ -3,7 +3,6 @@ package editor
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -14,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook/internal/format"
 	"github.com/oobagi/notebook/internal/theme"
 )
 
@@ -32,14 +32,11 @@ func (m Model) renderHeader() string {
 
 	var rightParts []string
 	if m.config.FilePath != "" {
-		displayPath := m.config.FilePath
-		if home, err := os.UserHomeDir(); err == nil {
-			displayPath = strings.Replace(displayPath, home, "~", 1)
-		}
+		displayPath := format.ShortenHome(m.config.FilePath)
 		rightParts = append(rightParts, displayPath)
 	}
 	if m.config.FileSize > 0 {
-		rightParts = append(rightParts, humanSize(m.config.FileSize))
+		rightParts = append(rightParts, format.HumanSize(m.config.FileSize))
 	}
 	right := metaStyle.Render(strings.Join(rightParts, " \u00B7 "))
 
@@ -48,7 +45,7 @@ func (m Model) renderHeader() string {
 	if gap < 2 {
 		// Drop the file path, keep just the size.
 		if m.config.FileSize > 0 {
-			right = metaStyle.Render(humanSize(m.config.FileSize))
+			right = metaStyle.Render(format.HumanSize(m.config.FileSize))
 		} else {
 			right = ""
 		}
@@ -61,32 +58,6 @@ func (m Model) renderHeader() string {
 	bar := left + strings.Repeat(" ", gap) + right
 
 	return lipgloss.NewStyle().Width(width).Render(bar)
-}
-
-// humanSize formats a byte count into a human-readable string.
-func humanSize(bytes int64) string {
-	switch {
-	case bytes < 1024:
-		return fmt.Sprintf("%d B", bytes)
-	case bytes < 1024*1024:
-		kb := float64(bytes) / 1024
-		return formatFloat(kb) + " KB"
-	case bytes < 1024*1024*1024:
-		mb := float64(bytes) / (1024 * 1024)
-		return formatFloat(mb) + " MB"
-	default:
-		gb := float64(bytes) / (1024 * 1024 * 1024)
-		return formatFloat(gb) + " GB"
-	}
-}
-
-// formatFloat formats a float to one decimal place, dropping the ".0" suffix.
-func formatFloat(f float64) string {
-	s := fmt.Sprintf("%.1f", f)
-	if strings.HasSuffix(s, ".0") {
-		return s[:len(s)-2]
-	}
-	return s
 }
 
 // renderBlock renders a single block. The active block shows its textarea;

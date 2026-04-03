@@ -1,18 +1,32 @@
-package browser
+package format
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
 
-// relativeTime returns a human-friendly relative timestamp string.
-func relativeTime(t time.Time) string {
-	return relativeTimeFrom(t, time.Now())
+// ShortenHome replaces the home directory prefix with ~/ for display.
+func ShortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
-// relativeTimeFrom returns a relative timestamp using the given reference time.
-func relativeTimeFrom(t time.Time, now time.Time) string {
+// RelativeTime returns a human-friendly relative timestamp string.
+// It follows the design system rules from docs/design.md.
+func RelativeTime(t time.Time) string {
+	return RelativeTimeFrom(t, time.Now())
+}
+
+// RelativeTimeFrom returns a relative timestamp using the given reference time.
+func RelativeTimeFrom(t time.Time, now time.Time) string {
 	d := now.Sub(t)
 	if d < 0 {
 		d = 0
@@ -41,24 +55,25 @@ func relativeTimeFrom(t time.Time, now time.Time) string {
 	}
 }
 
-// humanSize formats a byte count into a human-readable string.
-func humanSize(bytes int64) string {
+// HumanSize formats a byte count into a human-readable string.
+func HumanSize(bytes int64) string {
 	switch {
 	case bytes < 1024:
 		return fmt.Sprintf("%d B", bytes)
 	case bytes < 1024*1024:
 		kb := float64(bytes) / 1024
-		return formatFloat(kb) + " KB"
+		return FormatFloat(kb) + " KB"
 	case bytes < 1024*1024*1024:
 		mb := float64(bytes) / (1024 * 1024)
-		return formatFloat(mb) + " MB"
+		return FormatFloat(mb) + " MB"
 	default:
 		gb := float64(bytes) / (1024 * 1024 * 1024)
-		return formatFloat(gb) + " GB"
+		return FormatFloat(gb) + " GB"
 	}
 }
 
-func formatFloat(f float64) string {
+// FormatFloat formats a float to one decimal place, dropping the ".0" suffix.
+func FormatFloat(f float64) string {
 	s := fmt.Sprintf("%.1f", f)
 	if strings.HasSuffix(s, ".0") {
 		return s[:len(s)-2]

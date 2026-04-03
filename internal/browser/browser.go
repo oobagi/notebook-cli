@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/config"
+	"github.com/oobagi/notebook/internal/format"
 	"github.com/oobagi/notebook/internal/model"
 	"github.com/oobagi/notebook/internal/recents"
 	"github.com/oobagi/notebook/internal/storage"
@@ -174,7 +175,7 @@ func (m Model) loadNotebooks() tea.Cmd {
 			if modTime.IsZero() {
 				timeStr = "empty"
 			} else {
-				timeStr = relativeTime(modTime)
+				timeStr = format.RelativeTime(modTime)
 			}
 
 			items = append(items, notebookItem{
@@ -199,14 +200,10 @@ func (m Model) loadNotes(book string) tea.Cmd {
 
 func (m Model) loadRecents() tea.Cmd {
 	return func() tea.Msg {
-		entries, err := recents.Load(recents.DefaultPath())
+		entries, err := recents.LoadPruned(m.store.Root)
 		if err != nil {
 			return errMsg{err}
 		}
-		// Prune stale entries once at load time.
-		entries = recents.Prune(entries, m.store.Root)
-		// Persist pruned list (best-effort).
-		_ = recents.Save(recents.DefaultPath(), entries)
 		return recentsLoadedMsg{entries: entries}
 	}
 }
@@ -740,7 +737,7 @@ func (m Model) removeRecentEntry() (tea.Model, tea.Cmd) {
 		if err := recents.Save(recents.DefaultPath(), entries); err != nil {
 			return statusMsg{fmt.Sprintf("Could not save recents: %s", err)}
 		}
-		return reloadMsg{}
+		return recentsLoadedMsg{entries: entries}
 	}
 }
 
@@ -1144,12 +1141,12 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		idx := m.filteredRecent[m.cursor]
 		entry := m.recentEntries[idx]
 		switch entry.Type {
-		case "store":
+		case recents.TypeStore:
 			m.selected = &Selection{
 				Book: entry.Notebook,
 				Note: entry.Name,
 			}
-		case "external":
+		case recents.TypeExternal:
 			m.selected = &Selection{
 				FilePath: entry.Path,
 			}
@@ -1444,7 +1441,7 @@ func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	bullet := "  "
 	label := recentEntryLabel(e)
 	display := label
-	timeStr := relativeTime(e.LastEdited)
+	timeStr := format.RelativeTime(e.LastEdited)
 
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
@@ -1476,24 +1473,12 @@ func (m Model) recentNameColWidth() int {
 // recentEntryLabel returns the display label for a recent entry.
 func recentEntryLabel(e recents.Entry) string {
 	switch e.Type {
-	case "store":
+	case recents.TypeStore:
 		return storage.DisplayName(e.Notebook) + " \u203A " + storage.DisplayName(e.Name)
-	case "external":
-		return shortenHome(e.Path)
+	case recents.TypeExternal:
+		return format.ShortenHome(e.Path)
 	}
 	return ""
-}
-
-// shortenHome replaces the home directory prefix with ~/ for display.
-func shortenHome(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if strings.HasPrefix(path, home) {
-		return "~" + path[len(home):]
-	}
-	return path
 }
 
 func (m Model) renderEmptyRecents() string {
@@ -1580,8 +1565,8 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 	info, err := os.Stat(p)
 	var sizeStr, timeStr string
 	if err == nil {
-		sizeStr = humanSize(info.Size())
-		timeStr = relativeTime(info.ModTime())
+		sizeStr = format.HumanSize(info.Size())
+		timeStr = format.RelativeTime(info.ModTime())
 	}
 
 	if selected {

@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
+	"github.com/oobagi/notebook/internal/format"
 	"github.com/oobagi/notebook/internal/recents"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
@@ -125,8 +125,8 @@ func listNotesInBook(w io.Writer, book string) error {
 		if err != nil {
 			return fmt.Errorf("stat note %q: %w", n.Name, err)
 		}
-		sizeStr := humanSize(info.Size())
-		timeStr := relativeTime(info.ModTime())
+		sizeStr := format.HumanSize(info.Size())
+		timeStr := format.RelativeTime(info.ModTime())
 		rows = append(rows, []string{n.Name, sizeStr, timeStr})
 	}
 
@@ -211,13 +211,7 @@ func editNote(w io.Writer, book, note string) error {
 			if err := store.UpdateNote(book, note, content); err != nil {
 				return err
 			}
-			// Record in recents (best-effort, never block save).
-			_ = recents.Record(recents.DefaultPath(), recents.Entry{
-				Type:       "store",
-				Notebook:   book,
-				Name:       note,
-				LastEdited: time.Now(),
-			})
+			recents.RecordStore(book, note)
 			return nil
 		},
 	}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/oobagi/notebook/internal/format"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +48,7 @@ var listCmd = &cobra.Command{
 			if modTime.IsZero() {
 				timeStr = "empty"
 			} else {
-				timeStr = relativeTime(modTime)
+				timeStr = format.RelativeTime(modTime)
 			}
 
 			rows = append(rows, []string{name, countStr, timeStr})

@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 	"time"
+
+	"github.com/oobagi/notebook/internal/format"
 )
 
 func TestRelativeTime(t *testing.T) {
@@ -35,9 +37,9 @@ func TestRelativeTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := relativeTimeFrom(tt.t, now)
+			got := format.RelativeTimeFrom(tt.t, now)
 			if got != tt.want {
-				t.Errorf("relativeTimeFrom(%v, now) = %q, want %q", tt.t, got, tt.want)
+				t.Errorf("RelativeTimeFrom(%v, now) = %q, want %q", tt.t, got, tt.want)
 			}
 		})
 	}
@@ -64,9 +66,9 @@ func TestHumanSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := humanSize(tt.bytes)
+			got := format.HumanSize(tt.bytes)
 			if got != tt.want {
-				t.Errorf("humanSize(%d) = %q, want %q", tt.bytes, got, tt.want)
+				t.Errorf("HumanSize(%d) = %q, want %q", tt.bytes, got, tt.want)
 			}
 		})
 	}

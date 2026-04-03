@@ -13,13 +13,13 @@ func TestRoundTrip(t *testing.T) {
 
 	entries := []Entry{
 		{
-			Type:       "store",
+			Type:       TypeStore,
 			Notebook:   "work",
 			Name:       "standup",
 			LastEdited: time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
 		},
 		{
-			Type:       "external",
+			Type:       TypeExternal,
 			Path:       "/tmp/todo.txt",
 			LastEdited: time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC),
 		},
@@ -38,10 +38,10 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("got %d entries, want %d", len(loaded), len(entries))
 	}
 
-	if loaded[0].Type != "store" || loaded[0].Notebook != "work" || loaded[0].Name != "standup" {
+	if loaded[0].Type != TypeStore || loaded[0].Notebook != "work" || loaded[0].Name != "standup" {
 		t.Errorf("entry 0 mismatch: %+v", loaded[0])
 	}
-	if loaded[1].Type != "external" || loaded[1].Path != "/tmp/todo.txt" {
+	if loaded[1].Type != TypeExternal || loaded[1].Path != "/tmp/todo.txt" {
 		t.Errorf("entry 1 mismatch: %+v", loaded[1])
 	}
 }
@@ -69,12 +69,12 @@ func TestLoadEmptyPath(t *testing.T) {
 func TestUpsert(t *testing.T) {
 	now := time.Now()
 	entries := []Entry{
-		{Type: "store", Notebook: "work", Name: "standup", LastEdited: now.Add(-1 * time.Hour)},
-		{Type: "store", Notebook: "journal", Name: "today", LastEdited: now.Add(-2 * time.Hour)},
+		{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now.Add(-1 * time.Hour)},
+		{Type: TypeStore, Notebook: "journal", Name: "today", LastEdited: now.Add(-2 * time.Hour)},
 	}
 
 	// Update existing entry — should move to front with new timestamp.
-	updated := Entry{Type: "store", Notebook: "work", Name: "standup", LastEdited: now}
+	updated := Entry{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now}
 	result := upsert(entries, updated)
 
 	if len(result) != 2 {
@@ -91,16 +91,16 @@ func TestUpsert(t *testing.T) {
 func TestUpsertNewEntry(t *testing.T) {
 	now := time.Now()
 	entries := []Entry{
-		{Type: "store", Notebook: "work", Name: "standup", LastEdited: now.Add(-1 * time.Hour)},
+		{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now.Add(-1 * time.Hour)},
 	}
 
-	newEntry := Entry{Type: "external", Path: "/tmp/notes.md", LastEdited: now}
+	newEntry := Entry{Type: TypeExternal, Path: "/tmp/notes.md", LastEdited: now}
 	result := upsert(entries, newEntry)
 
 	if len(result) != 2 {
 		t.Fatalf("got %d entries, want 2", len(result))
 	}
-	if result[0].Type != "external" || result[0].Path != "/tmp/notes.md" {
+	if result[0].Type != TypeExternal || result[0].Path != "/tmp/notes.md" {
 		t.Errorf("expected new entry first, got %+v", result[0])
 	}
 }
@@ -110,7 +110,7 @@ func TestCap(t *testing.T) {
 	var entries []Entry
 	for i := 0; i < MaxEntries; i++ {
 		entries = append(entries, Entry{
-			Type:       "store",
+			Type:       TypeStore,
 			Notebook:   "book",
 			Name:       "note-" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
 			LastEdited: now.Add(-time.Duration(i) * time.Hour),
@@ -118,13 +118,13 @@ func TestCap(t *testing.T) {
 	}
 
 	// Adding one more should cap at MaxEntries.
-	extra := Entry{Type: "external", Path: "/tmp/extra.txt", LastEdited: now}
+	extra := Entry{Type: TypeExternal, Path: "/tmp/extra.txt", LastEdited: now}
 	result := upsert(entries, extra)
 
 	if len(result) != MaxEntries {
 		t.Errorf("got %d entries, want %d", len(result), MaxEntries)
 	}
-	if result[0].Type != "external" {
+	if result[0].Type != TypeExternal {
 		t.Errorf("expected new entry first, got %+v", result[0])
 	}
 }
@@ -149,10 +149,10 @@ func TestPrune(t *testing.T) {
 
 	now := time.Now()
 	entries := []Entry{
-		{Type: "store", Notebook: "work", Name: "standup", LastEdited: now},
-		{Type: "store", Notebook: "work", Name: "deleted-note", LastEdited: now},
-		{Type: "external", Path: extFile, LastEdited: now},
-		{Type: "external", Path: "/nonexistent/file.txt", LastEdited: now},
+		{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now},
+		{Type: TypeStore, Notebook: "work", Name: "deleted-note", LastEdited: now},
+		{Type: TypeExternal, Path: extFile, LastEdited: now},
+		{Type: TypeExternal, Path: "/nonexistent/file.txt", LastEdited: now},
 	}
 
 	result := Prune(entries, dir)
@@ -170,16 +170,16 @@ func TestPrune(t *testing.T) {
 func TestRemove(t *testing.T) {
 	now := time.Now()
 	entries := []Entry{
-		{Type: "store", Notebook: "work", Name: "standup", LastEdited: now},
-		{Type: "external", Path: "/tmp/todo.txt", LastEdited: now},
-		{Type: "store", Notebook: "journal", Name: "today", LastEdited: now},
+		{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now},
+		{Type: TypeExternal, Path: "/tmp/todo.txt", LastEdited: now},
+		{Type: TypeStore, Notebook: "journal", Name: "today", LastEdited: now},
 	}
 
-	result := Remove(entries, Entry{Type: "store", Notebook: "work", Name: "standup"})
+	result := Remove(entries, Entry{Type: TypeStore, Notebook: "work", Name: "standup"})
 	if len(result) != 2 {
 		t.Fatalf("got %d entries, want 2", len(result))
 	}
-	if result[0].Type != "external" {
+	if result[0].Type != TypeExternal {
 		t.Errorf("expected external first, got %+v", result[0])
 	}
 }
@@ -189,7 +189,7 @@ func TestRecord(t *testing.T) {
 	path := filepath.Join(dir, "recent.json")
 
 	now := time.Now()
-	entry := Entry{Type: "store", Notebook: "work", Name: "standup", LastEdited: now}
+	entry := Entry{Type: TypeStore, Notebook: "work", Name: "standup", LastEdited: now}
 
 	if err := Record(path, entry); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -215,38 +215,38 @@ func TestSameIdentity(t *testing.T) {
 	}{
 		{
 			"same store entry",
-			Entry{Type: "store", Notebook: "work", Name: "standup"},
-			Entry{Type: "store", Notebook: "work", Name: "standup"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "standup"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "standup"},
 			true,
 		},
 		{
 			"different store name",
-			Entry{Type: "store", Notebook: "work", Name: "standup"},
-			Entry{Type: "store", Notebook: "work", Name: "retro"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "standup"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "retro"},
 			false,
 		},
 		{
 			"different store notebook",
-			Entry{Type: "store", Notebook: "work", Name: "standup"},
-			Entry{Type: "store", Notebook: "journal", Name: "standup"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "standup"},
+			Entry{Type: TypeStore, Notebook: "journal", Name: "standup"},
 			false,
 		},
 		{
 			"same external path",
-			Entry{Type: "external", Path: "/tmp/a.txt"},
-			Entry{Type: "external", Path: "/tmp/a.txt"},
+			Entry{Type: TypeExternal, Path: "/tmp/a.txt"},
+			Entry{Type: TypeExternal, Path: "/tmp/a.txt"},
 			true,
 		},
 		{
 			"different external path",
-			Entry{Type: "external", Path: "/tmp/a.txt"},
-			Entry{Type: "external", Path: "/tmp/b.txt"},
+			Entry{Type: TypeExternal, Path: "/tmp/a.txt"},
+			Entry{Type: TypeExternal, Path: "/tmp/b.txt"},
 			false,
 		},
 		{
 			"different types",
-			Entry{Type: "store", Notebook: "work", Name: "standup"},
-			Entry{Type: "external", Path: "/tmp/a.txt"},
+			Entry{Type: TypeStore, Notebook: "work", Name: "standup"},
+			Entry{Type: TypeExternal, Path: "/tmp/a.txt"},
 			false,
 		},
 	}
