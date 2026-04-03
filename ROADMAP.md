@@ -98,3 +98,12 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 ## Phase 15: Recent Notes
 
 - [ ] [#158 Recent notes: track and surface recently edited notes](https://github.com/oobagi/notebook/issues/158)
+
+## Phase 16: View Mode
+
+- [ ] [#161 View/edit mode toggle with clean read-only rendering](https://github.com/oobagi/notebook/issues/161)
+- [ ] [#162 Mouse click to toggle checklists in view mode](https://github.com/oobagi/notebook/issues/162)
+
+## Bug Fixes
+
+- [ ] [#163 Cursor placed at end of block on first downward navigation](https://github.com/oobagi/notebook/issues/163)
