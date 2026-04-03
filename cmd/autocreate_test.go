@@ -48,17 +48,7 @@ func TestAutoCreateNotebookEndToEnd(t *testing.T) {
 		t.Errorf("expected %q in note list output, got %q", note, out)
 	}
 
-	// Step 4: Verify `notebook <book> <note>` views the note.
-	// The note was created with empty content, so we expect the "empty" info message.
-	out, err = executeCapture([]string{"--dir", dir, book, note})
-	if err != nil {
-		t.Fatalf("view note: unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "empty") {
-		t.Errorf("expected 'empty' info message for content-less note, got %q", out)
-	}
-
-	// Step 5: Verify `notebook <book> <note> delete` deletes the note.
+	// Step 4: Verify `notebook <book> <note> delete` deletes the note.
 	// Pipe the note name to confirm deletion.
 	rootCmd.SetIn(strings.NewReader(note + "\n"))
 	defer rootCmd.SetIn(nil)
@@ -99,33 +89,6 @@ func TestAutoCreateNotebookEndToEnd(t *testing.T) {
 
 // TestAutoCreateNotebookWithContent verifies the auto-create path works
 // when the note has actual content, and that viewing renders it correctly.
-func TestAutoCreateNotebookWithContent(t *testing.T) {
-	dir := setupTestStore(t)
-	book := "fresh-book"
-	note := "hello"
-
-	// Create a note with content via the storage layer to populate content,
-	// but first verify the auto-create path works for the notebook.
-	// Since the CLI "new" command creates notes with empty content,
-	// we use storage directly to write content, then verify view works.
-	st := storage.NewStore(dir)
-
-	// Notebook "fresh-book" does not exist. CreateNote should auto-create it.
-	err := st.CreateNote(book, note, "# Hello World\n\nThis is a test.")
-	if err != nil {
-		t.Fatalf("storage CreateNote: %v", err)
-	}
-
-	// View through the CLI.
-	out, err := executeCapture([]string{"--dir", dir, book, note})
-	if err != nil {
-		t.Fatalf("view note: unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "Hello World") {
-		t.Errorf("expected 'Hello World' in rendered output, got %q", out)
-	}
-}
-
 // TestAutoCreateNoExtraOutput verifies that auto-creating a notebook during
 // note creation produces exactly one line of output (the note success message)
 // and nothing else — no "created notebook" or similar extra messages.

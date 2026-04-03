@@ -216,19 +216,28 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	// Divider: selected as a unit — render highlighted hr, no cursor.
 	if b.Type == block.Divider {
+		dth := theme.Current()
+		bs := dth.Blocks.Divider
+		divColor := bs.Color
+		if divColor == "" {
+			divColor = dth.Accent
+		}
+		maxW := bs.MaxWidth
+		if maxW <= 0 {
+			maxW = 40
+		}
 		w := m.width - gutterWidth
 		if w <= 0 {
-			w = 40
+			w = maxW
 		}
-		if w > 40 {
-			w = 40
+		if w > maxW {
+			w = maxW
 		}
-		accent := theme.Current().Accent
 		rendered := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(accent)).
-			Render(strings.Repeat("\u2500", w))
+			Foreground(lipgloss.Color(divColor)).
+			Render(strings.Repeat(bs.Char, w))
 		label := fmt.Sprintf("%2s", b.Type.Short())
-		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(dth.Accent))
 		return accentStyle.Render(label) + " " + accentStyle.Render("│") + " " + rendered
 	}
 
@@ -288,26 +297,28 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	switch b.Type {
 	case block.Heading1:
-		style := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(th.Accent))
+		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
 		rendered = style.Render(taView)
 
 	case block.Heading2:
-		style := lipgloss.NewStyle().Bold(true)
+		style := th.Blocks.Heading2.Text.ToLipgloss("")
 		rendered = style.Render(taView)
 
 	case block.Heading3:
-		style := lipgloss.NewStyle().Bold(true).Faint(true)
+		style := th.Blocks.Heading3.Text.ToLipgloss("")
 		rendered = style.Render(taView)
 
 	case block.BulletList:
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render("  \u2022  ")
+		bs := th.Blocks.Bullet
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = th.Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.NumberedList:
+		bs := th.Blocks.Numbered
 		num := 1
 		for i := idx - 1; i >= 0; i-- {
 			if m.blocks[i].Type == block.NumberedList {
@@ -316,45 +327,50 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				break
 			}
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render(fmt.Sprintf("  %d. ", num))
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = th.Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
+		bs := th.Blocks.Checklist
 		if b.Checked {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Accent)).
-				Bold(true).
-				Render(" [x] ")
-			faintText := lipgloss.NewStyle().Faint(true).Render(taView)
-			rendered = prefixFirstLine(prefix, faintText)
+			checkedColor := bs.CheckedColor
+			if checkedColor == "" {
+				checkedColor = th.Accent
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+			if bs.CheckedBold {
+				style = style.Bold(true)
+			}
+			prefix := style.Render(bs.Checked)
+			text := taView
+			if bs.CheckedTextFaint {
+				text = lipgloss.NewStyle().Faint(true).Render(taView)
+			}
+			rendered = prefixFirstLine(prefix, text)
 		} else {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Muted)).
-				Render(" [ ] ")
+			uncheckedColor := bs.UncheckedColor
+			if uncheckedColor == "" {
+				uncheckedColor = th.Muted
+			}
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
 	case block.CodeBlock:
-		codeContent := taView
-		if b.Language != "" {
-			langLabel := lipgloss.NewStyle().
-				Faint(true).
-				Render(b.Language)
-			codeContent = langLabel + "\n" + taView
-		}
-		codeStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(th.Border)).
-			PaddingLeft(1).
-			PaddingRight(1)
-		rendered = codeStyle.Render(codeContent)
+		bs := th.Blocks.Code
+		rendered = renderCodeBox(taView, b.Language, th.Border, bs.LabelPosition, contentWidth)
 
 	case block.Quote:
-		bar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render("\u2502 ")
+		bs := th.Blocks.Quote
+		barColor := bs.BarColor
+		if barColor == "" {
+			barColor = th.Muted
+		}
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(taView, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
@@ -393,6 +409,60 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderCodeBox renders code in a bordered box with configurable label placement.
+func renderCodeBox(code, language, borderColor, labelPos string, padWidth int) string {
+	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
+	faint := lipgloss.NewStyle().Faint(true)
+
+	lines := strings.Split(code, "\n")
+
+	// Determine inner width from the widest line.
+	innerW := padWidth
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	// Pad each line to innerW.
+	for i, l := range lines {
+		if pad := innerW - lipgloss.Width(l); pad > 0 {
+			lines[i] = l + strings.Repeat(" ", pad)
+		}
+	}
+
+	// Default top/bottom borders.
+	topBorder := bc.Render("\u256D" + strings.Repeat("\u2500", innerW+2) + "\u256E")
+	bottomBorder := bc.Render("\u2570" + strings.Repeat("\u2500", innerW+2) + "\u256F")
+
+	if language != "" {
+		label := faint.Render(language)
+		labelW := lipgloss.Width(label)
+		switch labelPos {
+		case "top":
+			dashes := innerW + 2 - labelW - 3
+			if dashes < 1 {
+				dashes = 1
+			}
+			topBorder = bc.Render("\u256D\u2500 ") + label + bc.Render(" "+strings.Repeat("\u2500", dashes)+"\u256E")
+		case "bottom":
+			dashes := innerW + 2 - labelW - 3
+			if dashes < 1 {
+				dashes = 1
+			}
+			bottomBorder = bc.Render("\u2570\u2500 ") + label + bc.Render(" "+strings.Repeat("\u2500", dashes)+"\u256F")
+		default: // "inside"
+			lines = append([]string{faint.Render(language) + strings.Repeat(" ", innerW-labelW)}, lines...)
+		}
+	}
+
+	var out []string
+	out = append(out, topBorder)
+	for _, l := range lines {
+		out = append(out, bc.Render("\u2502")+" "+l+" "+bc.Render("\u2502"))
+	}
+	out = append(out, bottomBorder)
+	return strings.Join(out, "\n")
 }
 
 // prefixFirstLine prepends a prefix to the first line of a multiline string,
@@ -485,26 +555,28 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 
 	switch b.Type {
 	case block.Heading1:
-		style := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(theme.Current().Accent))
+		style := theme.Current().Blocks.Heading1.Text.ToLipgloss(theme.Current().Accent)
 		rendered = style.Render(wrapped)
 
 	case block.Heading2:
-		style := lipgloss.NewStyle().Bold(true)
+		style := theme.Current().Blocks.Heading2.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.Heading3:
-		style := lipgloss.NewStyle().Bold(true).Faint(true)
+		style := theme.Current().Blocks.Heading3.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.BulletList:
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render("  \u2022  ")
+		bs := theme.Current().Blocks.Bullet
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
+		bs := theme.Current().Blocks.Numbered
 		num := 1
 		for i := idx - 1; i >= 0; i-- {
 			if blocks[i].Type == block.NumberedList {
@@ -513,49 +585,54 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 				break
 			}
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render(fmt.Sprintf("  %d. ", num))
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
+		bs := theme.Current().Blocks.Checklist
 		if b.Checked {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.Current().Accent)).
-				Bold(true).
-				Render(" [x] ")
-			faintText := lipgloss.NewStyle().Faint(true).Render(wrapped)
-			rendered = prefixFirstLine(prefix, faintText)
+			checkedColor := bs.CheckedColor
+			if checkedColor == "" {
+				checkedColor = theme.Current().Accent
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+			if bs.CheckedBold {
+				style = style.Bold(true)
+			}
+			prefix := style.Render(bs.Checked)
+			text := wrapped
+			if bs.CheckedTextFaint {
+				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
+			}
+			rendered = prefixFirstLine(prefix, text)
 		} else {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.Current().Muted)).
-				Render(" [ ] ")
+			uncheckedColor := bs.UncheckedColor
+			if uncheckedColor == "" {
+				uncheckedColor = theme.Current().Muted
+			}
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
 	case block.CodeBlock:
+		bs := theme.Current().Blocks.Code
 		highlighted := wrapped
 		if b.Language != "" {
 			highlighted = highlightCode(wrapped, b.Language)
 		}
-		codeContent := highlighted
-		if b.Language != "" {
-			langLabel := lipgloss.NewStyle().
-				Faint(true).
-				Render(b.Language)
-			codeContent = langLabel + "\n" + highlighted
-		}
-		codeStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(theme.Current().Border)).
-			PaddingLeft(1).
-			PaddingRight(1)
-		rendered = codeStyle.Render(codeContent)
+		rendered = renderCodeBox(highlighted, b.Language, theme.Current().Border, bs.LabelPosition, contentWidth)
 
 	case block.Quote:
-		bar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render("\u2502 ")
+		bs := theme.Current().Blocks.Quote
+		barColor := bs.BarColor
+		if barColor == "" {
+			barColor = theme.Current().Muted
+		}
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(wrapped, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
@@ -563,16 +640,23 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
+		bs := theme.Current().Blocks.Divider
+		divColor := bs.Color
+		if divColor == "" {
+			divColor = theme.Current().Muted
+		}
+		maxW := bs.MaxWidth
+		if maxW <= 0 {
+			maxW = 40
+		}
 		w := width - gutterWidth
 		if w <= 0 {
-			w = 40
+			w = maxW
 		}
-		if w > 40 {
-			w = 40
+		if w > maxW {
+			w = maxW
 		}
-		rendered = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render(strings.Repeat("\u2500", w))
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
 
 	case block.Paragraph:
 		if wrapped == "" {

@@ -11,34 +11,28 @@ import (
 
 // Config holds all user-configurable settings.
 type Config struct {
-	StorageDir   string `toml:"storage_dir"`
-	Editor       string `toml:"editor"`
-	Theme        string `toml:"theme"`         // "auto", "dark", "light"
-	DateFormat   string `toml:"date_format"`   // "relative" or Go time format
-	GlamourStyle string `toml:"glamour_style"` // "auto", "dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink", or JSON file path
-	UITheme      string `toml:"ui_theme"`      // "auto" or any theme preset name; overrides TUI palette independently from glamour_style
+	StorageDir string `toml:"storage_dir"`
+	Editor     string `toml:"editor"`
+	Theme      string `toml:"theme"`       // "auto" or any preset name
+	DateFormat string `toml:"date_format"` // "relative" or Go time format
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		StorageDir:   "~/.notebook",
-		Editor:       "",
-		Theme:        "auto",
-		DateFormat:   "relative",
-		GlamourStyle: "auto",
-		UITheme:      "auto",
+		StorageDir: "~/.notebook",
+		Editor:     "",
+		Theme:      "auto",
+		DateFormat: "relative",
 	}
 }
 
 // ValidKeys returns the set of keys that can be set via "config set".
 var ValidKeys = map[string]bool{
-	"storage_dir":   true,
-	"editor":        true,
-	"theme":         true,
-	"date_format":   true,
-	"glamour_style": true,
-	"ui_theme":      true,
+	"storage_dir": true,
+	"editor":      true,
+	"theme":       true,
+	"date_format": true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -74,6 +68,15 @@ func LoadFrom(path string) (Config, error) {
 
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
+	}
+
+	// Migrate deprecated ui_theme → theme.
+	var legacy struct {
+		UITheme string `toml:"ui_theme"`
+	}
+	_ = toml.Unmarshal(data, &legacy)
+	if legacy.UITheme != "" && legacy.UITheme != "auto" && (cfg.Theme == "" || cfg.Theme == "auto") {
+		cfg.Theme = legacy.UITheme
 	}
 
 	return cfg, nil
@@ -115,10 +118,6 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Theme = value
 	case "date_format":
 		cfg.DateFormat = value
-	case "glamour_style":
-		cfg.GlamourStyle = value
-	case "ui_theme":
-		cfg.UITheme = value
 	default:
 		return fmt.Errorf("unknown config key: %q", key)
 	}
@@ -136,10 +135,6 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Theme, nil
 	case "date_format":
 		return cfg.DateFormat, nil
-	case "glamour_style":
-		return cfg.GlamourStyle, nil
-	case "ui_theme":
-		return cfg.UITheme, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}

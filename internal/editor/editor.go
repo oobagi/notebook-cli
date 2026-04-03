@@ -99,17 +99,18 @@ const (
 const gutterWidth = 5
 
 func blockPrefixWidth(bt block.BlockType) int {
+	th := theme.Current()
 	switch bt {
 	case block.BulletList:
-		return 5 // "  •  "
+		return lipgloss.Width(th.Blocks.Bullet.Marker)
 	case block.NumberedList:
-		return 5 // "  1. "
+		return lipgloss.Width(fmt.Sprintf(th.Blocks.Numbered.Format, 1))
 	case block.Checklist:
-		return 5 // "  ☐ " / "  ☑ "
+		return lipgloss.Width(th.Blocks.Checklist.Unchecked)
 	case block.Quote:
-		return 2 // "│ "
+		return lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
-		return 4 // border(2) + padding(2) for rounded border box
+		return 4
 	default:
 		return 0
 	}

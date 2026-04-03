@@ -21,12 +21,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want %q", cfg.DateFormat, "relative")
 	}
-	if cfg.GlamourStyle != "auto" {
-		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "auto")
-	}
-	if cfg.UITheme != "auto" {
-		t.Errorf("UITheme = %q, want %q", cfg.UITheme, "auto")
-	}
 }
 
 func TestLoadNoFile(t *testing.T) {
@@ -51,8 +45,6 @@ func TestLoadFromFile(t *testing.T) {
 editor = "nano"
 theme = "dark"
 date_format = "2006-01-02"
-glamour_style = "dracula"
-ui_theme = "ocean"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write test config: %v", err)
@@ -75,12 +67,6 @@ ui_theme = "ocean"
 	if cfg.DateFormat != "2006-01-02" {
 		t.Errorf("DateFormat = %q, want %q", cfg.DateFormat, "2006-01-02")
 	}
-	if cfg.GlamourStyle != "dracula" {
-		t.Errorf("GlamourStyle = %q, want %q", cfg.GlamourStyle, "dracula")
-	}
-	if cfg.UITheme != "ocean" {
-		t.Errorf("UITheme = %q, want %q", cfg.UITheme, "ocean")
-	}
 }
 
 func TestSaveAndLoad(t *testing.T) {
@@ -88,12 +74,10 @@ func TestSaveAndLoad(t *testing.T) {
 	path := filepath.Join(dir, "sub", "config.toml")
 
 	cfg := Config{
-		StorageDir:   "/my/notes",
-		Editor:       "vim",
-		Theme:        "light",
-		DateFormat:   "relative",
-		GlamourStyle: "tokyo-night",
-		UITheme:      "forest",
+		StorageDir: "/my/notes",
+		Editor:     "vim",
+		Theme:      "light",
+		DateFormat: "relative",
 	}
 
 	if err := SaveTo(cfg, path); err != nil {
@@ -133,8 +117,6 @@ func TestSetValidKeys(t *testing.T) {
 		{"editor", "nano", func() string { return cfg.Editor }},
 		{"theme", "dark", func() string { return cfg.Theme }},
 		{"date_format", "2006-01-02", func() string { return cfg.DateFormat }},
-		{"glamour_style", "dracula", func() string { return cfg.GlamourStyle }},
-		{"ui_theme", "ocean", func() string { return cfg.UITheme }},
 	}
 
 	for _, tt := range tests {
@@ -157,12 +139,10 @@ func TestSetUnknownKey(t *testing.T) {
 
 func TestGetValidKeys(t *testing.T) {
 	cfg := Config{
-		StorageDir:   "/notes",
-		Editor:       "nano",
-		Theme:        "dark",
-		DateFormat:   "relative",
-		GlamourStyle: "dracula",
-		UITheme:      "sunset",
+		StorageDir: "/notes",
+		Editor:     "nano",
+		Theme:      "dark",
+		DateFormat: "relative",
 	}
 
 	tests := []struct {
@@ -173,8 +153,6 @@ func TestGetValidKeys(t *testing.T) {
 		{"editor", "nano"},
 		{"theme", "dark"},
 		{"date_format", "relative"},
-		{"glamour_style", "dracula"},
-		{"ui_theme", "sunset"},
 	}
 
 	for _, tt := range tests {
@@ -251,40 +229,46 @@ func TestLoadPartialConfig(t *testing.T) {
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want default %q", cfg.DateFormat, "relative")
 	}
-	if cfg.GlamourStyle != "auto" {
-		t.Errorf("GlamourStyle = %q, want default %q", cfg.GlamourStyle, "auto")
-	}
-	if cfg.UITheme != "auto" {
-		t.Errorf("UITheme = %q, want default %q", cfg.UITheme, "auto")
-	}
 }
 
-func TestUIThemeSetGetRoundTrip(t *testing.T) {
+func TestLegacyUIThemeMigration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	cfg := DefaultConfig()
-	if err := Set(&cfg, "ui_theme", "ocean"); err != nil {
-		t.Fatalf("Set ui_theme: %v", err)
-	}
-
-	got, err := Get(cfg, "ui_theme")
-	if err != nil {
-		t.Fatalf("Get ui_theme: %v", err)
-	}
-	if got != "ocean" {
-		t.Errorf("Get ui_theme = %q, want %q", got, "ocean")
-	}
-
-	if err := SaveTo(cfg, path); err != nil {
-		t.Fatalf("SaveTo: %v", err)
+	// Simulate a legacy config file with ui_theme set and theme at default.
+	content := `theme = "auto"
+ui_theme = "ocean"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test config: %v", err)
 	}
 
 	loaded, err := LoadFrom(path)
 	if err != nil {
 		t.Fatalf("LoadFrom: %v", err)
 	}
-	if loaded.UITheme != "ocean" {
-		t.Errorf("after round-trip UITheme = %q, want %q", loaded.UITheme, "ocean")
+	if loaded.Theme != "ocean" {
+		t.Errorf("after migration Theme = %q, want %q", loaded.Theme, "ocean")
+	}
+}
+
+func TestLegacyUIThemeNoOverrideExplicitTheme(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	// If theme is already set to a non-auto value, ui_theme should not override it.
+	content := `theme = "forest"
+ui_theme = "ocean"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if loaded.Theme != "forest" {
+		t.Errorf("Theme = %q, want %q (should not be overridden by legacy ui_theme)", loaded.Theme, "forest")
 	}
 }

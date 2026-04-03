@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/storage"
-	"github.com/oobagi/notebook/styles"
+	"github.com/oobagi/notebook/internal/theme"
 )
 
 // setupTestStore creates a temp directory with optional notebooks and notes.
@@ -700,94 +700,6 @@ func TestBrowserCopyNote(t *testing.T) {
 	}
 }
 
-func TestBrowserViewNote(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-
-	// Enter notebook to reach level 1.
-	m = sendKey(t, m, tea.KeyEnter)
-	if m.level != 1 {
-		t.Fatalf("expected level 1, got %d", m.level)
-	}
-
-	// Press 'v' to view the note.
-	m = sendRune(t, m, 'v')
-
-	if !m.viewMode {
-		t.Fatal("expected viewMode to be true after pressing 'v'")
-	}
-
-	if !containsStr(m.viewTitle, "todo") {
-		t.Errorf("expected viewTitle to contain 'todo', got %q", m.viewTitle)
-	}
-
-	view := m.View()
-	if !containsStr(view, "todo") {
-		t.Errorf("view should contain the note title, got:\n%s", view)
-	}
-
-	// Press Esc to close the view.
-	m = sendKey(t, m, tea.KeyEsc)
-
-	if m.viewMode {
-		t.Fatal("expected viewMode to be false after pressing Esc")
-	}
-
-	// Should still be at level 1 (not navigated back).
-	if m.level != 1 {
-		t.Errorf("expected level 1 after closing view, got %d", m.level)
-	}
-}
-
-func TestBrowserViewScroll(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-
-	// Enter notebook to reach level 1.
-	m = sendKey(t, m, tea.KeyEnter)
-	if m.level != 1 {
-		t.Fatalf("expected level 1, got %d", m.level)
-	}
-
-	// Press 'v' to view the note.
-	m = sendRune(t, m, 'v')
-
-	if !m.viewMode {
-		t.Fatal("expected viewMode to be true after pressing 'v'")
-	}
-
-	// Scroll starts at 0.
-	if m.viewScroll != 0 {
-		t.Errorf("expected viewScroll 0, got %d", m.viewScroll)
-	}
-
-	// Press down to scroll.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-	// viewScroll should have incremented (or stayed clamped if content is short).
-	// We just verify it didn't go negative and the model is still in view mode.
-	if !m.viewMode {
-		t.Fatal("expected viewMode to still be true after scrolling down")
-	}
-	scrollAfterDown := m.viewScroll
-
-	// Press up to scroll back.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-	if m.viewScroll > scrollAfterDown {
-		t.Errorf("expected viewScroll to decrease or stay after up, got %d (was %d)", m.viewScroll, scrollAfterDown)
-	}
-	if !m.viewMode {
-		t.Fatal("expected viewMode to still be true after scrolling up")
-	}
-}
-
 func TestBrowserCopyAtL0IsNoop(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},
@@ -1206,26 +1118,6 @@ func TestBrowserInitialBook(t *testing.T) {
 	}
 }
 
-func TestBrowserViewAtL0IsNoop(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-
-	// At level 0, press 'v'.
-	if m.level != 0 {
-		t.Fatalf("expected level 0, got %d", m.level)
-	}
-
-	m = sendRune(t, m, 'v')
-
-	// Should not enter view mode (noop).
-	if m.viewMode {
-		t.Error("expected viewMode to be false at L0")
-	}
-}
-
 func TestBrowserThemePickerOpen(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},
@@ -1239,19 +1131,16 @@ func TestBrowserThemePickerOpen(t *testing.T) {
 	if !m.themeMode {
 		t.Fatal("expected themeMode to be true after pressing 't'")
 	}
-	if len(m.themeStyles) == 0 {
-		t.Fatal("expected themeStyles to be populated")
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor at 0, got %d", m.uiThemeCursor)
 	}
-	if m.themeCursor != 0 {
-		t.Errorf("expected themeCursor at 0, got %d", m.themeCursor)
-	}
-	if m.themePreview == "" {
-		t.Error("expected themePreview to be non-empty")
+	if m.uiThemePreview == "" {
+		t.Error("expected uiThemePreview to be non-empty")
 	}
 
 	view := m.View()
-	if !containsStr(view, "Glamour Style") {
-		t.Errorf("view should contain 'Glamour Style', got:\n%s", view)
+	if !containsStr(view, "UI Theme") {
+		t.Errorf("view should contain 'UI Theme', got:\n%s", view)
 	}
 }
 
@@ -1289,37 +1178,33 @@ func TestBrowserThemePickerNavigate(t *testing.T) {
 		t.Fatal("expected themeMode to be true")
 	}
 
-	initialPreview := m.themePreview
-
 	// Move down.
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(Model)
 
-	if m.themeCursor != 1 {
-		t.Errorf("expected themeCursor at 1, got %d", m.themeCursor)
+	if m.uiThemeCursor != 1 {
+		t.Errorf("expected uiThemeCursor at 1, got %d", m.uiThemeCursor)
 	}
 
 	// Preview should update when cursor moves.
-	if m.themePreview == "" {
-		t.Error("expected themePreview to be non-empty after moving down")
+	if m.uiThemePreview == "" {
+		t.Error("expected uiThemePreview to be non-empty after moving down")
 	}
-	// The preview for a different style may differ from the initial one.
-	_ = initialPreview // used to verify preview exists
 
 	// Move up back to first.
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = updated.(Model)
 
-	if m.themeCursor != 0 {
-		t.Errorf("expected themeCursor at 0, got %d", m.themeCursor)
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor at 0, got %d", m.uiThemeCursor)
 	}
 
 	// Move up at top should not go negative.
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = updated.(Model)
 
-	if m.themeCursor != 0 {
-		t.Errorf("expected themeCursor to stay at 0, got %d", m.themeCursor)
+	if m.uiThemeCursor != 0 {
+		t.Errorf("expected uiThemeCursor to stay at 0, got %d", m.uiThemeCursor)
 	}
 }
 
@@ -1410,42 +1295,16 @@ func TestBrowserThemePickerDownClamps(t *testing.T) {
 	// Open theme picker.
 	m = sendRune(t, m, 't')
 
-	// Move to last item.
-	for i := 0; i < len(m.themeStyles)+5; i++ {
+	// Move well past the last item.
+	for i := 0; i < 20; i++ {
 		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = updated.(Model)
 	}
 
-	if m.themeCursor != len(m.themeStyles)-1 {
-		t.Errorf("expected themeCursor at %d, got %d", len(m.themeStyles)-1, m.themeCursor)
-	}
-}
-
-func TestBrowserThemePickerStyles(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	// Built-in styles come first, then "---" divider, then community styles.
-	builtin := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
-	community := styles.List()
-	expected := make([]string, 0, len(builtin)+1+len(community))
-	expected = append(expected, builtin...)
-	if len(community) > 0 {
-		expected = append(expected, "---")
-		expected = append(expected, community...)
-	}
-
-	if len(m.themeStyles) != len(expected) {
-		t.Fatalf("expected %d styles, got %d", len(expected), len(m.themeStyles))
-	}
-	for i, s := range expected {
-		if m.themeStyles[i] != s {
-			t.Errorf("expected style[%d] = %q, got %q", i, s, m.themeStyles[i])
-		}
+	// Cursor should clamp at last preset index.
+	lastIdx := len(theme.Presets()) - 1
+	if m.uiThemeCursor != lastIdx {
+		t.Errorf("expected uiThemeCursor at %d, got %d", lastIdx, m.uiThemeCursor)
 	}
 }
 
@@ -1458,12 +1317,12 @@ func TestBrowserThemePickerViewContent(t *testing.T) {
 	m = sendRune(t, m, 't')
 
 	view := m.View()
-	// Should contain the overlay with style names.
+	// Should contain the overlay with preset names.
 	if !containsStr(view, "dark") {
-		t.Errorf("view should list 'dark' style, got:\n%s", view)
+		t.Errorf("view should list 'dark' preset, got:\n%s", view)
 	}
-	if !containsStr(view, "dracula") {
-		t.Errorf("view should list 'dracula' style, got:\n%s", view)
+	if !containsStr(view, "ocean") {
+		t.Errorf("view should list 'ocean' preset, got:\n%s", view)
 	}
 	// Should contain navigation hint.
 	if !containsStr(view, "navigate") {
@@ -1495,121 +1354,7 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 	}
 }
 
-func TestStyleHintsMap(t *testing.T) {
-	// Every entry in buildThemeStyles must have an entry in styleHints (except the divider).
-	for _, s := range buildThemeStyles() {
-		if s == "---" {
-			continue
-		}
-		if _, ok := styleHints[s]; !ok {
-			t.Errorf("styleHints missing entry for %q", s)
-		}
-	}
-
-	// "auto" should have an empty hint.
-	if styleHints["auto"] != "" {
-		t.Errorf("expected empty hint for auto, got %q", styleHints["auto"])
-	}
-
-	// Dark-background styles should have "(dark bg)" hint.
-	for _, s := range []string{"dark", "dracula", "tokyo-night", "pink"} {
-		if styleHints[s] != "(dark bg)" {
-			t.Errorf("expected %q hint to be \"(dark bg)\", got %q", s, styleHints[s])
-		}
-	}
-
-	// Community styles should also have "(dark bg)" hint.
-	for _, s := range styles.List() {
-		if styleHints[s] != "(dark bg)" {
-			t.Errorf("expected community style %q hint to be \"(dark bg)\", got %q", s, styleHints[s])
-		}
-	}
-
-	// Light-background style should have "(light bg)" hint.
-	if styleHints["light"] != "(light bg)" {
-		t.Errorf("expected light hint to be \"(light bg)\", got %q", styleHints["light"])
-	}
-}
-
-func TestThemePickerShowsHints(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	view := m.View()
-	if !containsStr(view, "(dark bg)") {
-		t.Errorf("view should contain '(dark bg)' hint, got:\n%s", view)
-	}
-	if !containsStr(view, "(light bg)") {
-		t.Errorf("view should contain '(light bg)' hint, got:\n%s", view)
-	}
-}
-
-func TestThemePickerDarkTerminalField(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	// darkTerminal should be set without panicking.
-	_ = m.darkTerminal
-}
-
-func TestThemePickerConflictWarning(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	// Move cursor to "light" (index 2).
-	for i := 0; i < 2; i++ {
-		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-		m = updated.(Model)
-	}
-	if m.themeStyles[m.themeCursor] != "light" {
-		t.Fatalf("expected cursor on 'light', got %q", m.themeStyles[m.themeCursor])
-	}
-
-	view := m.View()
-	if m.darkTerminal {
-		if !containsStr(view, "May be hard to read") {
-			t.Errorf("expected conflict warning for light style on dark terminal, got:\n%s", view)
-		}
-	}
-
-	// Move cursor to "dark" (index 1).
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-	if m.themeStyles[m.themeCursor] != "dark" {
-		t.Fatalf("expected cursor on 'dark', got %q", m.themeStyles[m.themeCursor])
-	}
-	view = m.View()
-	if !m.darkTerminal {
-		if !containsStr(view, "May be hard to read") {
-			t.Errorf("expected conflict warning for dark style on light terminal, got:\n%s", view)
-		}
-	}
-
-	// Move cursor to "auto" (index 0) — no conflict ever.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = updated.(Model)
-	if m.themeStyles[m.themeCursor] != "auto" {
-		t.Fatalf("expected cursor on 'auto', got %q", m.themeStyles[m.themeCursor])
-	}
-	view = m.View()
-	if containsStr(view, "May be hard to read") {
-		t.Errorf("auto style should never show conflict warning, got:\n%s", view)
-	}
-}
-
-func TestThemeTabSwitching(t *testing.T) {
+func TestUIThemeCursorNavigation(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},
 	})
@@ -1618,47 +1363,6 @@ func TestThemeTabSwitching(t *testing.T) {
 
 	// Open theme picker.
 	m = sendRune(t, m, 't')
-	if !m.themeMode {
-		t.Fatal("expected themeMode to be true")
-	}
-
-	// Should start on tab 0 (glamour).
-	if m.themeTab != 0 {
-		t.Errorf("expected themeTab 0, got %d", m.themeTab)
-	}
-
-	// Press Tab to switch to UI theme tab.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	if m.themeTab != 1 {
-		t.Errorf("expected themeTab 1 after Tab, got %d", m.themeTab)
-	}
-
-	// Press Tab again to switch back.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	if m.themeTab != 0 {
-		t.Errorf("expected themeTab 0 after second Tab, got %d", m.themeTab)
-	}
-}
-
-func TestUIThemeCursorNavigation(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-
-	// Open theme picker and switch to UI theme tab.
-	m = sendRune(t, m, 't')
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	if m.themeTab != 1 {
-		t.Fatalf("expected themeTab 1, got %d", m.themeTab)
-	}
 
 	// Initial cursor should be at 0.
 	if m.uiThemeCursor != 0 {
@@ -1666,7 +1370,7 @@ func TestUIThemeCursorNavigation(t *testing.T) {
 	}
 
 	// Move down.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 1 {
@@ -1697,13 +1401,11 @@ func TestUIThemeSelectDoesNotPanic(t *testing.T) {
 
 	m := initModel(t, s)
 
-	// Open theme picker, switch to UI theme tab, press Enter.
+	// Open theme picker, press Enter.
 	m = sendRune(t, m, 't')
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
 
 	// Press Enter to select UI theme — should not panic.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.themeMode {
@@ -1715,48 +1417,6 @@ func TestUIThemeSelectDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestThemePickerTabBarInView(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	view := m.View()
-	if !containsStr(view, "Glamour Style") {
-		t.Errorf("view should contain 'Glamour Style' tab, got:\n%s", view)
-	}
-	if !containsStr(view, "UI Theme") {
-		t.Errorf("view should contain 'UI Theme' tab, got:\n%s", view)
-	}
-	if !containsStr(view, "Tab switch") {
-		t.Errorf("view should contain 'Tab switch' hint, got:\n%s", view)
-	}
-}
-
-func TestThemePickerUIThemeTabView(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	// Switch to UI theme tab.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	view := m.View()
-	// Should show preset names (dark, light, ocean, etc.).
-	if !containsStr(view, "dark") {
-		t.Errorf("UI theme tab should show 'dark' preset, got:\n%s", view)
-	}
-	if !containsStr(view, "ocean") {
-		t.Errorf("UI theme tab should show 'ocean' preset, got:\n%s", view)
-	}
-}
-
 func TestThemePickerUIThemePreviewContent(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
 		"work": {"todo"},
@@ -1765,45 +1425,15 @@ func TestThemePickerUIThemePreviewContent(t *testing.T) {
 	m := initModel(t, s)
 	m = sendRune(t, m, 't')
 
-	// Switch to UI theme tab.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	view := m.View()
-	// The mock TUI preview should contain these elements.
-	if !containsStr(view, "My notebook") {
-		t.Errorf("UI theme preview should contain 'My notebook', got:\n%s", view)
+	if !m.themeMode {
+		t.Fatal("expected themeMode to be true")
 	}
-	if !containsStr(view, "Status: saved") {
-		t.Errorf("UI theme preview should contain 'Status: saved', got:\n%s", view)
+
+	// The preview model field should contain the mock TUI chrome elements.
+	if m.uiThemePreview == "" {
+		t.Fatal("uiThemePreview is empty")
 	}
-}
-
-func TestGlamourTabNavigationUnaffectedByUIThemeCursor(t *testing.T) {
-	s := setupTestStore(t, map[string][]string{
-		"work": {"todo"},
-	})
-
-	m := initModel(t, s)
-	m = sendRune(t, m, 't')
-
-	// Move glamour cursor down.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-	glamourPos := m.themeCursor
-
-	// Switch to UI theme tab and move.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = updated.(Model)
-
-	// Switch back to glamour tab.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = updated.(Model)
-
-	// Glamour cursor should be preserved.
-	if m.themeCursor != glamourPos {
-		t.Errorf("expected glamour themeCursor to be %d, got %d", glamourPos, m.themeCursor)
+	if !containsStr(m.uiThemePreview, "My Notebook") {
+		t.Errorf("uiThemePreview should contain 'My Notebook', got:\n%s", m.uiThemePreview)
 	}
 }

@@ -12,10 +12,8 @@ import (
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/model"
-	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
-	"github.com/oobagi/notebook/styles"
 )
 
 // EditFunc is called when the user selects a note to edit.
@@ -71,21 +69,8 @@ type Model struct {
 	statusText string
 	statusGen  int // generation counter for auto-dismiss
 
-	// View mode fields (rendered markdown overlay).
-	viewMode    bool   // viewing a note's rendered markdown
-	viewContent string // rendered markdown content
-	viewScroll  int    // scroll offset for the view
-	viewTitle   string // breadcrumb title for the view
-
 	// Theme picker fields.
-	themeMode    bool     // theme picker overlay visible
-	themeStyles  []string // available glamour style names
-	themeCursor  int      // current selection in theme list
-	themePreview string   // rendered preview for currently highlighted style
-	darkTerminal bool     // true when terminal has dark background
-
-	// Theme picker tab fields (0=glamour style, 1=UI theme).
-	themeTab       int    // active tab in theme picker
+	themeMode      bool   // theme picker overlay visible
 	uiThemeCursor  int    // cursor in UI theme preset list
 	uiThemePreview string // preview for highlighted UI preset
 }
@@ -219,12 +204,6 @@ type statusTimeoutMsg struct{ generation int }
 // statusTimeout is the delay before auto-dismissing a transient status message.
 const statusTimeout = 4 * time.Second
 
-// viewLoadedMsg carries the note content to display in the view overlay.
-type viewLoadedMsg struct {
-	title   string
-	content string
-}
-
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -285,17 +264,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case viewLoadedMsg:
-		w := m.width
-		if w <= 0 {
-			w = 80
-		}
-		m.viewMode = true
-		m.viewTitle = msg.title
-		m.viewContent = render.RenderMarkdown(msg.content, w-4)
-		m.viewScroll = 0
-		return m, nil
-
 	case errMsg:
 		m.err = msg.err
 		return m, nil
@@ -316,38 +284,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		m.quitting = true
 		return m, tea.Quit
-	}
-
-	// When view overlay is showing, handle scroll/dismiss keys.
-	if m.viewMode {
-		switch msg.Type {
-		case tea.KeyEsc:
-			m.viewMode = false
-			return m, nil
-		case tea.KeyRunes:
-			if string(msg.Runes) == "q" {
-				m.viewMode = false
-				return m, nil
-			}
-		case tea.KeyUp:
-			if m.viewScroll > 0 {
-				m.viewScroll--
-			}
-			return m, nil
-		case tea.KeyDown:
-			m.viewScroll++
-			return m, nil
-		case tea.KeyPgUp:
-			m.viewScroll -= 10
-			if m.viewScroll < 0 {
-				m.viewScroll = 0
-			}
-			return m, nil
-		case tea.KeyPgDown:
-			m.viewScroll += 10
-			return m, nil
-		}
-		return m, nil
 	}
 
 	// When help overlay is showing, only ? and Esc dismiss it.
@@ -428,9 +364,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "n" {
 			return m.startCreate()
-		}
-		if s == "v" && m.level == 1 {
-			return m.startView()
 		}
 		if s == "c" && m.level == 1 {
 			return m.copyNote()
@@ -718,24 +651,6 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) startView() (tea.Model, tea.Cmd) {
-	if len(m.filtered) == 0 {
-		return m, nil
-	}
-	idx := m.filtered[m.cursor]
-	note := m.notes[idx]
-	return m, func() tea.Msg {
-		n, err := m.store.GetNote(m.currentBook, note.Name)
-		if err != nil {
-			return errMsg{err}
-		}
-		return viewLoadedMsg{
-			title:   fmt.Sprintf("%s \u203A %s", storage.DisplayName(m.currentBook), storage.DisplayName(note.Name)),
-			content: n.Content,
-		}
-	}
-}
-
 func (m Model) copyNote() (tea.Model, tea.Cmd) {
 	if len(m.filtered) == 0 {
 		return m, nil
@@ -754,88 +669,15 @@ func (m Model) copyNote() (tea.Model, tea.Cmd) {
 	}
 }
 
-// themePreviewSample is the hardcoded markdown snippet used to preview glamour styles.
-const themePreviewSample = `# Heading
-
-**Bold text** and regular text.
-
-` + "```go" + `
-fmt.Println("hello world")
-` + "```" + `
-
-- Item one
-- Item two
-
-- [x] Completed task
-- [ ] Pending task
-
-> A blockquote for emphasis.
-
-> [!NOTE]
-> This is an admonition note.
-`
-
-// buildThemeStyles returns the glamour style names shown in the picker,
-// combining built-in styles with community styles separated by a divider.
-func buildThemeStyles() []string {
-	builtin := []string{"auto", "dark", "light", "dracula", "tokyo-night", "pink"}
-	community := styles.List() // returns sorted community names
-
-	result := make([]string, 0, len(builtin)+1+len(community))
-	result = append(result, builtin...)
-	if len(community) > 0 {
-		result = append(result, "---") // divider marker
-		result = append(result, community...)
-	}
-	return result
-}
-
-// buildStyleHints returns background compatibility hints for all styles.
-func buildStyleHints() map[string]string {
-	hints := map[string]string{
-		"auto":        "",
-		"dark":        "(dark bg)",
-		"light":       "(light bg)",
-		"dracula":     "(dark bg)",
-		"tokyo-night": "(dark bg)",
-		"pink":        "(dark bg)",
-	}
-	// All community styles are designed for dark backgrounds.
-	for _, name := range styles.List() {
-		hints[name] = "(dark bg)"
-	}
-	return hints
-}
-
-// styleHints maps each style name to its intended background compatibility.
-var styleHints = buildStyleHints()
-
 func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	m.themeMode = true
-	m.themeTab = 0
-	m.themeStyles = buildThemeStyles()
-	m.themeCursor = 0
-	m.darkTerminal = lipgloss.HasDarkBackground()
-	// Pre-select the currently active glamour style if set.
-	if cfg, err := config.Load(); err == nil && cfg.GlamourStyle != "" {
-		for i, s := range m.themeStyles {
-			if s == "---" {
-				continue
-			}
-			if s == cfg.GlamourStyle {
-				m.themeCursor = i
-				break
-			}
-		}
-	}
-	m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
 
 	// Initialize UI theme cursor to match current config value.
 	m.uiThemeCursor = 0
 	presets := theme.Presets()
-	if cfg, err := config.Load(); err == nil && cfg.UITheme != "" {
+	if cfg, err := config.Load(); err == nil && cfg.Theme != "" {
 		for i, p := range presets {
-			if p.Name == cfg.UITheme {
+			if p.Name == cfg.Theme {
 				m.uiThemeCursor = i
 				break
 			}
@@ -853,101 +695,48 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.themeMode = false
 		return m, nil
 
-	case tea.KeyTab:
-		// Toggle between glamour (0) and UI theme (1) tabs.
-		if m.themeTab == 0 {
-			m.themeTab = 1
-		} else {
-			m.themeTab = 0
-		}
-		return m, nil
-
 	case tea.KeyUp:
-		if m.themeTab == 0 {
-			if m.themeCursor > 0 {
-				m.themeCursor--
-				// Skip the divider.
-				if m.themeStyles[m.themeCursor] == "---" && m.themeCursor > 0 {
-					m.themeCursor--
-				}
-				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
-			}
-		} else {
-			if m.uiThemeCursor > 0 {
-				m.uiThemeCursor--
-				presets := theme.Presets()
-				if len(presets) > 0 {
-					m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
-				}
-			}
-		}
-		return m, nil
-
-	case tea.KeyDown:
-		if m.themeTab == 0 {
-			if m.themeCursor < len(m.themeStyles)-1 {
-				m.themeCursor++
-				// Skip the divider.
-				if m.themeStyles[m.themeCursor] == "---" && m.themeCursor < len(m.themeStyles)-1 {
-					m.themeCursor++
-				}
-				m.themePreview = m.renderThemePreview(m.themeStyles[m.themeCursor])
-			}
-		} else {
+		if m.uiThemeCursor > 0 {
+			m.uiThemeCursor--
 			presets := theme.Presets()
-			if m.uiThemeCursor < len(presets)-1 {
-				m.uiThemeCursor++
+			if len(presets) > 0 {
 				m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
 			}
 		}
 		return m, nil
 
-	case tea.KeyEnter:
-		if m.themeTab == 0 {
-			selected := m.themeStyles[m.themeCursor]
-			m.themeMode = false
-
-			// Persist to config and apply.
-			cfg, err := config.Load()
-			if err != nil {
-				m.statusText = fmt.Sprintf("Config load error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			if err := config.Set(&cfg, "glamour_style", selected); err != nil {
-				m.statusText = fmt.Sprintf("Config error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			if err := config.Save(cfg); err != nil {
-				m.statusText = fmt.Sprintf("Config save error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			render.SetGlamourStyle(selected)
-			m.statusText = fmt.Sprintf("Theme set to %q", selected)
-		} else {
-			presets := theme.Presets()
-			if len(presets) == 0 {
-				return m, nil
-			}
-			selected := presets[m.uiThemeCursor]
-			m.themeMode = false
-
-			// Persist to config and apply.
-			cfg, err := config.Load()
-			if err != nil {
-				m.statusText = fmt.Sprintf("Config load error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			if err := config.Set(&cfg, "ui_theme", selected.Name); err != nil {
-				m.statusText = fmt.Sprintf("Config error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			if err := config.Save(cfg); err != nil {
-				m.statusText = fmt.Sprintf("Config save error: %s", err)
-				return m, m.scheduleStatusDismiss()
-			}
-			theme.SetTheme(selected)
-			m.statusText = fmt.Sprintf("UI theme set to %s", selected.Name)
+	case tea.KeyDown:
+		presets := theme.Presets()
+		if m.uiThemeCursor < len(presets)-1 {
+			m.uiThemeCursor++
+			m.uiThemePreview = m.renderUIThemePreview(presets[m.uiThemeCursor].Name)
 		}
+		return m, nil
+
+	case tea.KeyEnter:
+		presets := theme.Presets()
+		if len(presets) == 0 {
+			return m, nil
+		}
+		selected := presets[m.uiThemeCursor]
+		m.themeMode = false
+
+		// Persist to config and apply.
+		cfg, err := config.Load()
+		if err != nil {
+			m.statusText = fmt.Sprintf("Config load error: %s", err)
+			return m, m.scheduleStatusDismiss()
+		}
+		if err := config.Set(&cfg, "theme", selected.Name); err != nil {
+			m.statusText = fmt.Sprintf("Config error: %s", err)
+			return m, m.scheduleStatusDismiss()
+		}
+		if err := config.Save(cfg); err != nil {
+			m.statusText = fmt.Sprintf("Config save error: %s", err)
+			return m, m.scheduleStatusDismiss()
+		}
+		theme.SetTheme(selected)
+		m.statusText = fmt.Sprintf("UI theme set to %s", selected.Name)
 		return m, m.scheduleStatusDismiss()
 
 	case tea.KeyRunes:
@@ -960,49 +749,145 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) renderThemePreview(styleName string) string {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	// Use roughly half the width for the preview pane.
-	previewWidth := w/2 - 6
-	if previewWidth < 20 {
-		previewWidth = 20
-	}
-	return render.RenderMarkdownWithStyle(themePreviewSample, previewWidth, styleName)
-}
-
-// renderUIThemePreview generates a mock TUI chrome preview for a UI theme preset.
+// renderUIThemePreview generates a block-style preview for a UI theme preset.
 func (m Model) renderUIThemePreview(presetName string) string {
 	preset, ok := theme.PresetByName(presetName)
 	if !ok {
 		return "(unknown preset)"
 	}
 
+	bs := preset.Blocks
 	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(preset.Accent))
-	border := lipgloss.NewStyle().Foreground(lipgloss.Color(preset.Border))
+	faint := lipgloss.NewStyle().Faint(true)
+
+	var b strings.Builder
+
+	// Heading
+	h1Style := bs.Heading1.Text.ToLipgloss(preset.Accent)
+	b.WriteString(h1Style.Render("My Notebook"))
+	b.WriteString("\n\n")
+
+	// Bullet
+	bulletColor := bs.Bullet.MarkerColor
+	if bulletColor == "" {
+		bulletColor = preset.Muted
+	}
+	bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(bulletColor))
+	b.WriteString(bulletStyle.Render(bs.Bullet.Marker) + "First item\n")
+	b.WriteString(bulletStyle.Render(bs.Bullet.Marker) + "Second item\n\n")
+
+	// Numbered
+	numColor := bs.Numbered.MarkerColor
+	if numColor == "" {
+		numColor = preset.Muted
+	}
+	numStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(numColor))
+	b.WriteString(numStyle.Render(fmt.Sprintf(bs.Numbered.Format, 1)) + "Step one\n")
+	b.WriteString(numStyle.Render(fmt.Sprintf(bs.Numbered.Format, 2)) + "Step two\n\n")
+
+	// Checklist
+	uncheckedColor := bs.Checklist.UncheckedColor
+	if uncheckedColor == "" {
+		uncheckedColor = preset.Muted
+	}
+	checkedColor := bs.Checklist.CheckedColor
+	if checkedColor == "" {
+		checkedColor = preset.Accent
+	}
+	checkedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+	if bs.Checklist.CheckedBold {
+		checkedStyle = checkedStyle.Bold(true)
+	}
+	uncheckedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor))
+
+	checkedText := "Done task"
+	if bs.Checklist.CheckedTextFaint {
+		checkedText = faint.Render(checkedText)
+	}
+	b.WriteString(checkedStyle.Render(bs.Checklist.Checked) + checkedText + "\n")
+	b.WriteString(uncheckedStyle.Render(bs.Checklist.Unchecked) + "Pending task\n\n")
+
+	// Code block (small sample)
+	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(preset.Border))
+	codeW := 16
+	codeLine := "fmt.Println()"
+	codePad := codeW - len(codeLine)
+	if codePad < 0 {
+		codePad = 0
+	}
+	paddedCode := codeLine + strings.Repeat(" ", codePad)
+
+	topBorder := bc.Render("╭" + strings.Repeat("─", codeW+2) + "╮")
+	bottomBorder := bc.Render("╰" + strings.Repeat("─", codeW+2) + "╯")
+	lang := "go"
+	langLabel := faint.Render(lang)
+	labelW := lipgloss.Width(langLabel)
+
+	switch bs.Code.LabelPosition {
+	case "top":
+		dashes := codeW + 2 - labelW - 3
+		if dashes < 1 {
+			dashes = 1
+		}
+		topBorder = bc.Render("╭─ ") + langLabel + bc.Render(" "+strings.Repeat("─", dashes)+"╮")
+		b.WriteString(topBorder + "\n")
+		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
+		b.WriteString(bottomBorder + "\n")
+	case "bottom":
+		dashes := codeW + 2 - labelW - 3
+		if dashes < 1 {
+			dashes = 1
+		}
+		bottomBorder = bc.Render("╰─ ") + langLabel + bc.Render(" "+strings.Repeat("─", dashes)+"╯")
+		b.WriteString(topBorder + "\n")
+		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
+		b.WriteString(bottomBorder + "\n")
+	default: // "inside"
+		langPad := codeW - lipgloss.Width(lang)
+		if langPad < 0 {
+			langPad = 0
+		}
+		b.WriteString(topBorder + "\n")
+		b.WriteString(bc.Render("│") + " " + langLabel + strings.Repeat(" ", langPad) + " " + bc.Render("│") + "\n")
+		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
+		b.WriteString(bottomBorder + "\n")
+	}
+	b.WriteString("\n")
+
+	// Quote
+	barColor := bs.Quote.BarColor
+	if barColor == "" {
+		barColor = preset.Muted
+	}
+	barStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor))
+	b.WriteString(barStyle.Render(bs.Quote.Bar) + "A wise quote\n\n")
+
+	// Divider
+	divColor := bs.Divider.Color
+	if divColor == "" {
+		divColor = preset.Accent
+	}
+	maxW := bs.Divider.MaxWidth
+	if maxW <= 0 {
+		maxW = 40
+	}
+	divW := 18
+	if divW > maxW {
+		divW = maxW
+	}
+	divStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(divColor))
+	b.WriteString(divStyle.Render(strings.Repeat(bs.Divider.Char, divW)) + "\n\n")
+
+	// Status bar
 	statusStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(preset.StatusFg)).
 		Background(lipgloss.Color(preset.StatusBg))
-
-	var b strings.Builder
-	b.WriteString(border.Render("\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"))
-	b.WriteString("\n")
-	b.WriteString(border.Render("\u2502") + " " + accent.Render("\u25cf") + " My notebook   " + border.Render("\u2502"))
-	b.WriteString("\n")
-	b.WriteString(border.Render("\u2502") + "   Another note   " + border.Render("\u2502"))
-	b.WriteString("\n")
-	b.WriteString(border.Render("\u2502") + "   Third item     " + border.Render("\u2502"))
-	b.WriteString("\n")
-	b.WriteString(border.Render("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"))
-	b.WriteString("\n")
-	b.WriteString("  " + statusStyle.Render(" Status: saved \u2713 "))
+	b.WriteString(statusStyle.Render(" saved ✓ ") + " " + accent.Render(preset.Name))
 
 	return b.String()
 }
 
-// renderThemeOverlay builds the theme picker overlay with style list and preview.
+// renderThemeOverlay builds the theme picker overlay with preset list and preview.
 func (m Model) renderThemeOverlay() string {
 	w := m.width
 	if w <= 0 {
@@ -1013,93 +898,35 @@ func (m Model) renderThemeOverlay() string {
 		h = 24
 	}
 
-	bold := lipgloss.NewStyle().Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
 
-	// Tab bar.
-	var tabBar strings.Builder
-	glamourTab := "Glamour Style"
-	uiTab := "UI Theme"
-	if m.themeTab == 0 {
-		tabBar.WriteString("  " + bold.Render("["+glamourTab+"]"))
-		tabBar.WriteString("  " + dim.Render("["+uiTab+"]"))
-	} else {
-		tabBar.WriteString("  " + dim.Render("["+glamourTab+"]"))
-		tabBar.WriteString("  " + bold.Render("["+uiTab+"]"))
-	}
-	tabBar.WriteString("\n")
-	tabBar.WriteString("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n")
-
-	// Left pane: list for active tab.
+	// Left pane: UI theme preset list.
 	listWidth := 30
 	var left strings.Builder
-	left.WriteString(tabBar.String())
+	left.WriteString("  UI Theme\n")
+	left.WriteString("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n")
 
-	if m.themeTab == 0 {
-		// Glamour style list.
-		for i, s := range m.themeStyles {
-			if s == "---" {
-				left.WriteString(dim.Render("  ── community ──") + "\n")
-				continue
-			}
-			hint := styleHints[s]
-			hintStr := ""
-			if hint != "" {
-				hintStr = " " + dim.Render(hint)
-			}
-			if i == m.themeCursor {
-				sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-				left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(s), hintStr))
-			} else {
-				left.WriteString(fmt.Sprintf("    %s%s\n", s, hintStr))
-			}
+	presets := theme.Presets()
+	for i, p := range presets {
+		bgHint := ""
+		if p.Background != "" {
+			bgHint = " " + dim.Render("("+p.Background+" bg)")
 		}
-
-		// Show warning when highlighted style conflicts with terminal background.
-		if cur := m.themeStyles[m.themeCursor]; cur != "auto" {
-			curHint := styleHints[cur]
-			conflict := false
-			if m.darkTerminal && curHint == "(light bg)" {
-				conflict = true
-			}
-			if !m.darkTerminal && curHint == "(dark bg)" {
-				conflict = true
-			}
-			if conflict {
-				left.WriteString("\n")
-				left.WriteString(dim.Render("  \u26a0 May be hard to read\n    on your terminal"))
-				left.WriteString("\n")
-			}
-		}
-	} else {
-		// UI theme preset list.
-		presets := theme.Presets()
-		for i, p := range presets {
-			bgHint := ""
-			if p.Background != "" {
-				bgHint = " " + dim.Render("("+p.Background+" bg)")
-			}
-			if i == m.uiThemeCursor {
-				sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-				left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(p.Name), bgHint))
-			} else {
-				left.WriteString(fmt.Sprintf("    %s%s\n", p.Name, bgHint))
-			}
+		if i == m.uiThemeCursor {
+			sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+			left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(p.Name), bgHint))
+		} else {
+			left.WriteString(fmt.Sprintf("    %s%s\n", p.Name, bgHint))
 		}
 	}
 
-	// Right pane: preview for active tab.
+	// Right pane: preview.
 	previewWidth := w - listWidth - 10
 	if previewWidth < 20 {
 		previewWidth = 20
 	}
 
-	var previewContent string
-	if m.themeTab == 0 {
-		previewContent = m.themePreview
-	} else {
-		previewContent = m.uiThemePreview
-	}
+	previewContent := m.uiThemePreview
 
 	// Clamp preview lines to fit the overlay height.
 	previewLines := strings.Split(previewContent, "\n")
@@ -1139,7 +966,7 @@ func (m Model) renderThemeOverlay() string {
 	rendered := outer.Render(combined)
 
 	// Status hint.
-	statusHint := dim.Render("  \u2191/\u2193 navigate \u00b7 Tab switch \u00b7 Enter apply \u00b7 Esc cancel")
+	statusHint := dim.Render("  \u2191/\u2193 navigate \u00b7 Enter apply \u00b7 Esc cancel")
 
 	full := rendered + "\n" + statusHint
 
@@ -1271,7 +1098,6 @@ func (m Model) renderHelpOverlay() string {
 
   ↑/↓       Navigate
   Enter      Edit note
-  v          View note
   n          New note
   d          Delete note
   r          Rename note
@@ -1306,58 +1132,6 @@ func (m Model) renderHelpOverlay() string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
 }
 
-// renderViewOverlay builds the scrollable rendered markdown view.
-func (m Model) renderViewOverlay() string {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	h := m.height
-	if h <= 0 {
-		h = 24
-	}
-
-	// Split content into lines and apply scroll.
-	lines := strings.Split(m.viewContent, "\n")
-	viewHeight := h - 4 // space for title + status
-
-	// Clamp scroll.
-	maxScroll := len(lines) - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.viewScroll > maxScroll {
-		m.viewScroll = maxScroll
-	}
-
-	start := m.viewScroll
-	end := start + viewHeight
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	visible := strings.Join(lines[start:end], "\n")
-
-	var b strings.Builder
-	// Title bar.
-	bold := lipgloss.NewStyle().Bold(true)
-	b.WriteString("\n  ")
-	b.WriteString(bold.Render(m.viewTitle))
-	b.WriteString("\n\n")
-	b.WriteString(visible)
-	b.WriteString("\n\n")
-
-	// Status bar.
-	dim := lipgloss.NewStyle().Faint(true)
-	scrollInfo := ""
-	if len(lines) > viewHeight {
-		scrollInfo = fmt.Sprintf(" (%d/%d)", m.viewScroll+1, len(lines))
-	}
-	b.WriteString(dim.Render(fmt.Sprintf("  \u2191/\u2193 scroll \u00B7 Esc close%s", scrollInfo)))
-
-	return b.String()
-}
-
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
@@ -1366,10 +1140,6 @@ func (m Model) View() string {
 
 	if m.showHelp {
 		return m.renderHelpOverlay()
-	}
-
-	if m.viewMode {
-		return m.renderViewOverlay()
 	}
 
 	if m.themeMode {
