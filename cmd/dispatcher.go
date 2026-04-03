@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
+	"github.com/oobagi/notebook/internal/recents"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -206,7 +208,17 @@ func editNote(w io.Writer, book, note string) error {
 		FileSize: fileSize,
 		Content:  n.Content,
 		Save: func(content string) error {
-			return store.UpdateNote(book, note, content)
+			if err := store.UpdateNote(book, note, content); err != nil {
+				return err
+			}
+			// Record in recents (best-effort, never block save).
+			_ = recents.Record(recents.DefaultPath(), recents.Entry{
+				Type:       "store",
+				Notebook:   book,
+				Name:       note,
+				LastEdited: time.Now(),
+			})
+			return nil
 		},
 	}
 

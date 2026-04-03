@@ -25,10 +25,10 @@ func (m Model) renderHeader() string {
 		width = 80
 	}
 
-	titleStyle := lipgloss.NewStyle().Bold(true)
+	titleStyle := lipgloss.NewStyle().Bold(true).PaddingLeft(1).PaddingRight(1)
 	metaStyle := lipgloss.NewStyle().Faint(true)
 
-	left := titleStyle.Render(m.config.Title)
+	left := " " + titleStyle.Render(m.config.Title)
 
 	var rightParts []string
 	if m.config.FilePath != "" {

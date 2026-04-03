@@ -374,9 +374,6 @@ func (m *Model) mergeBlockUp(idx int) {
 	// Sync content from textarea.
 	currentContent := m.textareas[idx].Value()
 	prevContent := m.textareas[idx-1].Value()
-	// Remember the merge point (end of previous content).
-	mergeCol := len([]rune(prevContent))
-
 	// Merge content: concatenate directly (no added newline), matching
 	// Notion/Google Docs behavior where backspace joins text on the same line.
 	merged := prevContent + currentContent
@@ -385,9 +382,10 @@ func (m *Model) mergeBlockUp(idx int) {
 	m.blocks[idx-1].Content = merged
 	m.textareas[idx-1].SetValue(merged)
 
-	// If the target block was empty, adopt the source block's type so that
-	// merging a heading into an empty paragraph preserves the heading type.
-	if prevContent == "" {
+	// If the target block was an empty paragraph, adopt the source block's
+	// type so that merging a heading into an empty paragraph preserves the
+	// heading type. Non-paragraph targets (e.g. list items) keep their type.
+	if prevContent == "" && m.blocks[idx-1].Type == block.Paragraph {
 		m.blocks[idx-1].Type = m.blocks[idx].Type
 		m.blocks[idx-1].Checked = m.blocks[idx].Checked
 	}
@@ -407,12 +405,21 @@ func (m *Model) mergeBlockUp(idx int) {
 	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
 	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
 
-	// Focus previous block and position cursor at merge point.
+	// Focus previous block and position cursor at the merge point.
 	m.active = idx - 1
 	m.cursorCmd = m.textareas[m.active].Focus()
 
-	// Position cursor at the merge point.
-	m.textareas[m.active].SetCursor(mergeCol)
+	// Navigate to the merge point: SetValue leaves the cursor at the end
+	// of the content. Walk up from the end to reach the target row (last
+	// line of prevContent), then set the column within that row.
+	mergedLines := strings.Split(merged, "\n")
+	prevLines := strings.Split(prevContent, "\n")
+	mergeRow := len(prevLines) - 1
+	rowsFromEnd := len(mergedLines) - 1 - mergeRow
+	for i := 0; i < rowsFromEnd; i++ {
+		m.textareas[m.active].CursorUp()
+	}
+	m.textareas[m.active].SetCursor(len([]rune(prevLines[mergeRow])))
 }
 
 // swapBlocks swaps the block at idx with the block at idx+delta (delta is
@@ -628,6 +635,7 @@ func (m *Model) handleBackspace() bool {
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
 		newTA.SetValue(content)
 		m.cursorCmd = newTA.Focus()
+		newTA.SetCursor(0)
 		m.textareas[m.active] = newTA
 		return true
 	}
@@ -1230,7 +1238,7 @@ func (m Model) renderStatusBar() string {
 		width = 80
 	}
 
-	left := ""
+	left := " "
 	if !m.wordWrap {
 		left += " [no-wrap]"
 	}

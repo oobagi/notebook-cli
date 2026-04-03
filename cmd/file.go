@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/editor"
+	"github.com/oobagi/notebook/internal/recents"
 )
 
 // textFileExtensions lists file extensions treated as directly openable text files.
@@ -57,7 +59,16 @@ func openFile(path string) error {
 		FileSize: info.Size(),
 		Content:  string(data),
 		Save: func(content string) error {
-			return os.WriteFile(absPath, []byte(content), originalMode)
+			if err := os.WriteFile(absPath, []byte(content), originalMode); err != nil {
+				return err
+			}
+			// Record in recents (best-effort, never block save).
+			_ = recents.Record(recents.DefaultPath(), recents.Entry{
+				Type:       "external",
+				Path:       absPath,
+				LastEdited: time.Now(),
+			})
+			return nil
 		},
 	}
 
