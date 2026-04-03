@@ -1209,8 +1209,7 @@ func (m Model) renderStatusBar() string {
 
 	left := ""
 	if !m.wordWrap {
-		wrapLabel := lipgloss.NewStyle().Faint(true).Render(" [no-wrap]")
-		left += wrapLabel
+		left += " [no-wrap]"
 	}
 	if m.modified() {
 		left += " [modified]"
