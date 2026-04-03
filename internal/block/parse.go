@@ -36,10 +36,21 @@ func Parse(markdown string) []Block {
 				contentLines = append(contentLines, lines[i])
 				i++
 			}
+			content := strings.Join(contentLines, "\n")
+			if lang != "" {
+				if content == "" {
+					content = lang
+				} else {
+					content = lang + "\n" + content
+				}
+			} else if content != "" {
+				// No language: prepend empty title line so the first line
+				// of content is always the title/language field.
+				content = "\n" + content
+			}
 			blocks = append(blocks, Block{
-				Type:     CodeBlock,
-				Content:  strings.Join(contentLines, "\n"),
-				Language: lang,
+				Type:    CodeBlock,
+				Content: content,
 			})
 			continue
 		}

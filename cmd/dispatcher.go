@@ -6,15 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/editor"
-	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // dispatch handles the noun-verb routing for commands like:
@@ -24,7 +21,7 @@ import (
 //	notebook <book> new "Title"        -> create note in book
 //	notebook <book> delete "Title"     -> delete note from book
 //	notebook <book> search "query"     -> search within book (stub)
-//	notebook <book> <note>             -> view note (stub)
+//	notebook <book> <note>             -> edit note
 //	notebook <book> <note> edit        -> edit note (stub)
 //	notebook <book> <note> delete      -> delete note
 //	notebook <book> <note> copy        -> copy note (stub)
@@ -73,9 +70,9 @@ func dispatch(cmd *cobra.Command, args []string) error {
 	note := second
 	noteRest := rest[1:]
 
-	// notebook <book> <note> — no verb: view the note
+	// notebook <book> <note> — no verb: edit the note
 	if len(noteRest) == 0 {
-		return viewNote(w, book, note)
+		return editNote(w, book, note)
 	}
 
 	// notebook <book> <note> <verb>
@@ -186,47 +183,6 @@ func searchInBook(w io.Writer, book, query string) error {
 }
 
 // --- Note-scoped operations ---
-
-func viewNote(w io.Writer, book, note string) error {
-	n, err := store.GetNote(book, note)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") {
-			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
-			return nil
-		}
-		return fmt.Errorf("view note %q/%q: %w", book, note, err)
-	}
-
-	if n.Content == "" {
-		printInfo(w, fmt.Sprintf("Note %q in %q is empty", note, book))
-		return nil
-	}
-
-	// Metadata header: breadcrumb (bold) and timestamps (dim).
-	fmt.Fprintf(w, "  \x1b[1m%s \u203A %s\x1b[0m\n", book, note)
-
-	// Show both timestamps when created and modified differ by more than 1 minute.
-	diff := n.UpdatedAt.Sub(n.CreatedAt)
-	if diff < 0 {
-		diff = -diff
-	}
-	if diff > time.Minute {
-		fmt.Fprintf(w, "  \x1b[2mCreated %s \u00B7 Modified %s\x1b[0m\n",
-			relativeTime(n.CreatedAt), relativeTime(n.UpdatedAt))
-	} else {
-		fmt.Fprintf(w, "  \x1b[2mModified %s\x1b[0m\n", relativeTime(n.UpdatedAt))
-	}
-
-	fmt.Fprintln(w)
-
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || width <= 0 {
-		width = 80
-	}
-
-	fmt.Fprint(w, render.RenderMarkdown(n.Content, width))
-	return nil
-}
 
 func editNote(w io.Writer, book, note string) error {
 	n, err := store.GetNote(book, note)

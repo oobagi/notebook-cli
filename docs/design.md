@@ -23,8 +23,8 @@ notebook delete "Book Name"           # Delete a book (requires confirmation)
 notebook <book>                       # List notes in a book
 notebook <book> list                  # List notes in a book
 notebook <book> new "Note Title"      # Create a note (auto-creates book if needed)
-notebook <book> <note>                # View a note (rendered markdown)
-notebook <book> <note> edit           # Open note in editor with live preview
+notebook <book> <note>                # Open a note in the editor
+notebook <book> <note> edit           # Open a note in the editor
 notebook <book> <note> delete         # Delete a note
 notebook <book> <note> copy           # Copy note contents to clipboard
 
@@ -39,7 +39,7 @@ notebook config set <key> <value>     # Set a config value
 **Bare commands do useful things.** Every level of the hierarchy has a meaningful default:
 - `notebook` → TUI browser
 - `notebook work` → TUI scoped to "work"
-- `notebook work meeting` → render the note
+- `notebook work meeting` → open the note in the editor
 
 No verb required for the most common action at each level.
 

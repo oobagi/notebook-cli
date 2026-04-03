@@ -89,28 +89,28 @@ func TestParse(t *testing.T) {
 			name:  "code block with language",
 			input: "```go\nfmt.Println(\"hello\")\n```",
 			expect: []Block{
-				{Type: CodeBlock, Content: "fmt.Println(\"hello\")", Language: "go"},
+				{Type: CodeBlock, Content: "go\nfmt.Println(\"hello\")"},
 			},
 		},
 		{
 			name:  "code block without language",
 			input: "```\nsome code\n```",
 			expect: []Block{
-				{Type: CodeBlock, Content: "some code", Language: ""},
+				{Type: CodeBlock, Content: "\nsome code"},
 			},
 		},
 		{
 			name:  "code block preserves markdown syntax inside",
 			input: "```\n# not a heading\n- not a list\n> not a quote\n```",
 			expect: []Block{
-				{Type: CodeBlock, Content: "# not a heading\n- not a list\n> not a quote", Language: ""},
+				{Type: CodeBlock, Content: "\n# not a heading\n- not a list\n> not a quote"},
 			},
 		},
 		{
 			name:  "code block multiline",
 			input: "```python\ndef hello():\n    print(\"hi\")\n\nreturn 42\n```",
 			expect: []Block{
-				{Type: CodeBlock, Content: "def hello():\n    print(\"hi\")\n\nreturn 42", Language: "python"},
+				{Type: CodeBlock, Content: "python\ndef hello():\n    print(\"hi\")\n\nreturn 42"},
 			},
 		},
 		{
@@ -194,7 +194,7 @@ func TestParse(t *testing.T) {
 				{Type: Paragraph, Content: ""},
 				{Type: Divider},
 				{Type: Paragraph, Content: ""},
-				{Type: CodeBlock, Content: "func main() {}", Language: "go"},
+				{Type: CodeBlock, Content: "go\nfunc main() {}"},
 				{Type: Paragraph, Content: ""},
 				{Type: Checklist, Content: "task", Checked: false},
 				{Type: Checklist, Content: "done", Checked: true},
@@ -218,7 +218,7 @@ func TestParse(t *testing.T) {
 			name:  "unclosed code fence treats rest as code",
 			input: "```go\nfunc main() {}\nmore code",
 			expect: []Block{
-				{Type: CodeBlock, Content: "func main() {}\nmore code", Language: "go"},
+				{Type: CodeBlock, Content: "go\nfunc main() {}\nmore code"},
 			},
 		},
 	}

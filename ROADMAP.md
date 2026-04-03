@@ -94,3 +94,7 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 - [x] [#123 / command palette for block type insertion](https://github.com/oobagi/notebook/issues/123)
 - [x] [#124 Checklist toggle, visual polish, help overlay update](https://github.com/oobagi/notebook/issues/124)
+
+## Phase 15: Recent Notes
+
+- [ ] [#158 Recent notes: track and surface recently edited notes](https://github.com/oobagi/notebook/issues/158)

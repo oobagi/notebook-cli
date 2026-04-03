@@ -416,8 +416,8 @@ func TestStatusBarContainsHelpHint(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View()
-	if !containsPlainText(view, "Ctrl+G help") {
-		t.Fatal("status bar should contain Ctrl+G help hint")
+	if !containsPlainText(view, "\u2303G help") {
+		t.Fatal("status bar should contain ⌃G help hint")
 	}
 }
 
@@ -476,11 +476,11 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 	view := m.View()
 
 	keybindings := []string{
-		"Ctrl+S", "Save",
-		"Ctrl+Q", "Quit",
-		"Ctrl+C", "Force quit",
-		"Ctrl+G", "Toggle this help",
-		"Ctrl+K", "Cut block",
+		"\u2303S", "Save",
+		"\u2303Q", "Quit",
+		"\u2303C", "Force quit",
+		"\u2303G", "Toggle this help",
+		"\u2303K", "Cut block",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -946,8 +946,8 @@ func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
 	keybindings := []string{
 		"Enter", "New block below",
 		"Backspace", "Merge/delete block",
-		"Alt+Up", "Move block up",
-		"Alt+Down", "Move block down",
+		"\u2325\u2191", "Move block up",
+		"\u2325\u2193", "Move block down",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -1066,8 +1066,8 @@ func TestStatusBarContainsCommandsHint(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View()
-	if !containsPlainText(view, "/ for commands") {
-		t.Fatal("status bar should contain '/ for commands' hint")
+	if !containsPlainText(view, "/ commands") {
+		t.Fatal("status bar should contain '/ commands' hint")
 	}
 }
 
@@ -1275,8 +1275,8 @@ func TestHelpContainsCtrlJKeybinding(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View()
-	if !containsPlainText(view, "Ctrl+J") {
-		t.Fatal("help overlay should contain Ctrl+J keybinding")
+	if !containsPlainText(view, "\u2303J") {
+		t.Fatal("help overlay should contain ⌃J keybinding")
 	}
 	if !containsPlainText(view, "Newline within block") {
 		t.Fatal("help overlay should contain 'Newline within block' description")

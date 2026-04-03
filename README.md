@@ -5,7 +5,7 @@
 <h1 align="center">Notebook</h1>
 
 <p align="center">
-  <strong>A dead-simple CLI note manager with live markdown preview in your terminal.</strong>
+  <strong>A dead-simple CLI note manager with a block editor in your terminal.</strong>
 </p>
 
 <p align="center">
@@ -26,12 +26,12 @@
 
 ## What is Notebook?
 
-Notebook is a terminal-native note editor that renders markdown as you type — split-pane, real-time, no browser needed. Think Google Docs meets your terminal.
+Notebook is a terminal-native note editor with a block-based editing experience. Think Google Docs meets your terminal.
 
 - **Block editor** — write in structured blocks (paragraphs, headings, lists, code, quotes) with a `/` command palette to switch types
 - **TUI browser** — launch `notebook` and browse everything with arrow keys and fuzzy search, like a GUI
 - **Open any file** — `notebook path/to/file.md` opens external files directly in the editor
-- **Clickable links** — URLs in your notes are actually clickable in supported terminals (OSC 8)
+- **Themeable** — 7 built-in themes with per-block formatting (custom markers, heading styles, code block layouts)
 
 ## Features
 
@@ -40,8 +40,7 @@ Notebook is a terminal-native note editor that renders markdown as you type — 
 - **[Clipboard copy](#usage)** — `notebook <book> <note> copy` to copy note content to your clipboard.
 - **[Full-text search](#usage)** — `notebook search "query"` across every note, with highlighted matches and context.
 - **[TUI browser](#usage)** — Fuzzy-searchable notebook/note browser. Arrow keys + Enter. No commands to memorize.
-- **[GitHub admonitions](#usage)** — `[!NOTE]`, `[!WARNING]`, and friends render with colored borders and icons.
-- **[Theme picker](#usage)** — Press `t` in the TUI to browse glamour styles with a live preview. Auto-detects light/dark by default.
+- **[Theme picker](#usage)** — Press `t` in the TUI to browse themes with a live block-style preview. 7 presets with custom markers, heading styles, and code block layouts.
 
 ## Quickstart
 
@@ -67,8 +66,8 @@ notebook list                          # List all notebooks
 notebook new "Book Name"               # Create a notebook
 notebook <book> list                   # List notes in a notebook
 notebook <book> new "Note Title"       # Create a note (auto-creates notebook)
-notebook <book> <note>                 # View a note (rendered markdown)
-notebook <book> <note> edit            # Open editor with live markdown preview
+notebook <book> <note>                 # Open a note in the editor
+notebook <book> <note> edit            # Open a note in the editor
 notebook <book> <note> delete          # Delete a note
 notebook <book> <note> copy            # Copy note content to clipboard
 notebook <book> delete                 # Delete a notebook and all its notes
@@ -78,10 +77,6 @@ notebook path/to/file.md               # Open any file directly in the editor
 notebook config                        # Show current configuration
 notebook config set <key> <value>      # Set a config value
 ```
-
-## Community Styles
-
-The theme picker includes community-contributed Glamour styles for markdown rendering. See [styles/community/CONTRIBUTING.md](styles/community/CONTRIBUTING.md) to add your own.
 
 ## License
 

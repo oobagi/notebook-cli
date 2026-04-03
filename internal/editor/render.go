@@ -89,89 +89,6 @@ func formatFloat(f float64) string {
 	return s
 }
 
-// renderDebugInfo builds the debug panel that shows block metadata.
-// It is displayed between the viewport and the status bar when debug mode
-// is active (Ctrl+D).
-func (m Model) renderDebugInfo() string {
-	th := theme.Current()
-	muted := lipgloss.NewStyle().Faint(true)
-
-	// Summary line.
-	summary := muted.Render(fmt.Sprintf(
-		"DEBUG  blocks:%d  active:%d  viewport:%dx%d  scroll:%d",
-		len(m.blocks), m.active,
-		m.viewport.Width, m.viewport.Height,
-		m.viewport.YOffset,
-	))
-
-	// One line per block.
-	var lines []string
-	for i, b := range m.blocks {
-		content := b.Content
-		if i < len(m.textareas) {
-			content = m.textareas[i].Value()
-		}
-
-		// Content preview: first 30 chars, truncated with "...".
-		preview := content
-		if preview == "" {
-			preview = "(empty)"
-		} else {
-			// Replace newlines with spaces for the preview.
-			preview = strings.ReplaceAll(preview, "\n", " ")
-			previewRunes := []rune(preview)
-			if len(previewRunes) > 30 {
-				preview = string(previewRunes[:30]) + "..."
-			}
-		}
-
-		// Textarea height.
-		h := 0
-		if i < len(m.textareas) {
-			h = m.textareas[i].Height()
-		}
-
-		// Active marker.
-		marker := ""
-		if i == m.active {
-			marker = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Accent)).
-				Render("  <- active")
-		}
-
-		// Measure actual view width for diagnostics.
-		viewW := 0
-		if i < len(m.textareas) {
-			for _, vl := range strings.Split(m.textareas[i].View(), "\n") {
-				if lw := lipgloss.Width(vl); lw > viewW {
-					viewW = lw
-				}
-			}
-		}
-
-		taW := 0
-		if i < len(m.textareas) {
-			taW = m.textareas[i].Width()
-		}
-
-		line := muted.Render(fmt.Sprintf(
-			"[%d] %-12s \"%s\"  h:%d  taW:%d  viewW:%d  pfx:%d",
-			i, b.Type.String(), preview, h, taW, viewW, blockPrefixWidth(b.Type),
-		)) + marker
-
-		lines = append(lines, line)
-	}
-
-	// Top border line.
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	border := muted.Render(strings.Repeat("\u2500", w))
-
-	return border + "\n" + summary + "\n" + strings.Join(lines, "\n")
-}
-
 // renderBlock renders a single block. The active block shows its textarea;
 // inactive blocks show styled static text.
 func (m Model) renderBlock(idx int) string {
@@ -216,19 +133,28 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	// Divider: selected as a unit — render highlighted hr, no cursor.
 	if b.Type == block.Divider {
+		dth := theme.Current()
+		bs := dth.Blocks.Divider
+		divColor := bs.Color
+		if divColor == "" {
+			divColor = dth.Accent
+		}
+		maxW := bs.MaxWidth
+		if maxW <= 0 {
+			maxW = 40
+		}
 		w := m.width - gutterWidth
 		if w <= 0 {
-			w = 40
+			w = maxW
 		}
-		if w > 40 {
-			w = 40
+		if w > maxW {
+			w = maxW
 		}
-		accent := theme.Current().Accent
 		rendered := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(accent)).
-			Render(strings.Repeat("\u2500", w))
+			Foreground(lipgloss.Color(divColor)).
+			Render(strings.Repeat(bs.Char, w))
 		label := fmt.Sprintf("%2s", b.Type.Short())
-		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(dth.Accent))
 		return accentStyle.Render(label) + " " + accentStyle.Render("│") + " " + rendered
 	}
 
@@ -271,16 +197,19 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				line = before + ta.Cursor.View() + after
 			}
 
-			// Pad to contentWidth.
-			if pad := contentWidth - lipgloss.Width(line); pad > 0 {
-				line += strings.Repeat(" ", pad)
+			// Pad to contentWidth (only in wrap mode — in no-wrap mode,
+			// padding to 1000 causes false truncation indicators).
+			if m.wordWrap {
+				if pad := contentWidth - lipgloss.Width(line); pad > 0 {
+					line += strings.Repeat(" ", pad)
+				}
 			}
 			visualLines = append(visualLines, line)
 		}
 	}
 
-	_ = cursorVisIdx
 	taView := strings.Join(visualLines, "\n")
+	cursorANSI := ta.Cursor.View()
 
 	th := theme.Current()
 
@@ -288,26 +217,28 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	switch b.Type {
 	case block.Heading1:
-		style := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(th.Accent))
-		rendered = style.Render(taView)
+		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.Heading2:
-		style := lipgloss.NewStyle().Bold(true)
-		rendered = style.Render(taView)
+		style := th.Blocks.Heading2.Text.ToLipgloss("")
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.Heading3:
-		style := lipgloss.NewStyle().Bold(true).Faint(true)
-		rendered = style.Render(taView)
+		style := th.Blocks.Heading3.Text.ToLipgloss("")
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.BulletList:
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render("  \u2022  ")
+		bs := th.Blocks.Bullet
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = th.Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.NumberedList:
+		bs := th.Blocks.Numbered
 		num := 1
 		for i := idx - 1; i >= 0; i-- {
 			if m.blocks[i].Type == block.NumberedList {
@@ -316,45 +247,93 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				break
 			}
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render(fmt.Sprintf("  %d. ", num))
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = th.Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
+		bs := th.Blocks.Checklist
 		if b.Checked {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Accent)).
-				Bold(true).
-				Render(" [x] ")
-			faintText := lipgloss.NewStyle().Faint(true).Render(taView)
-			rendered = prefixFirstLine(prefix, faintText)
+			checkedColor := bs.CheckedColor
+			if checkedColor == "" {
+				checkedColor = th.Accent
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+			if bs.CheckedBold {
+				style = style.Bold(true)
+			}
+			prefix := style.Render(bs.Checked)
+			text := taView
+			if bs.CheckedTextFaint {
+				text = styleAroundCursor(taView, lipgloss.NewStyle().Faint(true), cursorANSI)
+			}
+			rendered = prefixFirstLine(prefix, text)
 		} else {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Muted)).
-				Render(" [ ] ")
+			uncheckedColor := bs.UncheckedColor
+			if uncheckedColor == "" {
+				uncheckedColor = th.Muted
+			}
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
 	case block.CodeBlock:
-		codeContent := taView
-		if b.Language != "" {
-			langLabel := lipgloss.NewStyle().
-				Faint(true).
-				Render(b.Language)
-			codeContent = langLabel + "\n" + taView
+		bs := th.Blocks.Code
+		boxWidth := contentWidth
+		if !m.wordWrap {
+			// In no-wrap mode contentWidth is 1000; size the box border to
+			// the terminal instead so it doesn't overflow every line.
+			boxWidth = m.width - gutterWidth - blockPrefixWidth(b.Type)
+			if boxWidth < 10 {
+				boxWidth = 10
+			}
 		}
-		codeStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(th.Border)).
-			PaddingLeft(1).
-			PaddingRight(1)
-		rendered = codeStyle.Render(codeContent)
+		// First line is always the title/language field, rendered in the
+		// top border. Use clean text with manual cursor (not raw textarea
+		// ANSI) so the border doesn't break.
+		rawLines := strings.Split(ta.Value(), "\n")
+		titleText := ""
+		if len(rawLines) > 0 {
+			titleText = rawLines[0]
+		}
+
+		faintStyle := lipgloss.NewStyle().Faint(true)
+		label := ""
+		if ta.Line() == 0 {
+			// Cursor is on the title — render with visible cursor.
+			if titleText == "" {
+				cursor := lipgloss.NewStyle().Reverse(true)
+				label = cursor.Render(" ") + faintStyle.Render("language")
+			} else {
+				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle)
+			}
+		} else if titleText != "" {
+			label = faintStyle.Render(titleText)
+		} else {
+			label = faintStyle.Render("language")
+		}
+
+		// Strip the title line from the textarea view.
+		cLines := strings.Split(taView, "\n")
+		if len(cLines) > 0 {
+			cLines = cLines[1:]
+		}
+		taView = strings.Join(cLines, "\n")
+		if cursorVisIdx > 0 {
+			cursorVisIdx--
+		}
+		rendered = renderCodeBox(taView, label, th.Border, bs.LabelAlign, boxWidth)
 
 	case block.Quote:
-		bar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(th.Muted)).
-			Render("\u2502 ")
+		bs := th.Blocks.Quote
+		barColor := bs.BarColor
+		if barColor == "" {
+			barColor = th.Muted
+		}
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(taView, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
@@ -381,17 +360,145 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 	}
 
-	// Truncate any line that exceeds terminal width.
-	for i, l := range lines {
-		if lipgloss.Width(l) > m.width {
-			if m.wordWrap {
+	// Truncate or horizontally scroll lines that exceed terminal width.
+	if m.wordWrap {
+		for i, l := range lines {
+			if lipgloss.Width(l) > m.width {
 				lines[i] = ansi.Truncate(l, m.width, "")
-			} else {
-				lines[i] = ansi.Truncate(l, m.width, "\u2192")
 			}
+		}
+	} else if b.Type == block.CodeBlock {
+		// Cursor column accounts for gutter + left box border (│ + space).
+		cursorCol := gutterWidth + 2 + cursorColInWrap
+		// cursorVisIdx is relative to content lines; +1 for top border.
+		adjustedCursor := cursorVisIdx + 1
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == adjustedCursor)
+		}
+	} else {
+		cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
 		}
 	}
 
+	return strings.Join(lines, "\n")
+}
+
+// renderCodeBox renders code in a bordered box with the label always in the
+// top border. labelAlign controls horizontal placement: "left", "center", or
+// "right" (default "left"). The label is pre-styled by the caller.
+func renderCodeBox(code, label, borderColor, labelAlign string, padWidth int) string {
+	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
+
+	lines := strings.Split(code, "\n")
+
+	// Determine inner width from the widest line.
+	innerW := padWidth
+	if innerW < 10 {
+		innerW = 10
+	}
+
+	// Pad each line to innerW.
+	for i, l := range lines {
+		if pad := innerW - lipgloss.Width(l); pad > 0 {
+			lines[i] = l + strings.Repeat(" ", pad)
+		}
+	}
+
+	topBorder := bc.Render("\u256D" + strings.Repeat("\u2500", innerW+2) + "\u256E")
+	bottomBorder := bc.Render("\u2570" + strings.Repeat("\u2500", innerW+2) + "\u256F")
+
+	if label != "" {
+		labelW := lipgloss.Width(label)
+		switch labelAlign {
+		case "center":
+			total := innerW - labelW
+			if total < 2 {
+				total = 2
+			}
+			left := total / 2
+			right := total - left
+			topBorder = bc.Render("\u256D"+strings.Repeat("\u2500", left)+" ") + label + bc.Render(" "+strings.Repeat("\u2500", right)+"\u256E")
+		case "right":
+			dashes := innerW - 1 - labelW
+			if dashes < 1 {
+				dashes = 1
+			}
+			topBorder = bc.Render("\u256D"+strings.Repeat("\u2500", dashes)+" ") + label + bc.Render(" \u2500\u256E")
+		default: // "left"
+			dashes := innerW - 1 - labelW
+			if dashes < 1 {
+				dashes = 1
+			}
+			topBorder = bc.Render("\u256D\u2500 ") + label + bc.Render(" "+strings.Repeat("\u2500", dashes)+"\u256E")
+		}
+	}
+
+	var out []string
+	out = append(out, topBorder)
+	for _, l := range lines {
+		out = append(out, bc.Render("\u2502")+" "+l+" "+bc.Render("\u2502"))
+	}
+	out = append(out, bottomBorder)
+	return strings.Join(out, "\n")
+}
+
+// renderLabelCursor renders a label string with a reverse-video cursor at
+// the given column position. Text outside the cursor is styled with base.
+func renderLabelCursor(text string, col int, base lipgloss.Style) string {
+	runes := []rune(text)
+	cursor := lipgloss.NewStyle().Reverse(true)
+	if col >= len(runes) {
+		return base.Render(text) + cursor.Render(" ")
+	}
+	before := string(runes[:col])
+	ch := string(runes[col : col+1])
+	after := string(runes[col+1:])
+	return base.Render(before) + cursor.Render(ch) + base.Render(after)
+}
+
+// scrollOrTruncate fits a line within availWidth, adding ← → scroll
+// indicators as needed. For the cursor line, it scrolls to keep cursorCol
+// visible. For other lines, it simply truncates with a → indicator.
+func scrollOrTruncate(line string, availWidth, cursorCol int, isCursorLine bool) string {
+	lineW := lipgloss.Width(line)
+	if lineW <= availWidth {
+		return line
+	}
+	if !isCursorLine {
+		return ansi.Truncate(line, availWidth, "\u2192")
+	}
+	if cursorCol < availWidth-2 {
+		return ansi.Truncate(line, availWidth, "\u2192")
+	}
+	// Scroll to keep cursor visible. The cursor line doesn't show a →
+	// indicator — the cursor itself signals the position, and ← on the
+	// left shows there's hidden content.
+	scrollLeft := cursorCol - availWidth + 2
+	scrollRight := scrollLeft + availWidth
+	result := "\u2190" + ansi.Cut(line, scrollLeft+1, scrollRight)
+	if lipgloss.Width(result) > availWidth {
+		result = ansi.Truncate(result, availWidth, "")
+	}
+	return result
+}
+
+// styleAroundCursor applies a lipgloss style to text while preserving cursor
+// ANSI codes. The cursor's reset escape would otherwise leak and break the
+// surrounding style on every blink cycle. This splits each line around the
+// cursor view and styles the segments independently.
+func styleAroundCursor(text string, style lipgloss.Style, cursorView string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if idx := strings.Index(l, cursorView); idx >= 0 {
+			before := l[:idx]
+			after := l[idx+len(cursorView):]
+			lines[i] = style.Render(before) + style.Render(cursorView) + style.Render(after)
+		} else {
+			lines[i] = style.Render(l)
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -485,26 +592,28 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 
 	switch b.Type {
 	case block.Heading1:
-		style := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(theme.Current().Accent))
+		style := theme.Current().Blocks.Heading1.Text.ToLipgloss(theme.Current().Accent)
 		rendered = style.Render(wrapped)
 
 	case block.Heading2:
-		style := lipgloss.NewStyle().Bold(true)
+		style := theme.Current().Blocks.Heading2.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.Heading3:
-		style := lipgloss.NewStyle().Bold(true).Faint(true)
+		style := theme.Current().Blocks.Heading3.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.BulletList:
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render("  \u2022  ")
+		bs := theme.Current().Blocks.Bullet
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
+		bs := theme.Current().Blocks.Numbered
 		num := 1
 		for i := idx - 1; i >= 0; i-- {
 			if blocks[i].Type == block.NumberedList {
@@ -513,49 +622,64 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 				break
 			}
 		}
-		prefix := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render(fmt.Sprintf("  %d. ", num))
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
+		bs := theme.Current().Blocks.Checklist
 		if b.Checked {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.Current().Accent)).
-				Bold(true).
-				Render(" [x] ")
-			faintText := lipgloss.NewStyle().Faint(true).Render(wrapped)
-			rendered = prefixFirstLine(prefix, faintText)
+			checkedColor := bs.CheckedColor
+			if checkedColor == "" {
+				checkedColor = theme.Current().Accent
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+			if bs.CheckedBold {
+				style = style.Bold(true)
+			}
+			prefix := style.Render(bs.Checked)
+			text := wrapped
+			if bs.CheckedTextFaint {
+				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
+			}
+			rendered = prefixFirstLine(prefix, text)
 		} else {
-			prefix := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.Current().Muted)).
-				Render(" [ ] ")
+			uncheckedColor := bs.UncheckedColor
+			if uncheckedColor == "" {
+				uncheckedColor = theme.Current().Muted
+			}
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
 	case block.CodeBlock:
-		highlighted := wrapped
-		if b.Language != "" {
-			highlighted = highlightCode(wrapped, b.Language)
+		bs := theme.Current().Blocks.Code
+		title, body := block.ExtractCodeLanguage(content)
+		label := ""
+		if title != "" {
+			label = lipgloss.NewStyle().Faint(true).Render(title)
 		}
-		codeContent := highlighted
-		if b.Language != "" {
-			langLabel := lipgloss.NewStyle().
-				Faint(true).
-				Render(b.Language)
-			codeContent = langLabel + "\n" + highlighted
+		// Display only the body (after the title line).
+		displayContent := body
+		if wordWrap {
+			displayContent = wrapText(body, contentWidth)
 		}
-		codeStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(theme.Current().Border)).
-			PaddingLeft(1).
-			PaddingRight(1)
-		rendered = codeStyle.Render(codeContent)
+		// Syntax highlighting when the title is a recognized language.
+		if title != "" && lexers.Get(title) != nil {
+			displayContent = highlightCode(displayContent, title)
+		}
+		rendered = renderCodeBox(displayContent, label, theme.Current().Border, bs.LabelAlign, contentWidth)
 
 	case block.Quote:
-		bar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render("\u2502 ")
+		bs := theme.Current().Blocks.Quote
+		barColor := bs.BarColor
+		if barColor == "" {
+			barColor = theme.Current().Muted
+		}
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(wrapped, "\n")
 		for i, l := range lines {
 			lines[i] = bar + l
@@ -563,16 +687,23 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
+		bs := theme.Current().Blocks.Divider
+		divColor := bs.Color
+		if divColor == "" {
+			divColor = theme.Current().Muted
+		}
+		maxW := bs.MaxWidth
+		if maxW <= 0 {
+			maxW = 40
+		}
 		w := width - gutterWidth
 		if w <= 0 {
-			w = 40
+			w = maxW
 		}
-		if w > 40 {
-			w = 40
+		if w > maxW {
+			w = maxW
 		}
-		rendered = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Muted)).
-			Render(strings.Repeat("\u2500", w))
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
 
 	case block.Paragraph:
 		if wrapped == "" {
@@ -604,9 +735,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	// In no-wrap mode, truncate lines to terminal width.
 	if !wordWrap {
 		for i, l := range lines {
-			if lipgloss.Width(l) > width {
-				lines[i] = ansi.Truncate(l, width, "\u2192")
-			}
+			lines[i] = scrollOrTruncate(l, width, 0, false)
 		}
 	}
 

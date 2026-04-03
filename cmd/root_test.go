@@ -182,20 +182,6 @@ func TestDispatchBookSearch(t *testing.T) {
 	}
 }
 
-func TestDispatchNoteView(t *testing.T) {
-	dir := setupTestStore(t)
-	st := storage.NewStore(dir)
-	_ = st.CreateNote("work", "readme", "# Hello")
-
-	out, err := executeCapture([]string{"--dir", dir, "work", "readme"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "Hello") {
-		t.Errorf("expected rendered output to contain 'Hello', got %q", out)
-	}
-}
-
 func TestDispatchNoteViewNotFound(t *testing.T) {
 	dir := setupTestStore(t)
 	_ = storage.NewStore(dir)
@@ -209,41 +195,6 @@ func TestDispatchNoteViewNotFound(t *testing.T) {
 	}
 	if !strings.Contains(out, "not found") {
 		t.Errorf("expected 'not found' in output, got %q", out)
-	}
-}
-
-func TestDispatchNoteViewEmpty(t *testing.T) {
-	dir := setupTestStore(t)
-	st := storage.NewStore(dir)
-	_ = st.CreateNote("work", "blank", "")
-
-	out, err := executeCapture([]string{"--dir", dir, "work", "blank"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "empty") {
-		t.Errorf("expected 'empty' info message, got %q", out)
-	}
-}
-
-func TestDispatchNoteViewRendersMarkdown(t *testing.T) {
-	dir := setupTestStore(t)
-	st := storage.NewStore(dir)
-	md := "# Project\n\n- task one\n- task two\n\n```go\nfmt.Println(\"hi\")\n```"
-	_ = st.CreateNote("dev", "notes", md)
-
-	out, err := executeCapture([]string{"--dir", dir, "dev", "notes"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "Project") {
-		t.Errorf("expected 'Project' in output, got %q", out)
-	}
-	if !strings.Contains(out, "task one") {
-		t.Errorf("expected 'task one' in output, got %q", out)
-	}
-	if !strings.Contains(out, "Println") {
-		t.Errorf("expected 'Println' in output, got %q", out)
 	}
 }
 
@@ -576,36 +527,6 @@ func TestNewNoteAutoCreatesNotebook(t *testing.T) {
 	}
 	if note.Name != "first-note" {
 		t.Errorf("note name = %q, want %q", note.Name, "first-note")
-	}
-}
-
-func TestViewNoteShowsMetadata(t *testing.T) {
-	dir := setupTestStore(t)
-	st := storage.NewStore(dir)
-	_ = st.CreateNote("ideas", "spark", "# Spark\n\nSome content here.")
-
-	out, err := executeCapture([]string{"--dir", dir, "ideas", "spark"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Output should contain the "Modified" timestamp line.
-	if !strings.Contains(out, "Modified") {
-		t.Errorf("expected 'Modified' timestamp in output, got %q", out)
-	}
-}
-
-func TestViewNoteShowsBreadcrumb(t *testing.T) {
-	dir := setupTestStore(t)
-	st := storage.NewStore(dir)
-	_ = st.CreateNote("ideas", "spark", "# Spark\n\nSome content here.")
-
-	out, err := executeCapture([]string{"--dir", dir, "ideas", "spark"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Output should contain the breadcrumb with U+203A separator.
-	if !strings.Contains(out, "ideas \u203A spark") {
-		t.Errorf("expected breadcrumb 'ideas \u203A spark' in output, got %q", out)
 	}
 }
 

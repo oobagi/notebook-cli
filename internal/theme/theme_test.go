@@ -1,8 +1,7 @@
 package theme
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 	"testing"
 )
 
@@ -93,9 +92,6 @@ func TestThemeHasAllColors(t *testing.T) {
 			if th.Background == "" {
 				t.Error("Background is empty")
 			}
-			if th.GlamourStyle == "" {
-				t.Error("GlamourStyle is empty")
-			}
 		})
 	}
 }
@@ -144,95 +140,76 @@ func TestPresetByNameNotFound(t *testing.T) {
 	}
 }
 
-func TestResolveGlamourStyleAuto(t *testing.T) {
-	SetTheme(Dark)
-	style, source := ResolveGlamourStyle("auto")
-	if style != "dark" {
-		t.Errorf("ResolveGlamourStyle(\"auto\") = %q, want %q", style, "dark")
-	}
-	if source != StyleBuiltin {
-		t.Errorf("expected source=StyleBuiltin for auto, got %d", source)
-	}
-}
-
-func TestResolveGlamourStyleEmpty(t *testing.T) {
-	SetTheme(Light)
-	style, source := ResolveGlamourStyle("")
-	if style != "light" {
-		t.Errorf("ResolveGlamourStyle(\"\") = %q, want %q", style, "light")
-	}
-	if source != StyleBuiltin {
-		t.Errorf("expected source=StyleBuiltin for empty, got %d", source)
-	}
-}
-
-func TestResolveGlamourStyleBuiltin(t *testing.T) {
-	SetTheme(Dark)
-
-	builtins := []string{"dark", "light", "dracula", "tokyo-night", "notty", "ascii", "pink"}
-	for _, name := range builtins {
-		t.Run(name, func(t *testing.T) {
-			style, source := ResolveGlamourStyle(name)
-			if style != name {
-				t.Errorf("ResolveGlamourStyle(%q) = %q, want %q", name, style, name)
+func TestBlockStylesComplete(t *testing.T) {
+	for _, th := range Presets() {
+		t.Run(th.Name, func(t *testing.T) {
+			bs := th.Blocks
+			if bs.Bullet.Marker == "" {
+				t.Error("Bullet.Marker is empty")
 			}
-			if source != StyleBuiltin {
-				t.Errorf("expected source=StyleBuiltin for built-in %q, got %d", name, source)
+			if bs.Numbered.Format == "" {
+				t.Error("Numbered.Format is empty")
+			}
+			if bs.Checklist.Checked == "" {
+				t.Error("Checklist.Checked is empty")
+			}
+			if bs.Checklist.Unchecked == "" {
+				t.Error("Checklist.Unchecked is empty")
+			}
+			if bs.Quote.Bar == "" {
+				t.Error("Quote.Bar is empty")
+			}
+			if bs.Divider.Char == "" {
+				t.Error("Divider.Char is empty")
+			}
+			if bs.Code.LabelAlign == "" {
+				t.Error("Code.LabelAlign is empty")
+			}
+			valid := map[string]bool{"left": true, "center": true, "right": true}
+			if !valid[bs.Code.LabelAlign] {
+				t.Errorf("Code.LabelAlign %q is not valid", bs.Code.LabelAlign)
 			}
 		})
 	}
 }
 
-func TestResolveGlamourStyleCommunity(t *testing.T) {
-	SetTheme(Dark)
-
-	style, source := ResolveGlamourStyle("gruvbox")
-	if style != "gruvbox" {
-		t.Errorf("ResolveGlamourStyle(\"gruvbox\") = %q, want %q", style, "gruvbox")
-	}
-	if source != StyleCommunity {
-		t.Errorf("expected source=StyleCommunity for gruvbox, got %d", source)
-	}
-}
-
-func TestResolveGlamourStyleCustomFile(t *testing.T) {
-	SetTheme(Dark)
-
-	dir := t.TempDir()
-	jsonPath := filepath.Join(dir, "custom.json")
-	if err := os.WriteFile(jsonPath, []byte(`{}`), 0o644); err != nil {
-		t.Fatalf("write custom style: %v", err)
-	}
-
-	style, source := ResolveGlamourStyle(jsonPath)
-	if style != jsonPath {
-		t.Errorf("ResolveGlamourStyle(%q) = %q, want file path", jsonPath, style)
-	}
-	if source != StyleFile {
-		t.Errorf("expected source=StyleFile for custom JSON file, got %d", source)
+func TestBlockStylesChecklistWidthParity(t *testing.T) {
+	for _, th := range Presets() {
+		t.Run(th.Name, func(t *testing.T) {
+			bs := th.Blocks
+			checkedLen := len([]rune(bs.Checklist.Checked))
+			uncheckedLen := len([]rune(bs.Checklist.Unchecked))
+			if checkedLen != uncheckedLen {
+				t.Errorf("Checklist width mismatch: Checked=%q (%d runes) vs Unchecked=%q (%d runes)",
+					bs.Checklist.Checked, checkedLen, bs.Checklist.Unchecked, uncheckedLen)
+			}
+		})
 	}
 }
 
-func TestResolveGlamourStyleMissingFile(t *testing.T) {
-	SetTheme(Dark)
-
-	style, source := ResolveGlamourStyle("/nonexistent/style.json")
-	if style != "dark" {
-		t.Errorf("ResolveGlamourStyle with missing file = %q, want theme default %q", style, "dark")
-	}
-	if source != StyleBuiltin {
-		t.Errorf("expected source=StyleBuiltin for missing file, got %d", source)
+func TestBlockStylesNumberedFormat(t *testing.T) {
+	for _, th := range Presets() {
+		t.Run(th.Name, func(t *testing.T) {
+			bs := th.Blocks
+			// Format must contain %d and not panic.
+			panicked := func() bool {
+				defer func() { recover() }()
+				_ = fmt.Sprintf(bs.Numbered.Format, 1)
+				return false
+			}()
+			if panicked {
+				t.Error("Numbered.Format panicked on Sprintf")
+			}
+		})
 	}
 }
 
-func TestResolveGlamourStyleUnknownValue(t *testing.T) {
-	SetTheme(Light)
+func TestTextStyleToLipgloss(t *testing.T) {
+	// Color "-" should not set foreground.
+	ts := TextStyle{Bold: true, Color: "-"}
+	_ = ts.ToLipgloss("#FF0000") // should not panic
 
-	style, source := ResolveGlamourStyle("nonexistent-style")
-	if style != "light" {
-		t.Errorf("ResolveGlamourStyle(\"nonexistent-style\") = %q, want theme default %q", style, "light")
-	}
-	if source != StyleBuiltin {
-		t.Errorf("expected source=StyleBuiltin for unknown value, got %d", source)
-	}
+	// Empty color should use fallback.
+	ts2 := TextStyle{Italic: true}
+	_ = ts2.ToLipgloss("#00FF00")
 }

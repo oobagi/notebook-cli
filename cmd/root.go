@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/render"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
 	"github.com/spf13/cobra"
@@ -34,19 +33,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		// Resolve the active theme from config (or auto-detect).
-		// ui_theme takes precedence over theme when set to a non-auto value,
-		// allowing users to control the TUI color palette independently.
-		themeName := cfg.UITheme
-		if themeName == "" || themeName == "auto" {
-			themeName = cfg.Theme
-		}
-		if themeName == "" {
-			themeName = "auto"
-		}
-		theme.SetTheme(theme.FromName(themeName))
-
-		// Pass the glamour style config to the render package.
-		render.SetGlamourStyle(cfg.GlamourStyle)
+		theme.SetTheme(theme.FromName(cfg.Theme))
 
 		root := dirFlag
 		if root == "" {
