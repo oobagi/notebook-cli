@@ -209,6 +209,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	taView := strings.Join(visualLines, "\n")
+	cursorANSI := ta.Cursor.View()
 
 	th := theme.Current()
 
@@ -217,15 +218,15 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	switch b.Type {
 	case block.Heading1:
 		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
-		rendered = style.Render(taView)
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.Heading2:
 		style := th.Blocks.Heading2.Text.ToLipgloss("")
-		rendered = style.Render(taView)
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.Heading3:
 		style := th.Blocks.Heading3.Text.ToLipgloss("")
-		rendered = style.Render(taView)
+		rendered = styleAroundCursor(taView, style, cursorANSI)
 
 	case block.BulletList:
 		bs := th.Blocks.Bullet
@@ -267,7 +268,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			prefix := style.Render(bs.Checked)
 			text := taView
 			if bs.CheckedTextFaint {
-				text = lipgloss.NewStyle().Faint(true).Render(taView)
+				text = styleAroundCursor(taView, lipgloss.NewStyle().Faint(true), cursorANSI)
 			}
 			rendered = prefixFirstLine(prefix, text)
 		} else {
@@ -418,6 +419,24 @@ func renderCodeBox(code, language, borderColor, labelPos string, padWidth int) s
 	}
 	out = append(out, bottomBorder)
 	return strings.Join(out, "\n")
+}
+
+// styleAroundCursor applies a lipgloss style to text while preserving cursor
+// ANSI codes. The cursor's reset escape would otherwise leak and break the
+// surrounding style on every blink cycle. This splits each line around the
+// cursor view and styles the segments independently.
+func styleAroundCursor(text string, style lipgloss.Style, cursorView string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if idx := strings.Index(l, cursorView); idx >= 0 {
+			before := l[:idx]
+			after := l[idx+len(cursorView):]
+			lines[i] = style.Render(before) + style.Render(cursorView) + style.Render(after)
+		} else {
+			lines[i] = style.Render(l)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // prefixFirstLine prepends a prefix to the first line of a multiline string,

@@ -68,6 +68,7 @@ type Model struct {
 	wordWrap    bool     // when true, text wraps at terminal width
 	langPrompt  bool     // when true, typing goes to language input
 	langInput   string   // current language input text
+	cursorCmd   tea.Cmd  // pending cursor blink command from Focus()
 }
 
 type statusKind int
@@ -259,7 +260,7 @@ func (m *Model) focusBlock(idx int) {
 		m.textareas[m.active].Blur()
 	}
 	m.active = idx
-	m.textareas[idx].Focus()
+	m.cursorCmd = m.textareas[idx].Focus()
 }
 
 // navigateUp moves focus to the previous block, placing cursor at end.
@@ -323,7 +324,7 @@ func (m *Model) deleteBlock(idx int) {
 		m.blocks[0] = block.Block{Type: block.Paragraph, Content: ""}
 		m.textareas[0] = newTextareaForBlock(m.blocks[0], m.width)
 		m.active = 0
-		m.textareas[0].Focus()
+		m.cursorCmd = m.textareas[0].Focus()
 		return
 	}
 
@@ -339,7 +340,7 @@ func (m *Model) deleteBlock(idx int) {
 		m.active = 0
 	}
 
-	m.textareas[m.active].Focus()
+	m.cursorCmd = m.textareas[m.active].Focus()
 }
 
 // mergeBlockUp merges block at idx into block at idx-1. The merged block
@@ -388,7 +389,7 @@ func (m *Model) mergeBlockUp(idx int) {
 
 	// Focus previous block and position cursor at merge point.
 	m.active = idx - 1
-	m.textareas[m.active].Focus()
+	m.cursorCmd = m.textareas[m.active].Focus()
 
 	// Position cursor at the merge point.
 	m.textareas[m.active].SetCursor(mergeCol)
@@ -416,7 +417,7 @@ func (m *Model) swapBlocks(delta int) {
 	// Move focus to the new position.
 	m.textareas[m.active].Blur()
 	m.active = target
-	m.textareas[m.active].Focus()
+	m.cursorCmd = m.textareas[m.active].Focus()
 }
 
 // handleEnter processes the Enter key for block splitting/creation.
@@ -465,7 +466,7 @@ func (m *Model) handleEnter() {
 		m.blocks[m.active].Type = block.Paragraph
 		m.blocks[m.active].Checked = false
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-		newTA.Focus()
+		m.cursorCmd = newTA.Focus()
 		m.textareas[m.active] = newTA
 		return
 	}
@@ -646,7 +647,7 @@ func (m *Model) cutBlock() {
 		m.active = 0
 	}
 
-	m.textareas[m.active].Focus()
+	m.cursorCmd = m.textareas[m.active].Focus()
 }
 
 // applyPaletteSelection changes the active block's type to the selected
@@ -700,6 +701,17 @@ func (m Model) isAtLastLine() bool {
 
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	// Drain any pending cursor blink command (set by focusBlock and friends).
+	if em, ok := model.(Model); ok && em.cursorCmd != nil {
+		blinkCmd := em.cursorCmd
+		em.cursorCmd = nil
+		return em, tea.Batch(cmd, blinkCmd)
+	}
+	return model, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
