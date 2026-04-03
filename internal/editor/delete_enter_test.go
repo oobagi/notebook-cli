@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/block"
 )
 
@@ -26,7 +26,7 @@ func TestDeleteBlockThenEnterCreatesNewBlock(t *testing.T) {
 	m.focusBlock(1)
 	m.textareas[1].SetValue("")
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -40,7 +40,7 @@ func TestDeleteBlockThenEnterCreatesNewBlock(t *testing.T) {
 
 	// Press Enter — should create a new block, not insert a newline.
 	blocksBefore := m.BlockCount()
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore+1 {
@@ -68,7 +68,7 @@ func TestDeleteBlockResetsStaleRowCursor(t *testing.T) {
 	m.focusBlock(1)
 	m.textareas[1].SetValue("")
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// After delete, block 0 (the multi-line paragraph) should be focused.
@@ -89,7 +89,7 @@ func TestDeleteBlockResetsStaleRowCursor(t *testing.T) {
 
 	// Press Enter — should create a new block.
 	blocksBefore := m.BlockCount()
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore+1 {
@@ -115,7 +115,7 @@ func TestDeleteBlockRecalculatesHeight(t *testing.T) {
 	m.focusBlock(1)
 	m.textareas[1].SetValue("")
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// Block 0 should be focused.
@@ -164,7 +164,7 @@ func TestDeleteLastNonParagraphBlockRevertsToParagraph(t *testing.T) {
 	}
 
 	// Press Backspace on the empty numbered list block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	if m.BlockCount() != 1 {

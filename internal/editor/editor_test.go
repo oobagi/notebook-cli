@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/block"
 )
 
@@ -91,7 +91,7 @@ func TestCtrlSTriggersSave(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -123,7 +123,7 @@ func TestCtrlSSaveError(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	msg := cmd()
@@ -143,7 +143,7 @@ func TestCtrlQQuitsWhenClean(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -160,14 +160,14 @@ func TestCtrlQShowsPromptWhenModified(t *testing.T) {
 	m = updated.(Model)
 
 	// Type a character to modify the active block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	if !m.modified() {
 		t.Fatal("editor should be modified after typing")
 	}
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd != nil {
@@ -195,11 +195,11 @@ func TestQuitPromptSaveAndQuit(t *testing.T) {
 	m = updated.(Model)
 
 	// Modify content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -207,7 +207,7 @@ func TestQuitPromptSaveAndQuit(t *testing.T) {
 	}
 
 	// Press 'y' to save and quit.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -239,15 +239,15 @@ func TestQuitPromptDiscardAndQuit(t *testing.T) {
 	m = updated.(Model)
 
 	// Modify content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Press 'n' to quit without saving.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -264,11 +264,11 @@ func TestQuitPromptCancel(t *testing.T) {
 	m = updated.(Model)
 
 	// Modify content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -276,7 +276,7 @@ func TestQuitPromptCancel(t *testing.T) {
 	}
 
 	// Press Esc to cancel.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = updated.(Model)
 
 	if m.quitPrompt {
@@ -299,11 +299,11 @@ func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	m = updated.(Model)
 
 	// Modify content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -311,7 +311,7 @@ func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	}
 
 	// Type an unrelated character.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'z', Text: "z"})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -331,10 +331,10 @@ func TestCtrlCForceQuitsWhenModified(t *testing.T) {
 	m = updated.(Model)
 
 	// Modify content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -350,7 +350,7 @@ func TestCtrlCQuitsWhenClean(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd == nil {
@@ -379,7 +379,7 @@ func TestViewNotEmptyWhenNotQuitting(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if view == "" {
 		t.Fatal("view should not be empty when not quitting")
 	}
@@ -390,10 +390,10 @@ func TestViewEmptyWhenQuitting(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if view != "" {
 		t.Fatalf("view should be empty when quitting, got %q", view)
 	}
@@ -404,7 +404,7 @@ func TestStatusBarContainsTitle(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsPlainText(view, "work \u203A notes") {
 		t.Fatal("view should contain the title in the status bar")
 	}
@@ -415,7 +415,7 @@ func TestStatusBarContainsHelpHint(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsPlainText(view, "\u2303G help") {
 		t.Fatal("status bar should contain ⌃G help hint")
 	}
@@ -430,14 +430,14 @@ func TestCtrlGTogglesHelp(t *testing.T) {
 		t.Fatal("help should not be visible initially")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.showHelp {
 		t.Fatal("Ctrl+G should show help overlay")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.showHelp {
@@ -450,14 +450,14 @@ func TestHelpDismissedByEsc(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.showHelp {
 		t.Fatal("help should be visible")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = updated.(Model)
 
 	if m.showHelp {
@@ -470,10 +470,10 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 
 	keybindings := []string{
 		"\u2303S", "Save",
@@ -496,11 +496,11 @@ func TestHelpBlocksOtherKeys(t *testing.T) {
 
 	contentBefore := m.Content()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Try to type while help is showing.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
 	if m.Content() != contentBefore {
@@ -524,7 +524,7 @@ func TestNavigationBetweenBlocks(t *testing.T) {
 	}
 
 	// Press down at last line of first block to move to next block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	if m.active != 1 {
@@ -532,7 +532,7 @@ func TestNavigationBetweenBlocks(t *testing.T) {
 	}
 
 	// Press up at first line of current block to move back.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.active != 0 {
@@ -546,7 +546,7 @@ func TestNavigationDoesNotGoPastBounds(t *testing.T) {
 	m = updated.(Model)
 
 	// Try to go up from block 0.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.active != 0 {
@@ -554,7 +554,7 @@ func TestNavigationDoesNotGoPastBounds(t *testing.T) {
 	}
 
 	// Try to go down from the only block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	if m.active != 0 {
@@ -571,7 +571,7 @@ func TestCtrlKCutsBlock(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Cut the first block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.blockClip == nil {
@@ -588,16 +588,16 @@ func TestStatusBarShowsModifiedIndicator(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if containsPlainText(view, "[modified]") {
 		t.Fatal("should not show [modified] when content is unchanged")
 	}
 
 	// Modify content by typing.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	view = m.View()
+	view = m.View().Content
 	if !containsPlainText(view, "[modified]") {
 		t.Fatal("should show [modified] after content is changed")
 	}
@@ -614,22 +614,28 @@ func TestNewSetsInitialDimensions(t *testing.T) {
 	}
 }
 
-func TestCtrlEIsNoOp(t *testing.T) {
+func TestCtrlRTogglesViewMode(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	// Enter view mode.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
+	if !m.viewMode {
+		t.Fatal("Ctrl+R should enter view mode")
+	}
 	if m.quitting {
-		t.Fatal("Ctrl+E should not cause quitting")
+		t.Fatal("Ctrl+R should not cause quitting")
 	}
-	if m.showHelp {
-		t.Fatal("Ctrl+E should not show help")
-	}
-	if m.quitPrompt {
-		t.Fatal("Ctrl+E should not show quit prompt")
+
+	// Exit view mode.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	if m.viewMode {
+		t.Fatal("Ctrl+R should exit view mode")
 	}
 }
 
@@ -646,7 +652,7 @@ func TestEnterOnSingleLineBlockCreatesNewBlock(t *testing.T) {
 	}
 
 	// Press Enter.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -670,7 +676,7 @@ func TestEnterOnChecklistCreatesNewChecklistItem(t *testing.T) {
 	m = updated.(Model)
 
 	// Press Enter.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -693,7 +699,7 @@ func TestEnterOnBulletListCreatesNewBulletItem(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -709,7 +715,7 @@ func TestEnterOnNumberedListCreatesNewNumberedItem(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -736,7 +742,7 @@ func TestBackspaceOnEmptyBlockDeletesIt(t *testing.T) {
 	}
 
 	// Press Backspace.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	if m.BlockCount() >= blocksBefore {
@@ -758,7 +764,7 @@ func TestBackspaceOnNonEmptyBlockMergesWithPrevious(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Press Backspace at position 0.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	if m.BlockCount() >= blocksBefore {
@@ -785,7 +791,7 @@ func TestCannotDeleteLastBlock(t *testing.T) {
 	m.textareas[0].SetValue("")
 
 	// Press Backspace on empty last block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// Should still have at least one block.
@@ -808,7 +814,7 @@ func TestAltUpMovesBlockUp(t *testing.T) {
 	blockAboveBefore := m.blocks[lastIdx-1].Type
 
 	// Press Alt+Up.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt})
 	m = updated.(Model)
 
 	// The block that was at lastIdx should now be at lastIdx-1.
@@ -837,7 +843,7 @@ func TestAltDownMovesBlockDown(t *testing.T) {
 	blockBelowBefore := m.blocks[1].Type
 
 	// Press Alt+Down.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModAlt})
 	m = updated.(Model)
 
 	if m.blocks[1].Type != blockTypeBefore {
@@ -867,7 +873,7 @@ func TestAltUpNoOpAtTop(t *testing.T) {
 	blocksBefore := m.BlockCount()
 	typeBefore := m.blocks[0].Type
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt})
 	m = updated.(Model)
 
 	if m.active != 0 {
@@ -893,7 +899,7 @@ func TestAltDownNoOpAtBottom(t *testing.T) {
 	blocksBefore := m.BlockCount()
 	typeBefore := m.blocks[lastIdx].Type
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModAlt})
 	m = updated.(Model)
 
 	if m.active != lastIdx {
@@ -920,7 +926,7 @@ func TestEnterAtEndOfMultiLineBlockCreatesNewParagraph(t *testing.T) {
 	}
 
 	// Press Enter at end of content.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -938,10 +944,10 @@ func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 
 	keybindings := []string{
 		"Enter", "New block below",
@@ -966,7 +972,7 @@ func TestInsertBlockAfterMiddle(t *testing.T) {
 
 	// Focus block 0 and press Enter to create new block after it.
 	m.focusBlock(0)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore+1 {
@@ -990,7 +996,7 @@ func TestDeleteBlockFocusesPrevious(t *testing.T) {
 	// Block 1 should be the empty paragraph between title and paragraph text.
 	m.textareas[1].SetValue("")
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// Should have focused the previous block (0).
@@ -1023,15 +1029,36 @@ func stripAnsi(s string) string {
 	var out []byte
 	i := 0
 	for i < len(s) {
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && s[j] != 'm' {
-				j++
+		if s[i] == '\x1b' && i+1 < len(s) {
+			if s[i+1] == '[' {
+				// CSI sequence: \x1b[...m
+				j := i + 2
+				for j < len(s) && s[j] != 'm' {
+					j++
+				}
+				if j < len(s) {
+					j++
+				}
+				i = j
+			} else if s[i+1] == ']' {
+				// OSC sequence: \x1b]...ST where ST is \x1b\\ or \x07
+				j := i + 2
+				for j < len(s) {
+					if s[j] == '\x07' {
+						j++
+						break
+					}
+					if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+						j += 2
+						break
+					}
+					j++
+				}
+				i = j
+			} else {
+				// Other escape (e.g. \x1b(B for ASCII mode)
+				i += 2
 			}
-			if j < len(s) {
-				j++
-			}
-			i = j
 		} else {
 			out = append(out, s[i])
 			i++
@@ -1065,7 +1092,7 @@ func TestStatusBarContainsCommandsHint(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsPlainText(view, "/ commands") {
 		t.Fatal("status bar should contain '/ commands' hint")
 	}
@@ -1076,10 +1103,10 @@ func TestHelpContainsBlockTypePalette(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsPlainText(view, "Block type palette") {
 		t.Fatal("help overlay should contain 'Block type palette' for / keybinding")
 	}
@@ -1090,10 +1117,10 @@ func TestHelpDoesNotContainStaleEntries(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 
 	stale := []string{"Ctrl+P", "Ctrl+E", "Ctrl+U", "Ctrl+Y"}
 	for _, s := range stale {
@@ -1117,7 +1144,7 @@ func TestCtrlJInsertsNewlineInParagraphAtEnd(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Press Ctrl+J.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Block count should NOT increase (no new block created).
@@ -1146,7 +1173,7 @@ func TestCtrlJInsertsNewlineInParagraphMidContent(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Press Ctrl+J (cursor is at start, which is mid-content).
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore {
@@ -1169,7 +1196,7 @@ func TestCtrlJInsertsNewlineInCodeBlock(t *testing.T) {
 
 	blocksBefore := m.BlockCount()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore {
@@ -1191,7 +1218,7 @@ func TestCtrlJInsertsNewlineInQuote(t *testing.T) {
 	m.textareas[0].CursorEnd()
 	blocksBefore := m.BlockCount()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore {
@@ -1213,7 +1240,7 @@ func TestCtrlJNoOpOnSingleLineBlock(t *testing.T) {
 	blocksBefore := m.BlockCount()
 	contentBefore := m.textareas[0].Value()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore {
@@ -1234,7 +1261,7 @@ func TestCtrlJNoOpOnBulletList(t *testing.T) {
 	blocksBefore := m.BlockCount()
 	contentBefore := m.textareas[0].Value()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.BlockCount() != blocksBefore {
@@ -1254,7 +1281,7 @@ func TestEnterStillCreatesBlockAtEndOfParagraph(t *testing.T) {
 
 	m.textareas[0].CursorEnd()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1271,10 +1298,10 @@ func TestHelpContainsCtrlJKeybinding(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsPlainText(view, "\u2303J") {
 		t.Fatal("help overlay should contain ⌃J keybinding")
 	}
@@ -1292,7 +1319,7 @@ func TestEnterOnEmptyBulletConvertsToParagraph(t *testing.T) {
 	m = updated.(Model)
 
 	// Press Enter on the non-empty bullet to create a new empty bullet.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1306,7 +1333,7 @@ func TestEnterOnEmptyBulletConvertsToParagraph(t *testing.T) {
 	}
 
 	// Now press Enter on the empty bullet — should convert it to a paragraph.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	// Block count should remain 2 (no new block created).
@@ -1325,7 +1352,7 @@ func TestEnterOnEmptyNumberedListConvertsToParagraph(t *testing.T) {
 	m = updated.(Model)
 
 	// Press Enter to create a new empty numbered list item.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1336,7 +1363,7 @@ func TestEnterOnEmptyNumberedListConvertsToParagraph(t *testing.T) {
 	}
 
 	// Press Enter on the empty numbered list item.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1353,7 +1380,7 @@ func TestEnterOnEmptyChecklistConvertsToParagraph(t *testing.T) {
 	m = updated.(Model)
 
 	// Press Enter to create a new empty checklist item.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1364,7 +1391,7 @@ func TestEnterOnEmptyChecklistConvertsToParagraph(t *testing.T) {
 	}
 
 	// Press Enter on the empty checklist item.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1385,7 +1412,7 @@ func TestEnterOnNonEmptyBulletStillCreatesNewBullet(t *testing.T) {
 	}
 
 	// Press Enter on the non-empty bullet.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1424,7 +1451,7 @@ func TestDeleteBlockThenEnterNoExtraBlankLines(t *testing.T) {
 	// Focus "Paragraph two" (block 4), clear it, then backspace to delete.
 	m.focusBlock(4)
 	m.textareas[4].SetValue("")
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// Only the deleted block should be removed, leaving 4 blocks:
@@ -1447,7 +1474,7 @@ func TestCtrlKThenEnterNoExtraBlankLines(t *testing.T) {
 
 	// Focus "third" (block 4) and cut it.
 	m.focusBlock(4)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Only the cut block should be removed, leaving 4 blocks.
@@ -1475,7 +1502,7 @@ func TestDeleteBlockCleansSeparatorOnly(t *testing.T) {
 	// Delete "third" (block 2)
 	m.focusBlock(2)
 	m.textareas[2].SetValue("")
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// "second" is non-empty, so it should NOT be removed.
@@ -1503,7 +1530,7 @@ func TestDeleteBlockDoesNotDeleteExtra(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Press Backspace to delete the empty block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// Should have removed exactly one block.
@@ -1523,7 +1550,7 @@ func TestCutBlockDoesNotDeleteExtra(t *testing.T) {
 	blocksBefore := m.BlockCount()
 
 	// Cut the block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Should have removed exactly one block.
@@ -1559,7 +1586,7 @@ func TestMergeHeadingIntoEmptyBlockPreservesType(t *testing.T) {
 	m.textareas[m.active].CursorStart()
 
 	// Press Backspace to merge into the empty block above.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// The merged block should be a Heading1, not a Paragraph.
@@ -1597,7 +1624,7 @@ func TestMergeIntoNonEmptyBlockKeepsTargetType(t *testing.T) {
 	m.textareas[m.active].CursorStart()
 
 	// Press Backspace to merge into the block above.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
 	// The merged block should keep the target's type (Paragraph).
@@ -1633,7 +1660,7 @@ func TestHeadingTextareaHeightUpdatesOnType(t *testing.T) {
 
 	// Type enough text to cause wrapping (make it longer than 40 chars).
 	for _, ch := range "this is a much longer heading that wraps" {
-		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		updated, _ = m.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 		m = updated.(Model)
 	}
 
@@ -1654,7 +1681,7 @@ func TestEnterAtBeginningOfHeadingSplits(t *testing.T) {
 	m.textareas[0].CursorStart()
 
 	// Press Enter.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1690,9 +1717,9 @@ func TestEnterInMiddleOfHeadingSplits(t *testing.T) {
 
 	// Move cursor to position 5 ("Hello|World").
 	m.textareas[0].CursorStart()
-	m.textareas[0].SetCursor(5)
+	m.textareas[0].SetCursorColumn(5)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1723,7 +1750,7 @@ func TestEnterAtBeginningOfBulletSplits(t *testing.T) {
 
 	m.textareas[0].CursorStart()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1756,7 +1783,7 @@ func TestEnterAtEndOfBlockStillWorks(t *testing.T) {
 	// Put cursor explicitly at the end.
 	m.textareas[0].CursorEnd()
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1789,7 +1816,7 @@ func TestEnterSplitsMultiLineParagraph(t *testing.T) {
 	ta.CursorDown()
 	// CursorDown should put us on line 1 (second logical line).
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.BlockCount() != 2 {
@@ -1816,18 +1843,183 @@ func TestCtrlWTogglesWordWrap(t *testing.T) {
 		t.Fatal("word wrap should be on by default")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if m.wordWrap {
 		t.Fatal("Ctrl+W should toggle word wrap off")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.wordWrap {
 		t.Fatal("Ctrl+W should toggle word wrap back on")
+	}
+}
+
+func TestMouseClickTogglesChecklistInViewMode(t *testing.T) {
+	content := "- [ ] buy milk\n- [x] write tests"
+	m := New(Config{Title: "test", Content: content})
+
+	// Send WindowSizeMsg to initialize dimensions.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Enter view mode (Ctrl+E).
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if !m.viewMode {
+		t.Fatal("expected view mode after Ctrl+E")
+	}
+
+	// Verify initial state: block 0 unchecked, block 1 checked.
+	if m.blocks[0].Checked {
+		t.Fatal("block 0 should start unchecked")
+	}
+	if !m.blocks[1].Checked {
+		t.Fatal("block 1 should start checked")
+	}
+
+	// The blockLineOffsets should be computed.
+	if len(m.blockLineOffsets) != 2 {
+		t.Fatalf("expected 2 block line offsets, got %d", len(m.blockLineOffsets))
+	}
+
+	// Click on the first checklist block's line.
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset()
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      5,
+		Y:      clickY,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(Model)
+
+	if !m.blocks[0].Checked {
+		t.Fatal("block 0 should be checked after click")
+	}
+
+	// Click again to uncheck.
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      5,
+		Y:      clickY,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(Model)
+
+	if m.blocks[0].Checked {
+		t.Fatal("block 0 should be unchecked after second click")
+	}
+}
+
+func TestMouseClickOnNonChecklistDoesNotToggle(t *testing.T) {
+	content := "# Heading\n\nSome paragraph\n\n- [ ] checklist item"
+	m := New(Config{Title: "test", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Enter view mode.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	// Click on the heading line (block 0).
+	if len(m.blockLineOffsets) < 1 {
+		t.Fatal("expected block line offsets to be computed")
+	}
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset()
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      5,
+		Y:      clickY,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(Model)
+
+	// Heading block should not gain a Checked state.
+	if m.blocks[0].Checked {
+		t.Fatal("heading block should not be toggled by click")
+	}
+}
+
+func TestMouseClickInEditModePassesThrough(t *testing.T) {
+	content := "- [ ] item"
+	m := New(Config{Title: "test", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Stay in edit mode (viewMode is false by default).
+	if m.viewMode {
+		t.Fatal("should start in edit mode")
+	}
+
+	// Click — should not toggle the checklist since we're in edit mode.
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      5,
+		Y:      0,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(Model)
+
+	if m.blocks[0].Checked {
+		t.Fatal("mouse click should not toggle checklist in edit mode")
+	}
+}
+
+func TestBlockLineOffsetsComputed(t *testing.T) {
+	// Parser produces 5 blocks: H1, empty P, P, empty P, Checklist.
+	content := "# Title\n\nParagraph text\n\n- [ ] checklist"
+	m := New(Config{Title: "test note", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Enter view mode to trigger offset computation.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	if len(m.blockLineOffsets) != len(m.blocks) {
+		t.Fatalf("expected %d block offsets, got %d", len(m.blocks), len(m.blockLineOffsets))
+	}
+
+	// Offsets must be non-decreasing (some empty blocks may share a line).
+	for i := 1; i < len(m.blockLineOffsets); i++ {
+		if m.blockLineOffsets[i] < m.blockLineOffsets[i-1] {
+			t.Fatalf("offsets not non-decreasing: offset[%d]=%d < offset[%d]=%d",
+				i, m.blockLineOffsets[i], i-1, m.blockLineOffsets[i-1])
+		}
+	}
+}
+
+func TestBlockIndexAtLineReturnsCorrectBlock(t *testing.T) {
+	content := "- [ ] first\n- [x] second\n- [ ] third"
+	m := New(Config{Title: "test", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Enter view mode.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	if len(m.blockLineOffsets) != 3 {
+		t.Fatalf("expected 3 offsets, got %d", len(m.blockLineOffsets))
+	}
+
+	// Each block's own offset should map to that block.
+	for i, offset := range m.blockLineOffsets {
+		got := m.blockIndexAtLine(offset)
+		if got != i {
+			t.Errorf("blockIndexAtLine(%d) = %d, want %d", offset, got, i)
+		}
+	}
+
+	// Line before any block should return -1.
+	if m.blockLineOffsets[0] > 0 {
+		got := m.blockIndexAtLine(0)
+		if got != -1 {
+			t.Errorf("blockIndexAtLine(0) = %d, want -1 (before any block)", got)
+		}
 	}
 }
 

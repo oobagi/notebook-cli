@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/storage"
 	"github.com/oobagi/notebook/internal/theme"
 )
@@ -53,9 +53,9 @@ func initModel(t *testing.T, s *storage.Store) Model {
 	return m
 }
 
-func sendKey(t *testing.T, m Model, key tea.KeyType) Model {
+func sendKey(t *testing.T, m Model, code rune) Model {
 	t.Helper()
-	updated, cmd := m.Update(tea.KeyMsg{Type: key})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: code})
 	m = updated.(Model)
 
 	// Process any commands (like loadNotes).
@@ -71,7 +71,7 @@ func sendKey(t *testing.T, m Model, key tea.KeyType) Model {
 
 func sendRune(t *testing.T, m Model, r rune) Model {
 	t.Helper()
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	m = updated.(Model)
 
 	if cmd != nil {
@@ -100,7 +100,7 @@ func TestBrowserInitShowsNotebooks(t *testing.T) {
 		t.Fatalf("expected 2 notebooks, got %d", len(m.notebooks))
 	}
 
-	view := m.View()
+	view := m.View().Content
 	// Notebook names should appear in the view.
 	if !containsStr(view, "work") {
 		t.Errorf("view should contain 'work', got:\n%s", view)
@@ -132,7 +132,7 @@ func TestBrowserEnterOpensNotebook(t *testing.T) {
 		t.Errorf("expected 2 notes, got %d", len(m.notes))
 	}
 
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "meeting notes") {
 		t.Errorf("view should contain 'meeting notes', got:\n%s", view)
 	}
@@ -208,7 +208,7 @@ func TestBrowserQuitOnQ(t *testing.T) {
 
 	m := initModel(t, s)
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	m = updated.(Model)
 
 	if !m.quitting {
@@ -226,7 +226,7 @@ func TestBrowserEmptyState(t *testing.T) {
 
 	m := initModel(t, s)
 
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "No notebooks yet") {
 		t.Errorf("expected empty state message, got:\n%s", view)
 	}
@@ -253,7 +253,7 @@ func TestBrowserEmptyNotebook(t *testing.T) {
 		t.Fatalf("expected level 1, got %d", m.level)
 	}
 
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "No notes in") {
 		t.Errorf("expected empty notebook message, got:\n%s", view)
 	}
@@ -277,7 +277,7 @@ func TestBrowserNoteSelection(t *testing.T) {
 	}
 
 	// Press Enter on first note -- should set selected and quit.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	sel := m.Selected()
@@ -385,7 +385,7 @@ func TestBrowserHelpToggle(t *testing.T) {
 		t.Fatal("expected showHelp to be true after pressing '?'")
 	}
 
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "Keybindings") {
 		t.Errorf("help overlay should contain 'Keybindings', got:\n%s", view)
 	}
@@ -400,7 +400,7 @@ func TestBrowserHelpToggle(t *testing.T) {
 		t.Fatal("expected showHelp to be false after pressing '?' again")
 	}
 
-	view = m.View()
+	view = m.View().Content
 	if containsStr(view, "Keybindings") {
 		t.Error("help overlay should not be visible after dismissing")
 	}
@@ -759,7 +759,7 @@ func TestBrowserRenameNotebook(t *testing.T) {
 	m = sendString(t, m, "new-name")
 
 	// Press Enter to confirm — process the full cmd chain (action → reload → loaded).
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = processAllCmds(t, updated.(Model), cmd)
 
 	// Store should reflect the rename.
@@ -826,7 +826,7 @@ func TestBrowserRenameNote(t *testing.T) {
 	m = sendString(t, m, "new-note")
 
 	// Press Enter to confirm — process the full cmd chain.
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = processAllCmds(t, updated.(Model), cmd)
 
 	// Old note should be gone, new note should exist.
@@ -970,7 +970,7 @@ func TestBrowserCreateNotebook(t *testing.T) {
 
 	// Type a name and confirm.
 	m = sendString(t, m, "my-book")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = processAllCmds(t, updated.(Model), cmd)
 
 	// Notebook should exist.
@@ -1005,7 +1005,7 @@ func TestBrowserCreateNote(t *testing.T) {
 
 	// Type a name and confirm.
 	m = sendString(t, m, "my-note")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = processAllCmds(t, updated.(Model), cmd)
 
 	// Note should exist.
@@ -1138,7 +1138,7 @@ func TestBrowserThemePickerOpen(t *testing.T) {
 		t.Error("expected uiThemePreview to be non-empty")
 	}
 
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "UI Theme") {
 		t.Errorf("view should contain 'UI Theme', got:\n%s", view)
 	}
@@ -1179,7 +1179,7 @@ func TestBrowserThemePickerNavigate(t *testing.T) {
 	}
 
 	// Move down.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 1 {
@@ -1192,7 +1192,7 @@ func TestBrowserThemePickerNavigate(t *testing.T) {
 	}
 
 	// Move up back to first.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 0 {
@@ -1200,7 +1200,7 @@ func TestBrowserThemePickerNavigate(t *testing.T) {
 	}
 
 	// Move up at top should not go negative.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 0 {
@@ -1222,7 +1222,7 @@ func TestBrowserThemePickerEscCancels(t *testing.T) {
 	}
 
 	// Press Esc to cancel.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = updated.(Model)
 
 	if m.themeMode {
@@ -1249,7 +1249,7 @@ func TestBrowserThemePickerQDismisses(t *testing.T) {
 	}
 
 	// Press 'q' to dismiss (should not quit the app).
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	m = updated.(Model)
 
 	if m.themeMode {
@@ -1277,7 +1277,7 @@ func TestBrowserThemePickerTDismisses(t *testing.T) {
 	}
 
 	// Press 't' again to dismiss (toggle).
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	m = updated.(Model)
 
 	if m.themeMode {
@@ -1297,7 +1297,7 @@ func TestBrowserThemePickerDownClamps(t *testing.T) {
 
 	// Move well past the last item.
 	for i := 0; i < 20; i++ {
-		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		m = updated.(Model)
 	}
 
@@ -1316,7 +1316,7 @@ func TestBrowserThemePickerViewContent(t *testing.T) {
 	m := initModel(t, s)
 	m = sendRune(t, m, 't')
 
-	view := m.View()
+	view := m.View().Content
 	// Should contain the overlay with preset names.
 	if !containsStr(view, "dark") {
 		t.Errorf("view should list 'dark' preset, got:\n%s", view)
@@ -1339,7 +1339,7 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 
 	// Open help at L0.
 	m = sendRune(t, m, '?')
-	view := m.View()
+	view := m.View().Content
 	if !containsStr(view, "Theme picker") {
 		t.Errorf("L0 help should mention 'Theme picker', got:\n%s", view)
 	}
@@ -1348,7 +1348,7 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 	m = sendRune(t, m, '?')
 	m = sendKey(t, m, tea.KeyEnter)
 	m = sendRune(t, m, '?')
-	view = m.View()
+	view = m.View().Content
 	if !containsStr(view, "Theme picker") {
 		t.Errorf("L1 help should mention 'Theme picker', got:\n%s", view)
 	}
@@ -1370,7 +1370,7 @@ func TestUIThemeCursorNavigation(t *testing.T) {
 	}
 
 	// Move down.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 1 {
@@ -1378,7 +1378,7 @@ func TestUIThemeCursorNavigation(t *testing.T) {
 	}
 
 	// Move up back to 0.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 0 {
@@ -1386,7 +1386,7 @@ func TestUIThemeCursorNavigation(t *testing.T) {
 	}
 
 	// Move up at top should clamp.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(Model)
 
 	if m.uiThemeCursor != 0 {
@@ -1405,7 +1405,7 @@ func TestUIThemeSelectDoesNotPanic(t *testing.T) {
 	m = sendRune(t, m, 't')
 
 	// Press Enter to select UI theme — should not panic.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.themeMode {

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook/internal/block"
 	"github.com/oobagi/notebook/internal/theme"
 )
@@ -65,8 +65,11 @@ type Model struct {
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
-	wordWrap    bool     // when true, text wraps at terminal width
-	cursorCmd   tea.Cmd  // pending cursor blink command from Focus()
+	wordWrap         bool     // when true, text wraps at terminal width
+	viewMode         bool     // when true, read-only rendering with no cursor
+	hoverBlock       int      // view mode: block index under mouse cursor (-1 = none)
+	cursorCmd        tea.Cmd  // pending cursor blink command from Focus()
+	blockLineOffsets []int    // view mode: starting Y line of each block in rendered output
 }
 
 type statusKind int
@@ -125,19 +128,20 @@ func New(cfg Config) Model {
 		textareas[0].Focus()
 	}
 
-	vp := viewport.New(defaultWidth, defaultHeight-2) // -1 header, -1 status bar
+	vp := viewport.New(viewport.WithWidth(defaultWidth), viewport.WithHeight(defaultHeight-2)) // -1 header, -1 status bar
 
 	return Model{
-		blocks:    blocks,
-		textareas: textareas,
-		active:    0,
-		viewport:  vp,
-		config:    cfg,
-		initial:   cfg.Content,
-		width:     defaultWidth,
-		height:    defaultHeight,
-		palette:   newPalette(),
-		wordWrap:  true,
+		blocks:     blocks,
+		textareas:  textareas,
+		active:     0,
+		viewport:   vp,
+		config:     cfg,
+		initial:    cfg.Content,
+		width:      defaultWidth,
+		height:     defaultHeight,
+		palette:    newPalette(),
+		wordWrap:   true,
+		hoverBlock: -1,
 	}
 }
 
@@ -207,8 +211,14 @@ func (m Model) statusBarHeight() int {
 
 // headerHeight returns the number of terminal lines the header bar occupies.
 func (m Model) headerHeight() int {
+	if m.viewMode {
+		return 0
+	}
 	return 1
 }
+
+// viewMaxWidth is the maximum content width in view mode for centered reading.
+const viewMaxWidth = 72
 
 // resizeTextareas updates all textarea widths for the current layout.
 func (m *Model) resizeTextareas() {
@@ -233,8 +243,8 @@ func (m *Model) resizeTextareas() {
 	if h < 1 {
 		h = 1
 	}
-	m.viewport.Width = w
-	m.viewport.Height = h
+	m.viewport.SetWidth(w)
+	m.viewport.SetHeight(h)
 }
 
 // scheduleStatusDismiss increments the generation counter and returns a tick
@@ -419,7 +429,7 @@ func (m *Model) mergeBlockUp(idx int) {
 	for i := 0; i < rowsFromEnd; i++ {
 		m.textareas[m.active].CursorUp()
 	}
-	m.textareas[m.active].SetCursor(len([]rune(prevLines[mergeRow])))
+	m.textareas[m.active].SetCursorColumn(len([]rune(prevLines[mergeRow])))
 }
 
 // swapBlocks swaps the block at idx with the block at idx+delta (delta is
@@ -484,7 +494,7 @@ func (m *Model) handleEnter() {
 
 		// Otherwise insert a newline within the block.
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
-		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 		return
 	}
@@ -635,7 +645,7 @@ func (m *Model) handleBackspace() bool {
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
 		newTA.SetValue(content)
 		m.cursorCmd = newTA.Focus()
-		newTA.SetCursor(0)
+		newTA.SetCursorColumn(0)
 		m.textareas[m.active] = newTA
 		return true
 	}
@@ -763,7 +773,57 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.MouseMotionMsg:
+		if m.viewMode {
+			// Track hover state for checklist visual feedback.
+			hoverY := m.viewport.YOffset() + msg.Y
+			idx := m.blockIndexAtLine(hoverY)
+			oldHover := m.hoverBlock
+			m.hoverBlock = idx
+
+			// Re-render if hovering over a different checklist block.
+			if idx != oldHover {
+				isChecklistHover := idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist
+				wasChecklistHover := oldHover >= 0 && oldHover < len(m.blocks) && m.blocks[oldHover].Type == block.Checklist
+				if isChecklistHover || wasChecklistHover {
+					m.updateViewport()
+				}
+			}
+		} else {
+			m.hoverBlock = -1
+		}
+		return m, nil
+
+	case tea.MouseClickMsg:
+		if m.viewMode {
+			// Track hover state for checklist visual feedback.
+			hoverY := m.viewport.YOffset() + msg.Y
+			idx := m.blockIndexAtLine(hoverY)
+			m.hoverBlock = idx
+
+			// Left-click on a checklist block toggles its checked state.
+			if msg.Button == tea.MouseLeft {
+				if idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist {
+					m.blocks[idx].Checked = !m.blocks[idx].Checked
+					if idx < len(m.textareas) {
+						m.blocks[idx].Content = m.textareas[idx].Value()
+					}
+					m.updateViewport()
+					return m, nil
+				}
+			}
+		} else {
+			m.hoverBlock = -1
+		}
+		return m, nil
+
+	case tea.MouseWheelMsg:
+		// Let wheel scroll pass through to the viewport.
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case tea.KeyPressMsg:
 		// When help overlay is showing, only Ctrl+G and Esc dismiss it.
 		if m.showHelp {
 			switch msg.String() {
@@ -830,8 +890,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			default:
-				if msg.Type == tea.KeyRunes {
-					for _, r := range msg.Runes {
+				if len(msg.Text) > 0 {
+					for _, r := range msg.Text {
 						m.palette.addFilterRune(r)
 					}
 					m.updateViewport()
@@ -848,7 +908,73 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusStyle = statusNone
 		}
 
+		// View mode: intercept keys early.
+		if m.viewMode {
+			switch msg.String() {
+			case "ctrl+r":
+				m.viewMode = false
+				m.hoverBlock = -1
+				// Re-focus the previously active block to restore cursor.
+				if m.active >= 0 && m.active < len(m.textareas) {
+					m.cursorCmd = m.textareas[m.active].Focus()
+				}
+				m.updateViewport()
+				return m, nil
+			case "ctrl+q":
+				if m.modified() {
+					m.quitPrompt = true
+					m.status = "Save before quitting? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.quitting = true
+				return m, tea.Quit
+			case "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "ctrl+s":
+				if m.config.Save != nil {
+					content := m.Content()
+					return m, func() tea.Msg {
+						if err := m.config.Save(content); err != nil {
+							return saveErrMsg{err: err}
+						}
+						return savedMsg{content: content}
+					}
+				}
+				return m, nil
+			case "ctrl+g":
+				m.showHelp = true
+				return m, nil
+			case "up":
+				m.viewport.ScrollUp(1)
+				return m, nil
+			case "pgup":
+				m.viewport.HalfPageUp()
+				return m, nil
+			case "down":
+				m.viewport.ScrollDown(1)
+				return m, nil
+			case "pgdown":
+				m.viewport.HalfPageDown()
+				return m, nil
+			}
+			// Swallow everything else in view mode.
+			return m, nil
+		}
+
 		switch msg.String() {
+		case "ctrl+r":
+			m.viewMode = true
+			m.hoverBlock = -1
+			// Blur the active textarea but preserve m.active.
+			if m.active >= 0 && m.active < len(m.textareas) {
+				m.blocks[m.active].Content = m.textareas[m.active].Value()
+				m.textareas[m.active].Blur()
+			}
+			m.updateViewport()
+			return m, nil
+
 		case "ctrl+g":
 			m.showHelp = true
 			return m, nil
@@ -941,7 +1067,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			}
-			m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyBackspace})
+			m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 			m.updateViewport()
 			return m, nil
 
@@ -953,8 +1079,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case "ctrl+j":
-			// Ctrl+J (LF) inserts a newline within the current block,
+		case "ctrl+j", "shift+enter":
+			// Ctrl+J / Shift+Enter inserts a newline within the current block,
 			// bypassing the Enter handler that creates new blocks.
 			// Only for multi-line blocks (paragraph, code, quote).
 			// Headings and list items are single-line by definition.
@@ -963,7 +1089,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// the first line when the newline is inserted.
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
 				var cmd tea.Cmd
-				m.textareas[m.active], cmd = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyEnter})
+				m.textareas[m.active], cmd = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 				m.updateViewport()
 				return m, cmd
@@ -990,9 +1116,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward remaining messages to the active textarea.
 	if m.active >= 0 && m.active < len(m.textareas) {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 			// Handle "/" at position 0 to open the command palette.
-			if keyMsg.Type == tea.KeyRunes && len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '/' {
+			if keyMsg.Code == '/' && len(keyMsg.Text) > 0 {
 				ta := &m.textareas[m.active]
 				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
 					m.palette.open(m.active)
@@ -1002,14 +1128,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Handle Enter key: always split/create via handleEnter.
-			if keyMsg.Type == tea.KeyEnter {
+			if keyMsg.Code == tea.KeyEnter {
 				m.handleEnter()
 				m.updateViewport()
 				return m, nil
 			}
 
 			// Handle Backspace at position 0 for delete/merge.
-			if keyMsg.Type == tea.KeyBackspace {
+			if keyMsg.Code == tea.KeyBackspace {
 				if m.handleBackspace() {
 					m.updateViewport()
 					return m, nil
@@ -1023,10 +1149,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Tab inserts 4 spaces.
-			if keyMsg.Type == tea.KeyTab {
+			if keyMsg.Code == tea.KeyTab {
 				ta := &m.textareas[m.active]
 				for _, r := range "    " {
-					*ta, _ = ta.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+					*ta, _ = ta.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 				}
 				m.updateViewport()
 				return m, nil
@@ -1067,10 +1193,17 @@ func (m *Model) updateViewport() {
 	if h < 1 {
 		h = 1
 	}
-	m.viewport.Height = h
+	m.viewport.SetHeight(h)
 
 	content := m.renderAllBlocks()
 	m.viewport.SetContent(content)
+
+	// In view mode, compute block line offsets for mouse click handling
+	// and skip auto-scroll to cursor — the user scrolls manually.
+	if m.viewMode {
+		m.computeBlockLineOffsets()
+		return
+	}
 
 	// Auto-scroll: calculate the cursor's actual line in the rendered output
 	// and ensure the viewport shows it. We compute the offset from scratch
@@ -1137,7 +1270,7 @@ func (m *Model) updateViewport() {
 		// current scroll position when the cursor is already on screen.
 		// When cursor is on the first content line, also show the block's
 		// chrome (borders, labels) above it.
-		yOffset := m.viewport.YOffset
+		yOffset := m.viewport.YOffset()
 		scrollTarget := cursorLine
 		if cursorRawLine == 0 && chromeLines > 0 {
 			scrollTarget = lineOffset // show from block start
@@ -1145,8 +1278,8 @@ func (m *Model) updateViewport() {
 		if scrollTarget < yOffset {
 			yOffset = scrollTarget
 		}
-		if cursorLine >= yOffset+m.viewport.Height {
-			yOffset = cursorLine - m.viewport.Height + 1
+		if cursorLine >= yOffset+m.viewport.Height() {
+			yOffset = cursorLine - m.viewport.Height() + 1
 		}
 		if yOffset < 0 {
 			yOffset = 0
@@ -1156,9 +1289,103 @@ func (m *Model) updateViewport() {
 	}
 }
 
+// computeBlockLineOffsets mirrors the spacing logic of renderViewContent to
+// determine the starting line (Y coordinate) of each block in the rendered
+// viewport content. This is used for mouse click → block mapping in view mode.
+//
+// It builds the same parts slice as renderViewContent and tracks the starting
+// line of each block. When parts are joined with "\n", part[p] starts at line
+// equal to the sum of (strings.Count(parts[j], "\n") + 1) for j in 0..p-1.
+func (m *Model) computeBlockLineOffsets() {
+	contentWidth := viewMaxWidth
+	if m.width < contentWidth {
+		contentWidth = m.width - 4
+		if contentWidth < 20 {
+			contentWidth = 20
+		}
+	}
+
+	// nextLine tracks the line number where the next appended part will start.
+	nextLine := 0
+
+	// advance moves nextLine past a part that was just appended.
+	advance := func(part string) {
+		nextLine += strings.Count(part, "\n") + 1
+	}
+
+	// Top padding.
+	advance("")
+
+	// Title + blank line after.
+	if m.config.Title != "" {
+		advance("title") // single-line; actual content irrelevant
+		advance("")
+	}
+
+	offsets := make([]int, len(m.blocks))
+	for i, b := range m.blocks {
+		content := b.Content
+		if i == m.active && i < len(m.textareas) {
+			content = m.textareas[i].Value()
+		}
+
+		// Spacing lines before this block (mirrors renderViewContent exactly).
+		if i > 0 {
+			prev := m.blocks[i-1]
+			switch {
+			case b.Type == block.Heading1:
+				advance("") // 2 blank lines before H1
+				advance("")
+			case b.Type == block.Heading2 || b.Type == block.Heading3:
+				advance("") // 1 blank line before H2/H3
+			case b.Type == block.CodeBlock || b.Type == block.Quote:
+				if prev.Type != b.Type {
+					advance("")
+				}
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
+				advance("")
+			case b.Type == block.Divider:
+				advance("")
+			case prev.Type == block.Divider:
+				advance("")
+			}
+		}
+
+		// Record where this block starts.
+		offsets[i] = nextLine
+
+		// Render the block and advance past its lines.
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false)
+		advance(rendered)
+	}
+
+	m.blockLineOffsets = offsets
+}
+
+// blockIndexAtLine returns the block index that contains the given absolute
+// line number in view-mode rendered content, or -1 if no block matches.
+func (m Model) blockIndexAtLine(line int) int {
+	if len(m.blockLineOffsets) == 0 {
+		return -1
+	}
+	// Find the last block whose starting offset is <= line.
+	result := -1
+	for i, offset := range m.blockLineOffsets {
+		if offset <= line {
+			result = i
+		} else {
+			break
+		}
+	}
+	return result
+}
+
 // renderAllBlocks renders each block and joins them vertically.
 // When the command palette is visible, it is rendered below the active block.
 func (m Model) renderAllBlocks() string {
+	if m.viewMode {
+		return m.renderViewContent()
+	}
 	var parts []string
 	for i := range m.blocks {
 		parts = append(parts, m.renderBlock(i))
@@ -1171,20 +1398,107 @@ func (m Model) renderAllBlocks() string {
 	return strings.Join(parts, "\n")
 }
 
+// renderViewContent builds the full view-mode content: centered, max-width,
+// with generous spacing for a clean reading experience.
+func (m Model) renderViewContent() string {
+	contentWidth := viewMaxWidth
+	if m.width < contentWidth {
+		contentWidth = m.width - 4 // leave some margin even on small terms
+		if contentWidth < 20 {
+			contentWidth = 20
+		}
+	}
+
+	// Horizontal padding to center the content column.
+	leftPad := (m.width - contentWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	padStr := strings.Repeat(" ", leftPad)
+
+	var parts []string
+
+	// Top padding — breathing room before content starts.
+	parts = append(parts, "")
+
+	// Title — centered, bold, faint.
+	if m.config.Title != "" {
+		titleStyle := lipgloss.NewStyle().Bold(true)
+		title := titleStyle.Render(m.config.Title)
+		titlePad := (m.width - lipgloss.Width(title)) / 2
+		if titlePad < 0 {
+			titlePad = 0
+		}
+		parts = append(parts, strings.Repeat(" ", titlePad)+title)
+		parts = append(parts, "")
+	}
+
+	for i, b := range m.blocks {
+		content := b.Content
+		if i == m.active && i < len(m.textareas) {
+			content = m.textareas[i].Value()
+		}
+
+		hovered := i == m.hoverBlock
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered)
+
+		// Add vertical spacing before certain block types.
+		if i > 0 {
+			prev := m.blocks[i-1]
+			switch {
+			case b.Type == block.Heading1:
+				parts = append(parts, "", "") // extra blank before H1
+			case b.Type == block.Heading2 || b.Type == block.Heading3:
+				parts = append(parts, "") // blank before H2/H3
+			case b.Type == block.CodeBlock || b.Type == block.Quote:
+				if prev.Type != b.Type {
+					parts = append(parts, "") // blank before code/quote blocks
+				}
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
+				parts = append(parts, "") // blank after code/quote blocks
+			case b.Type == block.Divider:
+				parts = append(parts, "") // blank before dividers
+			case prev.Type == block.Divider:
+				parts = append(parts, "") // blank after dividers
+			}
+		}
+
+		// Pad each line of the rendered block to center it.
+		lines := strings.Split(rendered, "\n")
+		for j, l := range lines {
+			lines[j] = padStr + l
+		}
+		parts = append(parts, strings.Join(lines, "\n"))
+	}
+
+	// Bottom padding so content doesn't end right at the status bar.
+	parts = append(parts, "", "")
+
+	return strings.Join(parts, "\n")
+}
+
 // View renders the editor UI.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
+	var content string
 	if m.showHelp {
-		return m.renderHelpOverlay()
+		content = m.renderHelpOverlay()
+	} else if m.viewMode {
+		statusBar := m.renderStatusBar()
+		content = m.viewport.View() + "\n" + statusBar
+	} else {
+		header := m.renderHeader()
+		statusBar := m.renderStatusBar()
+		content = header + "\n" + m.viewport.View() + "\n" + statusBar
 	}
 
-	header := m.renderHeader()
-	statusBar := m.renderStatusBar()
-
-	return header + "\n" + m.viewport.View() + "\n" + statusBar
+	v := tea.NewView(content)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeAllMotion
+	return v
 }
 
 // renderHelpOverlay builds the full-screen help panel.
@@ -1193,13 +1507,14 @@ func (m Model) renderHelpOverlay() string {
   ───────────────────────────
 
   Enter       New block below
-  ⌃J          Newline within block
+  ⇧Enter/⌃J   Newline within block
   Backspace   Merge/delete block
   ⌃K          Cut block
   ⌥↑          Move block up
   ⌥↓          Move block down
   /           Block type palette
 
+  ⌃R          Toggle view/edit mode
   ⌃X          Toggle checkbox
   ⌃W          Toggle word wrap
 
@@ -1209,6 +1524,10 @@ func (m Model) renderHelpOverlay() string {
   ⌃G          Toggle this help
 
   Press ⌃G or Esc to close`
+
+	// Strip tab characters that come from Go source indentation in the
+	// raw string literal. Lipgloss v2 does not expand tabs.
+	help = strings.ReplaceAll(help, "\t", "")
 
 	w := m.width
 	if w <= 0 {
@@ -1223,7 +1542,7 @@ func (m Model) renderHelpOverlay() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
-		Width(38).
+		Width(42).
 		Align(lipgloss.Left)
 
 	rendered := box.Render(help)
@@ -1249,8 +1568,11 @@ func (m Model) renderStatusBar() string {
 	var right string
 	if m.status != "" {
 		right = m.status
+	} else if m.viewMode {
+		left = " click checkboxes to toggle"
+		right = "\u2303R edit \u00B7 \u2303Q quit"
 	} else {
-		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303G help \u00B7 \u2303Q quit"
+		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303R view \u00B7 \u2303G help \u00B7 \u2303Q quit"
 	}
 
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)

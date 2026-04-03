@@ -3,7 +3,7 @@ package editor
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook/internal/block"
 	"github.com/oobagi/notebook/internal/theme"
 )

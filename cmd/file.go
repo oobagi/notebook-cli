@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/editor"
 	"github.com/oobagi/notebook/internal/recents"
 )
@@ -67,7 +67,7 @@ func openFile(path string) error {
 	}
 
 	m := editor.New(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run editor: %w", err)
 	}

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/block"
 )
 
@@ -19,7 +19,7 @@ func TestSlashAtPos0OpensPalette(t *testing.T) {
 	}
 
 	// Type "/" at position 0 of an empty block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	if !m.palette.visible {
@@ -37,7 +37,7 @@ func TestSlashMidLineDoesNotOpenPalette(t *testing.T) {
 	m.textareas[m.active].CursorEnd()
 
 	// Type "/".
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	if m.palette.visible {
@@ -78,7 +78,7 @@ func TestPaletteEnterAppliesSelectedType(t *testing.T) {
 	m = updated.(Model)
 
 	// Open palette.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	if !m.palette.visible {
@@ -86,11 +86,11 @@ func TestPaletteEnterAppliesSelectedType(t *testing.T) {
 	}
 
 	// Move cursor down to "Heading 1" (index 1 in the default list).
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	// Press Enter to select.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.palette.visible {
@@ -110,7 +110,7 @@ func TestPaletteEscClosesWithoutChanges(t *testing.T) {
 	originalType := m.blocks[m.active].Type
 
 	// Open palette.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	if !m.palette.visible {
@@ -118,11 +118,11 @@ func TestPaletteEscClosesWithoutChanges(t *testing.T) {
 	}
 
 	// Move cursor to a different item.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(Model)
 
 	// Press Esc to cancel.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = updated.(Model)
 
 	if m.palette.visible {
@@ -196,17 +196,17 @@ func TestPaletteDividerClearsContent(t *testing.T) {
 	m = updated.(Model)
 
 	// Open palette.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	// Type "div" to filter to Divider.
 	for _, r := range "div" {
-		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		updated, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m = updated.(Model)
 	}
 
 	// Select divider.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
 	if m.blocks[m.active].Type != block.Divider {
@@ -291,13 +291,13 @@ func TestPaletteBlocksTypingToTextarea(t *testing.T) {
 	m = updated.(Model)
 
 	// Open palette.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	// Type characters while palette is open.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	m = updated.(Model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = updated.(Model)
 
 	// Characters should go to the palette filter, not the textarea.
@@ -320,7 +320,7 @@ func TestSlashOnNonEmptyBlockDoesNotOpenPalette(t *testing.T) {
 	m.textareas[m.active].CursorStart()
 
 	// Type "/" at position 0 of a non-empty block.
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
 	if m.palette.visible {

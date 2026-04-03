@@ -9,8 +9,8 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/oobagi/notebook/internal/block"
 	"github.com/oobagi/notebook/internal/format"
@@ -164,8 +164,8 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 					curChar = string(runes[col : col+1])
 					after = string(runes[col+1:])
 				}
-				ta.Cursor.SetChar(curChar)
-				line = before + ta.Cursor.View() + after
+				ta.CursorSetChar(curChar)
+				line = before + ta.CursorView() + after
 			}
 
 			// Pad to contentWidth (only in wrap mode — in no-wrap mode,
@@ -180,7 +180,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	taView := strings.Join(visualLines, "\n")
-	cursorANSI := ta.Cursor.View()
+	cursorANSI := ta.CursorView()
 
 	th := theme.Current()
 
@@ -711,4 +711,157 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderViewBlock renders a block for view mode: styled static text without
+// the gutter, centered in a constrained content column for clean reading.
+func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool) string {
+	// Width here is the content column width (already constrained to viewMaxWidth).
+	contentWidth := width - blockPrefixWidth(b.Type)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	wrapped := content
+	if wordWrap {
+		wrapped = wrapText(content, contentWidth)
+	}
+
+	var rendered string
+
+	switch b.Type {
+	case block.Heading1:
+		style := theme.Current().Blocks.Heading1.Text.ToLipgloss(theme.Current().Accent)
+		rendered = style.Render(wrapped)
+
+	case block.Heading2:
+		style := theme.Current().Blocks.Heading2.Text.ToLipgloss("")
+		rendered = style.Render(wrapped)
+
+	case block.Heading3:
+		style := theme.Current().Blocks.Heading3.Text.ToLipgloss("")
+		rendered = style.Render(wrapped)
+
+	case block.BulletList:
+		bs := theme.Current().Blocks.Bullet
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		rendered = prefixFirstLine(prefix, wrapped)
+
+	case block.NumberedList:
+		bs := theme.Current().Blocks.Numbered
+		num := 1
+		for i := idx - 1; i >= 0; i-- {
+			if blocks[i].Type == block.NumberedList {
+				num++
+			} else {
+				break
+			}
+		}
+		markerColor := bs.MarkerColor
+		if markerColor == "" {
+			markerColor = theme.Current().Muted
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
+		rendered = prefixFirstLine(prefix, wrapped)
+
+	case block.Checklist:
+		bs := theme.Current().Blocks.Checklist
+		if b.Checked {
+			checkedColor := bs.CheckedColor
+			if checkedColor == "" {
+				checkedColor = theme.Current().Accent
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
+			if bs.CheckedBold {
+				style = style.Bold(true)
+			}
+			prefix := style.Render(bs.Checked)
+			text := wrapped
+			if bs.CheckedTextFaint {
+				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
+			}
+			rendered = prefixFirstLine(prefix, text)
+		} else {
+			uncheckedColor := bs.UncheckedColor
+			if uncheckedColor == "" {
+				uncheckedColor = theme.Current().Muted
+			}
+			// On hover, light up the checkbox marker with the accent color.
+			if hovered {
+				uncheckedColor = theme.Current().Accent
+			}
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			rendered = prefixFirstLine(prefix, wrapped)
+		}
+
+	case block.CodeBlock:
+		bs := theme.Current().Blocks.Code
+		title, body := block.ExtractCodeLanguage(content)
+		label := ""
+		if title != "" {
+			label = lipgloss.NewStyle().Faint(true).Render(title)
+		}
+		displayContent := body
+		if wordWrap {
+			displayContent = wrapText(body, contentWidth)
+		}
+		if title != "" && lexers.Get(title) != nil {
+			displayContent = highlightCode(displayContent, title)
+		}
+		rendered = renderCodeBox(displayContent, label, theme.Current().Border, bs.LabelAlign, contentWidth)
+
+	case block.Quote:
+		bs := theme.Current().Blocks.Quote
+		barColor := bs.BarColor
+		if barColor == "" {
+			barColor = theme.Current().Muted
+		}
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
+		lines := strings.Split(wrapped, "\n")
+		for i, l := range lines {
+			lines[i] = bar + l
+		}
+		rendered = strings.Join(lines, "\n")
+
+	case block.Divider:
+		bs := theme.Current().Blocks.Divider
+		divColor := bs.Color
+		if divColor == "" {
+			divColor = theme.Current().Muted
+		}
+		maxW := bs.MaxWidth
+		if maxW <= 0 {
+			maxW = 40
+		}
+		w := width
+		if w > maxW {
+			w = maxW
+		}
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
+
+	case block.Paragraph:
+		if wrapped == "" {
+			rendered = ""
+		} else {
+			rendered = wrapped
+		}
+
+	default:
+		rendered = wrapped
+	}
+
+	// In no-wrap mode, truncate lines to content column width.
+	if !wordWrap {
+		lines := strings.Split(rendered, "\n")
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, width, 0, false)
+		}
+		rendered = strings.Join(lines, "\n")
+	}
+
+	return rendered
 }

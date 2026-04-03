@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/browser"
 )
 
@@ -30,7 +30,7 @@ func runBrowser() error {
 			InitialSavedCursor: lastSavedCursor,
 		})
 
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		p := tea.NewProgram(m)
 		result, err := p.Run()
 		if err != nil {
 			return fmt.Errorf("run browser: %w", err)
