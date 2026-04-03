@@ -4,8 +4,6 @@ package editor
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -67,8 +65,6 @@ type Model struct {
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
-	debug       bool     // when true, show debug panel with block info
-	debugLog    *os.File // debug log file, nil when debug mode is off
 	wordWrap    bool     // when true, text wraps at terminal width
 	langPrompt  bool     // when true, typing goes to language input
 	langInput   string   // current language input text
@@ -215,15 +211,6 @@ func (m Model) headerHeight() int {
 	return 1
 }
 
-// debugPanelHeight returns the number of terminal lines the debug panel
-// occupies when visible: 1 border + 1 summary + 1 per block.
-func (m Model) debugPanelHeight() int {
-	if !m.debug {
-		return 0
-	}
-	return 1 + 1 + len(m.blocks) // border + summary + one line per block
-}
-
 // resizeTextareas updates all textarea widths for the current layout.
 func (m *Model) resizeTextareas() {
 	w := m.width
@@ -241,9 +228,9 @@ func (m *Model) resizeTextareas() {
 		m.textareas[i].SetWidth(taWidth)
 		m.textareas[i].SetHeight(m.textareas[i].VisualLineCount())
 	}
-	// Update viewport dimensions, reserving space for the header, status bar
-	// (which may wrap to multiple lines on narrow terminals), and the debug panel.
-	h := m.height - m.headerHeight() - m.statusBarHeight() - m.debugPanelHeight()
+	// Update viewport dimensions, reserving space for the header and status bar
+	// (which may wrap to multiple lines on narrow terminals).
+	h := m.height - m.headerHeight() - m.statusBarHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -266,7 +253,6 @@ func (m *Model) focusBlock(idx int) {
 	if idx < 0 || idx >= len(m.textareas) {
 		return
 	}
-	m.debugf("FOCUS %d → %d", m.active, idx)
 	if m.active >= 0 && m.active < len(m.textareas) {
 		// Sync content from old active textarea back to block.
 		m.blocks[m.active].Content = m.textareas[m.active].Value()
@@ -309,7 +295,6 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	if idx < 0 || idx >= len(m.blocks) {
 		return
 	}
-	m.debugf("INSERT block type=%s after [%d]", b.Type, idx)
 	ta := newTextareaForBlock(b, m.width)
 
 	// Insert into blocks slice.
@@ -328,13 +313,11 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 
 	// Focus the new block.
 	m.focusBlock(idx + 1)
-	m.debugBlockState("after INSERT")
 }
 
 // deleteBlock removes the block at the given index. If it is the last block,
 // it converts it to an empty paragraph instead of deleting.
 func (m *Model) deleteBlock(idx int) {
-	m.debugf("DELETE block[%d] (total=%d)", idx, len(m.blocks))
 	if len(m.blocks) <= 1 {
 		// Convert last block to empty paragraph.
 		m.blocks[0] = block.Block{Type: block.Paragraph, Content: ""}
@@ -357,7 +340,6 @@ func (m *Model) deleteBlock(idx int) {
 	}
 
 	m.textareas[m.active].Focus()
-	m.debugBlockState("after DELETE")
 }
 
 // mergeBlockUp merges block at idx into block at idx-1. The merged block
@@ -370,8 +352,6 @@ func (m *Model) mergeBlockUp(idx int) {
 	// Sync content from textarea.
 	currentContent := m.textareas[idx].Value()
 	prevContent := m.textareas[idx-1].Value()
-	m.debugf("MERGE block[%d] into block[%d]: %q + %q", idx, idx-1, prevContent, currentContent)
-
 	// Remember the merge point (end of previous content).
 	mergeCol := len([]rune(prevContent))
 
@@ -412,13 +392,11 @@ func (m *Model) mergeBlockUp(idx int) {
 
 	// Position cursor at the merge point.
 	m.textareas[m.active].SetCursor(mergeCol)
-	m.debugBlockState("after MERGE")
 }
 
 // swapBlocks swaps the block at idx with the block at idx+delta (delta is
 // -1 for up, +1 for down). No-op at boundaries.
 func (m *Model) swapBlocks(delta int) {
-	m.debugf("SWAP block[%d] delta=%d", m.active, delta)
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
@@ -450,11 +428,8 @@ func (m *Model) handleEnter() {
 	bt := m.blocks[m.active].Type
 	ta := &m.textareas[m.active]
 	content := ta.Value()
-	m.debugf("ENTER on block[%d] type=%s multiline=%v", m.active, m.blocks[m.active].Type, isMultiLine(bt))
-
 	// Divider: selected as a unit, Enter inserts paragraph below.
 	if bt == block.Divider {
-		m.debugf("ENTER → insert paragraph after divider")
 		m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
 		return
 	}
@@ -470,7 +445,6 @@ func (m *Model) handleEnter() {
 
 		if isLastLine && currentLineEmpty && len(lines) > 1 {
 			// Remove trailing empty line and insert paragraph.
-			m.debugf("ENTER → exit %s, trim empty line + insert paragraph", bt)
 			trimmed := strings.Join(lines[:len(lines)-1], "\n")
 			ta.SetValue(trimmed)
 			m.blocks[m.active].Content = trimmed
@@ -480,7 +454,6 @@ func (m *Model) handleEnter() {
 		}
 
 		// Otherwise insert a newline within the block.
-		m.debugf("ENTER → newline within %s", bt)
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
 		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyMsg{Type: tea.KeyEnter})
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
@@ -489,7 +462,6 @@ func (m *Model) handleEnter() {
 
 	// Empty list item: exit list by converting to paragraph.
 	if content == "" && (bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist) {
-		m.debugf("ENTER → exit list, convert to paragraph")
 		m.blocks[m.active].Type = block.Paragraph
 		m.blocks[m.active].Checked = false
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
@@ -582,7 +554,6 @@ func (m *Model) handleEnter() {
 		newBlock.Language = m.blocks[m.active].Language
 	}
 
-	m.debugf("ENTER → split block[%d]: before=%q after=%q newType=%s", m.active, before, after, newType)
 	m.insertBlockAfter(m.active, newBlock)
 	// Place cursor at the start of the new block (not at the end, which is
 	// where SetValue leaves it).
@@ -597,7 +568,6 @@ func (m *Model) handleBackspace() bool {
 	}
 
 	ta := &m.textareas[m.active]
-	m.debugf("BACKSPACE on block[%d] line=%d col=%d content=%q", m.active, ta.Line(), ta.LineInfo().ColumnOffset, ta.Value())
 
 	// Check if cursor is at position 0 (line 0, column 0).
 	if ta.Line() != 0 {
@@ -613,7 +583,6 @@ func (m *Model) handleBackspace() bool {
 
 	// Divider: backspace always deletes the divider (selected as a unit).
 	if bt == block.Divider {
-		m.debugf("BACKSPACE → delete divider block[%d]", m.active)
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
 		return true
@@ -629,7 +598,6 @@ func (m *Model) handleBackspace() bool {
 				// Non-paragraph single block: deleteBlock will convert to empty paragraph.
 			}
 		}
-		m.debugf("BACKSPACE → delete empty block[%d]", m.active)
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
 		return true
@@ -642,19 +610,16 @@ func (m *Model) handleBackspace() bool {
 
 	// If previous block is a divider, just delete the divider.
 	if m.blocks[m.active-1].Type == block.Divider {
-		m.debugf("BACKSPACE → delete divider block[%d] above", m.active-1)
 		m.deleteBlock(m.active - 1)
 		return true
 	}
 
-	m.debugf("BACKSPACE → merge block[%d] into block[%d]", m.active, m.active-1)
 	m.mergeBlockUp(m.active)
 	return true
 }
 
 // cutBlock removes the active block and stores it in the block clipboard.
 func (m *Model) cutBlock() {
-	m.debugf("CUT block[%d] type=%s", m.active, m.blocks[m.active].Type)
 	if len(m.blocks) <= 1 {
 		// Don't remove the last block; store it and clear it instead.
 		b := m.blocks[m.active]
@@ -682,7 +647,6 @@ func (m *Model) cutBlock() {
 	}
 
 	m.textareas[m.active].Focus()
-	m.debugBlockState("after CUT")
 }
 
 // applyPaletteSelection changes the active block's type to the selected
@@ -691,8 +655,6 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
-	m.debugf("PALETTE → change block[%d] to %s", m.active, bt)
-
 	m.blocks[m.active].Type = bt
 
 	taWidth := m.width - gutterWidth - blockPrefixWidth(bt)
@@ -736,65 +698,8 @@ func (m Model) isAtLastLine() bool {
 	return ta.Line() >= rawLineCount-1 && li.RowOffset >= li.Height-1
 }
 
-// debugf writes a timestamped line to the debug log file.
-// It is a no-op when debug logging is off.
-func (m *Model) debugf(format string, args ...interface{}) {
-	if m.debugLog == nil {
-		return
-	}
-	ts := time.Now().Format("15:04:05.000")
-	fmt.Fprintf(m.debugLog, "[%s] %s\n", ts, fmt.Sprintf(format, args...))
-}
-
-// debugBlockState logs the full block state to the debug log file.
-func (m *Model) debugBlockState(label string) {
-	if m.debugLog == nil {
-		return
-	}
-	m.debugf("%s — blocks:%d active:%d", label, len(m.blocks), m.active)
-	for i, b := range m.blocks {
-		content := b.Content
-		if i < len(m.textareas) {
-			content = m.textareas[i].Value()
-		}
-		// Escape newlines for readability
-		content = strings.ReplaceAll(content, "\n", "\\n")
-		if len(content) > 60 {
-			content = content[:60] + "..."
-		}
-		active := ""
-		if i == m.active {
-			active = " ← active"
-		}
-		h := 0
-		if i < len(m.textareas) {
-			h = m.textareas[i].Height()
-		}
-		m.debugf("  [%d] %-12s h:%-2d %q%s", i, b.Type.String(), h, content, active)
-	}
-}
-
-// truncate shortens a string for debug logging, escaping newlines.
-func truncate(s string, n int) string {
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	if len(s) > n {
-		return s[:n] + "..."
-	}
-	return s
-}
-
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Debug logging for incoming messages.
-	if m.debugLog != nil {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			m.debugf("KEY %q (type=%d)", msg.String(), msg.Type)
-		case tea.WindowSizeMsg:
-			m.debugf("RESIZE %dx%d", msg.Width, msg.Height)
-		}
-	}
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -834,15 +739,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return savedQuitMsg{content: content}
 					}
 				}
-				if m.debugLog != nil {
-					m.debugLog.Close()
-				}
 				m.quitting = true
 				return m, tea.Quit
 			case "n", "N", "ctrl+c":
-				if m.debugLog != nil {
-					m.debugLog.Close()
-				}
 				m.quitting = true
 				return m, tea.Quit
 			case "esc":
@@ -944,30 +843,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = true
 			return m, nil
 
-		case "ctrl+d":
-			m.debug = !m.debug
-			if m.debug {
-				// Open debug log file.
-				if home, err := os.UserHomeDir(); err == nil {
-					logPath := filepath.Join(home, ".notebook-debug.log")
-					if f, err := os.Create(logPath); err == nil {
-						m.debugLog = f
-						m.debugf("=== DEBUG SESSION START ===")
-						m.debugf("title=%q width=%d height=%d", m.config.Title, m.width, m.height)
-						m.debugBlockState("initial state")
-					}
-				}
-			} else {
-				// Close debug log file.
-				if m.debugLog != nil {
-					m.debugLog.Close()
-					m.debugLog = nil
-				}
-			}
-			m.resizeTextareas()
-			m.updateViewport()
-			return m, nil
-
 		case "ctrl+k":
 			m.cutBlock()
 			m.updateViewport()
@@ -992,16 +867,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusStyle = statusWarning
 				return m, nil
 			}
-			if m.debugLog != nil {
-				m.debugLog.Close()
-			}
 			m.quitting = true
 			return m, tea.Quit
 
 		case "ctrl+c":
-			if m.debugLog != nil {
-				m.debugLog.Close()
-			}
 			m.quitting = true
 			return m, tea.Quit
 
@@ -1100,9 +969,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case savedQuitMsg:
 		m.initial = msg.content
-		if m.debugLog != nil {
-			m.debugLog.Close()
-		}
 		m.quitting = true
 		return m, tea.Quit
 
@@ -1160,11 +1026,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
 
-		if m.debugLog != nil {
-			newContent := m.textareas[m.active].Value()
-			m.debugf("TEXTAREA updated block[%d]: %q", m.active, truncate(newContent, 60))
-		}
-
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
 		// (e.g. deleting a newline inserted via Ctrl+J).
@@ -1189,10 +1050,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateViewport renders all blocks and sets the viewport content, then
 // auto-scrolls to keep the active block's cursor line visible.
 func (m *Model) updateViewport() {
-	// Recalculate viewport height to account for the header, status bar
+	// Recalculate viewport height to account for the header and status bar
 	// wrapping which may change as content is modified (e.g. "[modified]"
-	// indicator), and the debug panel when active.
-	h := m.height - m.headerHeight() - m.statusBarHeight() - m.debugPanelHeight()
+	// indicator).
+	h := m.height - m.headerHeight() - m.statusBarHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -1279,11 +1140,6 @@ func (m Model) View() string {
 	header := m.renderHeader()
 	statusBar := m.renderStatusBar()
 
-	if m.debug {
-		debugPanel := m.renderDebugInfo()
-		return header + "\n" + m.viewport.View() + "\n" + debugPanel + "\n" + statusBar
-	}
-
 	return header + "\n" + m.viewport.View() + "\n" + statusBar
 }
 
@@ -1292,23 +1148,24 @@ func (m Model) renderHelpOverlay() string {
 	help := `  Keybindings
   ───────────────────────────
 
-  Ctrl+S    Save
-  Ctrl+Q    Quit
-  Ctrl+C    Force quit (no save)
-  Ctrl+D    Toggle debug
-  Ctrl+G    Toggle this help
-  Ctrl+K    Cut block
-  Enter     New block below
-  Ctrl+J    Newline within block
-  Backspace Merge/delete block
-  Alt+Up    Move block up
-  Alt+Down  Move block down
-  Ctrl+X    Toggle checkbox
-  Ctrl+L    Set code language
-  Ctrl+W    Toggle word wrap
-  /         Block type palette
+  Enter       New block below
+  ⌃J          Newline within block
+  Backspace   Merge/delete block
+  ⌃K          Cut block
+  ⌥↑          Move block up
+  ⌥↓          Move block down
+  /           Block type palette
 
-  Press Ctrl+G or Esc to close`
+  ⌃X          Toggle checkbox
+  ⌃L          Set code language
+  ⌃W          Toggle word wrap
+
+  ⌃S          Save
+  ⌃Q          Quit
+  ⌃C          Force quit (no save)
+  ⌃G          Toggle this help
+
+  Press ⌃G or Esc to close`
 
 	w := m.width
 	if w <= 0 {
@@ -1339,13 +1196,6 @@ func (m Model) renderStatusBar() string {
 	}
 
 	left := ""
-	if m.debug {
-		debugLabel := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.Current().Warning)).
-			Bold(true).
-			Render(" DEBUG (~/.notebook-debug.log)")
-		left += debugLabel
-	}
 	if !m.wordWrap {
 		wrapLabel := lipgloss.NewStyle().Faint(true).Render(" [no-wrap]")
 		left += wrapLabel
@@ -1358,7 +1208,7 @@ func (m Model) renderStatusBar() string {
 	if m.status != "" {
 		right = m.status
 	} else {
-		right = "/ for commands \u00B7 Ctrl+S save \u00B7 Ctrl+G help \u00B7 Ctrl+Q quit"
+		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303G help \u00B7 \u2303Q quit"
 	}
 
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)

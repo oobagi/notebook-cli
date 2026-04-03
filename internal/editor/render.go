@@ -89,89 +89,6 @@ func formatFloat(f float64) string {
 	return s
 }
 
-// renderDebugInfo builds the debug panel that shows block metadata.
-// It is displayed between the viewport and the status bar when debug mode
-// is active (Ctrl+D).
-func (m Model) renderDebugInfo() string {
-	th := theme.Current()
-	muted := lipgloss.NewStyle().Faint(true)
-
-	// Summary line.
-	summary := muted.Render(fmt.Sprintf(
-		"DEBUG  blocks:%d  active:%d  viewport:%dx%d  scroll:%d",
-		len(m.blocks), m.active,
-		m.viewport.Width, m.viewport.Height,
-		m.viewport.YOffset,
-	))
-
-	// One line per block.
-	var lines []string
-	for i, b := range m.blocks {
-		content := b.Content
-		if i < len(m.textareas) {
-			content = m.textareas[i].Value()
-		}
-
-		// Content preview: first 30 chars, truncated with "...".
-		preview := content
-		if preview == "" {
-			preview = "(empty)"
-		} else {
-			// Replace newlines with spaces for the preview.
-			preview = strings.ReplaceAll(preview, "\n", " ")
-			previewRunes := []rune(preview)
-			if len(previewRunes) > 30 {
-				preview = string(previewRunes[:30]) + "..."
-			}
-		}
-
-		// Textarea height.
-		h := 0
-		if i < len(m.textareas) {
-			h = m.textareas[i].Height()
-		}
-
-		// Active marker.
-		marker := ""
-		if i == m.active {
-			marker = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(th.Accent)).
-				Render("  <- active")
-		}
-
-		// Measure actual view width for diagnostics.
-		viewW := 0
-		if i < len(m.textareas) {
-			for _, vl := range strings.Split(m.textareas[i].View(), "\n") {
-				if lw := lipgloss.Width(vl); lw > viewW {
-					viewW = lw
-				}
-			}
-		}
-
-		taW := 0
-		if i < len(m.textareas) {
-			taW = m.textareas[i].Width()
-		}
-
-		line := muted.Render(fmt.Sprintf(
-			"[%d] %-12s \"%s\"  h:%d  taW:%d  viewW:%d  pfx:%d",
-			i, b.Type.String(), preview, h, taW, viewW, blockPrefixWidth(b.Type),
-		)) + marker
-
-		lines = append(lines, line)
-	}
-
-	// Top border line.
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	border := muted.Render(strings.Repeat("\u2500", w))
-
-	return border + "\n" + summary + "\n" + strings.Join(lines, "\n")
-}
-
 // renderBlock renders a single block. The active block shows its textarea;
 // inactive blocks show styled static text.
 func (m Model) renderBlock(idx int) string {
@@ -280,9 +197,12 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				line = before + ta.Cursor.View() + after
 			}
 
-			// Pad to contentWidth.
-			if pad := contentWidth - lipgloss.Width(line); pad > 0 {
-				line += strings.Repeat(" ", pad)
+			// Pad to contentWidth (only in wrap mode — in no-wrap mode,
+			// padding to 1000 causes false truncation indicators).
+			if m.wordWrap {
+				if pad := contentWidth - lipgloss.Width(line); pad > 0 {
+					line += strings.Repeat(" ", pad)
+				}
 			}
 			visualLines = append(visualLines, line)
 		}
