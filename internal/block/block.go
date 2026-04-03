@@ -5,6 +5,9 @@
 // is safe to use from tests, CLI tools, or any other context.
 package block
 
+import "strings"
+
+
 // BlockType enumerates the kinds of content blocks that a markdown document
 // can contain.
 type BlockType int
@@ -82,6 +85,19 @@ func (bt BlockType) Short() string {
 type Block struct {
 	Type     BlockType // kind of block
 	Content  string    // text content without markdown prefix
-	Language string    // code block language hint (CodeBlock only)
+	Language string    // code block language hint (CodeBlock only) — deprecated, kept for compat
 	Checked  bool      // whether checklist item is checked (Checklist only)
+}
+
+// ExtractCodeLanguage splits a code block's content into its title line
+// (typically a language identifier) and the remaining body. The first line
+// is always treated as the title regardless of whether it is a recognized
+// programming language.
+func ExtractCodeLanguage(content string) (title, body string) {
+	first, rest, found := strings.Cut(content, "\n")
+	t := strings.TrimSpace(first)
+	if found {
+		return t, rest
+	}
+	return t, ""
 }

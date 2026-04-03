@@ -66,8 +66,6 @@ type Model struct {
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
 	wordWrap    bool     // when true, text wraps at terminal width
-	langPrompt  bool     // when true, typing goes to language input
-	langInput   string   // current language input text
 	cursorCmd   tea.Cmd  // pending cursor blink command from Focus()
 }
 
@@ -290,6 +288,29 @@ func isMultiLine(bt block.BlockType) bool {
 	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote
 }
 
+// insertBlockBefore inserts a new block before the given index, creates a
+// textarea for it, and focuses it. The previously-active block shifts down.
+func (m *Model) insertBlockBefore(idx int, b block.Block) {
+	if idx < 0 || idx >= len(m.blocks) {
+		return
+	}
+	ta := newTextareaForBlock(b, m.width)
+
+	newBlocks := make([]block.Block, 0, len(m.blocks)+1)
+	newBlocks = append(newBlocks, m.blocks[:idx]...)
+	newBlocks = append(newBlocks, b)
+	newBlocks = append(newBlocks, m.blocks[idx:]...)
+	m.blocks = newBlocks
+
+	newTAs := make([]textarea.Model, 0, len(m.textareas)+1)
+	newTAs = append(newTAs, m.textareas[:idx]...)
+	newTAs = append(newTAs, ta)
+	newTAs = append(newTAs, m.textareas[idx:]...)
+	m.textareas = newTAs
+
+	m.focusBlock(idx)
+}
+
 // insertBlockAfter inserts a new block after the given index, creates a
 // textarea for it, and focuses the new block.
 func (m *Model) insertBlockAfter(idx int, b block.Block) {
@@ -368,7 +389,6 @@ func (m *Model) mergeBlockUp(idx int) {
 	// merging a heading into an empty paragraph preserves the heading type.
 	if prevContent == "" {
 		m.blocks[idx-1].Type = m.blocks[idx].Type
-		m.blocks[idx-1].Language = m.blocks[idx].Language
 		m.blocks[idx-1].Checked = m.blocks[idx].Checked
 	}
 
@@ -429,6 +449,7 @@ func (m *Model) handleEnter() {
 	bt := m.blocks[m.active].Type
 	ta := &m.textareas[m.active]
 	content := ta.Value()
+
 	// Divider: selected as a unit, Enter inserts paragraph below.
 	if bt == block.Divider {
 		m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
@@ -551,10 +572,6 @@ func (m *Model) handleEnter() {
 	if newType == block.Checklist {
 		newBlock.Checked = false
 	}
-	if newType == block.CodeBlock {
-		newBlock.Language = m.blocks[m.active].Language
-	}
-
 	m.insertBlockAfter(m.active, newBlock)
 	// Place cursor at the start of the new block (not at the end, which is
 	// where SetValue leaves it).
@@ -601,6 +618,17 @@ func (m *Model) handleBackspace() bool {
 		}
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
+		return true
+	}
+
+	// List item at position 0: convert to paragraph, keeping text.
+	if bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist {
+		m.blocks[m.active].Type = block.Paragraph
+		m.blocks[m.active].Checked = false
+		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+		newTA.SetValue(content)
+		m.cursorCmd = newTA.Focus()
+		m.textareas[m.active] = newTA
 		return true
 	}
 
@@ -806,44 +834,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// When language prompt is visible, intercept all keys.
-		if m.langPrompt {
-			switch msg.String() {
-			case "enter":
-				if m.active >= 0 && m.active < len(m.blocks) {
-					m.blocks[m.active].Language = m.langInput
-				}
-				m.langPrompt = false
-				m.langInput = ""
-				m.status = ""
-				m.statusStyle = statusNone
-				m.updateViewport()
-				return m, nil
-			case "esc":
-				m.langPrompt = false
-				m.langInput = ""
-				m.status = ""
-				m.statusStyle = statusNone
-				return m, nil
-			case "backspace":
-				if len(m.langInput) > 0 {
-					runes := []rune(m.langInput)
-					m.langInput = string(runes[:len(runes)-1])
-				}
-				m.status = "Language: " + m.langInput
-				return m, nil
-			default:
-				if msg.Type == tea.KeyRunes {
-					for _, r := range msg.Runes {
-						m.langInput += string(r)
-					}
-					m.status = "Language: " + m.langInput
-					return m, nil
-				}
-			}
-			return m, nil
-		}
-
 		// Clear transient status on any keypress.
 		if m.statusStyle == statusSuccess {
 			m.status = ""
@@ -887,6 +877,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
+			if m.isAtFirstLine() && m.active == 0 {
+				bt := m.blocks[0].Type
+				if bt == block.CodeBlock || bt == block.Quote || bt == block.Divider {
+					// These types don't split on Enter, so there's no other
+					// way to insert content above them. Create a paragraph.
+					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+					m.updateViewport()
+					return m, nil
+				}
+			}
 			if m.isAtFirstLine() && m.active > 0 {
 				m.navigateUp()
 				m.updateViewport()
@@ -942,16 +942,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
 				m.blocks[m.active].Checked = !m.blocks[m.active].Checked
 				m.updateViewport()
-				return m, nil
-			}
-
-		case "ctrl+l":
-			// Set language for code blocks.
-			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.CodeBlock {
-				m.langPrompt = true
-				m.langInput = m.blocks[m.active].Language
-				m.status = "Language: " + m.langInput
-				m.statusStyle = statusWarning
 				return m, nil
 			}
 
@@ -1024,8 +1014,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Tab inserts 4 spaces in code blocks.
-			if keyMsg.Type == tea.KeyTab && m.blocks[m.active].Type == block.CodeBlock {
+			// Tab inserts 4 spaces.
+			if keyMsg.Type == tea.KeyTab {
 				ta := &m.textareas[m.active]
 				for _, r := range "    " {
 					*ta, _ = ta.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -1084,13 +1074,10 @@ func (m *Model) updateViewport() {
 		for i := 0; i < m.active; i++ {
 			rendered := m.renderBlock(i)
 			lineOffset += strings.Count(rendered, "\n") + 1
-			// Account for the "\n" join separator in renderAllBlocks.
-			lineOffset++
 			// Account for palette rendered after a preceding block.
 			if m.palette.visible && i == m.palette.blockIdx {
 				if pv := m.palette.render(m.width); pv != "" {
 					lineOffset += strings.Count(pv, "\n") + 1
-					lineOffset++ // join separator after palette
 				}
 			}
 		}
@@ -1102,16 +1089,53 @@ func (m *Model) updateViewport() {
 			chromeLines = 1 // "\n" prefix for non-first H1
 		}
 		if m.blocks[m.active].Type == block.CodeBlock {
-			chromeLines = 1 // label + "\n" before bordered textarea
+			chromeLines = 1 // top border
 		}
 
-		cursorLine := lineOffset + chromeLines + m.textareas[m.active].Line()
+		ta := m.textareas[m.active]
+
+		// Count visual cursor line, accounting for word wrapping.
+		// ta.Line() is the raw line number, but wrapped lines before the
+		// cursor occupy more visual lines than raw lines.
+		cursorRawLine := ta.Line()
+		visualLine := cursorRawLine
+		if m.wordWrap {
+			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active].Type)
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+			rawLines := strings.Split(ta.Value(), "\n")
+			visualLine = 0
+			for i := 0; i < cursorRawLine && i < len(rawLines); i++ {
+				segs := textarea.Wrap([]rune(rawLines[i]), contentWidth)
+				if len(segs) == 0 {
+					visualLine++
+				} else {
+					visualLine += len(segs)
+				}
+			}
+			visualLine += ta.LineInfo().RowOffset
+		}
+
+		// Code blocks always strip the title line (raw line 0) from
+		// rendered content into the border. Adjust visual line count.
+		if m.blocks[m.active].Type == block.CodeBlock && cursorRawLine > 0 {
+			visualLine--
+		}
+
+		cursorLine := lineOffset + chromeLines + visualLine
 
 		// Always ensure the cursor line is visible. Prefer keeping the
 		// current scroll position when the cursor is already on screen.
+		// When cursor is on the first content line, also show the block's
+		// chrome (borders, labels) above it.
 		yOffset := m.viewport.YOffset
-		if cursorLine < yOffset {
-			yOffset = cursorLine
+		scrollTarget := cursorLine
+		if cursorRawLine == 0 && chromeLines > 0 {
+			scrollTarget = lineOffset // show from block start
+		}
+		if scrollTarget < yOffset {
+			yOffset = scrollTarget
 		}
 		if cursorLine >= yOffset+m.viewport.Height {
 			yOffset = cursorLine - m.viewport.Height + 1
@@ -1169,7 +1193,6 @@ func (m Model) renderHelpOverlay() string {
   /           Block type palette
 
   ⌃X          Toggle checkbox
-  ⌃L          Set code language
   ⌃W          Toggle word wrap
 
   ⌃S          Save

@@ -61,9 +61,10 @@ func Serialize(blocks []Block) string {
 			}
 
 		case CodeBlock:
-			lines = append(lines, "```"+b.Language)
-			if b.Content != "" {
-				lines = append(lines, strings.Split(b.Content, "\n")...)
+			lang, body := ExtractCodeLanguage(b.Content)
+			lines = append(lines, "```"+lang)
+			if body != "" {
+				lines = append(lines, strings.Split(body, "\n")...)
 			}
 			lines = append(lines, "```")
 

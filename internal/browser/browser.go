@@ -823,35 +823,28 @@ func (m Model) renderUIThemePreview(presetName string) string {
 	langLabel := faint.Render(lang)
 	labelW := lipgloss.Width(langLabel)
 
-	switch bs.Code.LabelPosition {
-	case "top":
-		dashes := codeW + 2 - labelW - 3
-		if dashes < 1 {
-			dashes = 1
-		}
-		topBorder = bc.Render("╭─ ") + langLabel + bc.Render(" "+strings.Repeat("─", dashes)+"╮")
-		b.WriteString(topBorder + "\n")
-		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
-		b.WriteString(bottomBorder + "\n")
-	case "bottom":
-		dashes := codeW + 2 - labelW - 3
-		if dashes < 1 {
-			dashes = 1
-		}
-		bottomBorder = bc.Render("╰─ ") + langLabel + bc.Render(" "+strings.Repeat("─", dashes)+"╯")
-		b.WriteString(topBorder + "\n")
-		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
-		b.WriteString(bottomBorder + "\n")
-	default: // "inside"
-		langPad := codeW - lipgloss.Width(lang)
-		if langPad < 0 {
-			langPad = 0
-		}
-		b.WriteString(topBorder + "\n")
-		b.WriteString(bc.Render("│") + " " + langLabel + strings.Repeat(" ", langPad) + " " + bc.Render("│") + "\n")
-		b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
-		b.WriteString(bottomBorder + "\n")
+	// Label always in top border, aligned per theme.
+	dashes := codeW + 2 - labelW - 3
+	if dashes < 1 {
+		dashes = 1
 	}
+	switch bs.Code.LabelAlign {
+	case "center":
+		total := codeW - lipgloss.Width(lang)
+		if total < 2 {
+			total = 2
+		}
+		left := total / 2
+		right := total - left
+		topBorder = bc.Render("╭"+strings.Repeat("─", left)+" ") + langLabel + bc.Render(" "+strings.Repeat("─", right)+"╮")
+	case "right":
+		topBorder = bc.Render("╭"+strings.Repeat("─", dashes)+" ") + langLabel + bc.Render(" ─╮")
+	default: // "left"
+		topBorder = bc.Render("╭─ ") + langLabel + bc.Render(" "+strings.Repeat("─", dashes)+"╮")
+	}
+	b.WriteString(topBorder + "\n")
+	b.WriteString(bc.Render("│") + " " + paddedCode + " " + bc.Render("│") + "\n")
+	b.WriteString(bottomBorder + "\n")
 	b.WriteString("\n")
 
 	// Quote

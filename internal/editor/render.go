@@ -291,7 +291,41 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				boxWidth = 10
 			}
 		}
-		rendered = renderCodeBox(taView, b.Language, th.Border, bs.LabelPosition, boxWidth)
+		// First line is always the title/language field, rendered in the
+		// top border. Use clean text with manual cursor (not raw textarea
+		// ANSI) so the border doesn't break.
+		rawLines := strings.Split(ta.Value(), "\n")
+		titleText := ""
+		if len(rawLines) > 0 {
+			titleText = rawLines[0]
+		}
+
+		faintStyle := lipgloss.NewStyle().Faint(true)
+		label := ""
+		if ta.Line() == 0 {
+			// Cursor is on the title — render with visible cursor.
+			if titleText == "" {
+				cursor := lipgloss.NewStyle().Reverse(true)
+				label = cursor.Render(" ") + faintStyle.Render("language")
+			} else {
+				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle)
+			}
+		} else if titleText != "" {
+			label = faintStyle.Render(titleText)
+		} else {
+			label = faintStyle.Render("language")
+		}
+
+		// Strip the title line from the textarea view.
+		cLines := strings.Split(taView, "\n")
+		if len(cLines) > 0 {
+			cLines = cLines[1:]
+		}
+		taView = strings.Join(cLines, "\n")
+		if cursorVisIdx > 0 {
+			cursorVisIdx--
+		}
+		rendered = renderCodeBox(taView, label, th.Border, bs.LabelAlign, boxWidth)
 
 	case block.Quote:
 		bs := th.Blocks.Quote
@@ -333,55 +367,29 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 				lines[i] = ansi.Truncate(l, m.width, "")
 			}
 		}
+	} else if b.Type == block.CodeBlock {
+		// Cursor column accounts for gutter + left box border (│ + space).
+		cursorCol := gutterWidth + 2 + cursorColInWrap
+		// cursorVisIdx is relative to content lines; +1 for top border.
+		adjustedCursor := cursorVisIdx + 1
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == adjustedCursor)
+		}
 	} else {
-		// Code blocks: just truncate all lines uniformly to preserve the
-		// box border structure. Cursor-aware scrolling would move the │
-		// borders and break the visual box.
-		if b.Type == block.CodeBlock {
-			for i, l := range lines {
-				if lipgloss.Width(l) > m.width {
-					lines[i] = ansi.Truncate(l, m.width-1, "\u2192")
-				}
-			}
-		} else {
-			for i, l := range lines {
-				lineW := lipgloss.Width(l)
-				if lineW <= m.width {
-					continue
-				}
-				if i == cursorVisIdx {
-					// Scroll to keep cursor visible.
-					cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
-					if cursorCol < m.width-1 {
-						// Cursor on screen (with room for → indicator).
-						lines[i] = ansi.Truncate(l, m.width-1, "\u2192")
-					} else {
-						// Cursor off screen — shift window to show it.
-						margin := m.width / 4
-						if margin < 5 {
-							margin = 5
-						}
-						scrollLeft := cursorCol - m.width + margin + 1
-						scrollRight := scrollLeft + m.width
-						lines[i] = "\u2190" + ansi.Cut(l, scrollLeft+1, scrollRight)
-						if lineW > scrollRight {
-							lines[i] = ansi.Truncate(lines[i], m.width-1, "\u2192")
-						}
-					}
-				} else {
-					lines[i] = ansi.Truncate(l, m.width, "\u2192")
-				}
-			}
+		cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
 		}
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// renderCodeBox renders code in a bordered box with configurable label placement.
-func renderCodeBox(code, language, borderColor, labelPos string, padWidth int) string {
+// renderCodeBox renders code in a bordered box with the label always in the
+// top border. labelAlign controls horizontal placement: "left", "center", or
+// "right" (default "left"). The label is pre-styled by the caller.
+func renderCodeBox(code, label, borderColor, labelAlign string, padWidth int) string {
 	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
-	faint := lipgloss.NewStyle().Faint(true)
 
 	lines := strings.Split(code, "\n")
 
@@ -398,28 +406,32 @@ func renderCodeBox(code, language, borderColor, labelPos string, padWidth int) s
 		}
 	}
 
-	// Default top/bottom borders.
 	topBorder := bc.Render("\u256D" + strings.Repeat("\u2500", innerW+2) + "\u256E")
 	bottomBorder := bc.Render("\u2570" + strings.Repeat("\u2500", innerW+2) + "\u256F")
 
-	if language != "" {
-		label := faint.Render(language)
+	if label != "" {
 		labelW := lipgloss.Width(label)
-		switch labelPos {
-		case "top":
-			dashes := innerW + 2 - labelW - 3
+		switch labelAlign {
+		case "center":
+			total := innerW - labelW
+			if total < 2 {
+				total = 2
+			}
+			left := total / 2
+			right := total - left
+			topBorder = bc.Render("\u256D"+strings.Repeat("\u2500", left)+" ") + label + bc.Render(" "+strings.Repeat("\u2500", right)+"\u256E")
+		case "right":
+			dashes := innerW - 1 - labelW
+			if dashes < 1 {
+				dashes = 1
+			}
+			topBorder = bc.Render("\u256D"+strings.Repeat("\u2500", dashes)+" ") + label + bc.Render(" \u2500\u256E")
+		default: // "left"
+			dashes := innerW - 1 - labelW
 			if dashes < 1 {
 				dashes = 1
 			}
 			topBorder = bc.Render("\u256D\u2500 ") + label + bc.Render(" "+strings.Repeat("\u2500", dashes)+"\u256E")
-		case "bottom":
-			dashes := innerW + 2 - labelW - 3
-			if dashes < 1 {
-				dashes = 1
-			}
-			bottomBorder = bc.Render("\u2570\u2500 ") + label + bc.Render(" "+strings.Repeat("\u2500", dashes)+"\u256F")
-		default: // "inside"
-			lines = append([]string{faint.Render(language) + strings.Repeat(" ", innerW-labelW)}, lines...)
 		}
 	}
 
@@ -430,6 +442,46 @@ func renderCodeBox(code, language, borderColor, labelPos string, padWidth int) s
 	}
 	out = append(out, bottomBorder)
 	return strings.Join(out, "\n")
+}
+
+// renderLabelCursor renders a label string with a reverse-video cursor at
+// the given column position. Text outside the cursor is styled with base.
+func renderLabelCursor(text string, col int, base lipgloss.Style) string {
+	runes := []rune(text)
+	cursor := lipgloss.NewStyle().Reverse(true)
+	if col >= len(runes) {
+		return base.Render(text) + cursor.Render(" ")
+	}
+	before := string(runes[:col])
+	ch := string(runes[col : col+1])
+	after := string(runes[col+1:])
+	return base.Render(before) + cursor.Render(ch) + base.Render(after)
+}
+
+// scrollOrTruncate fits a line within availWidth, adding ← → scroll
+// indicators as needed. For the cursor line, it scrolls to keep cursorCol
+// visible. For other lines, it simply truncates with a → indicator.
+func scrollOrTruncate(line string, availWidth, cursorCol int, isCursorLine bool) string {
+	lineW := lipgloss.Width(line)
+	if lineW <= availWidth {
+		return line
+	}
+	if !isCursorLine {
+		return ansi.Truncate(line, availWidth, "\u2192")
+	}
+	if cursorCol < availWidth-2 {
+		return ansi.Truncate(line, availWidth, "\u2192")
+	}
+	// Scroll to keep cursor visible. The cursor line doesn't show a →
+	// indicator — the cursor itself signals the position, and ← on the
+	// left shows there's hidden content.
+	scrollLeft := cursorCol - availWidth + 2
+	scrollRight := scrollLeft + availWidth
+	result := "\u2190" + ansi.Cut(line, scrollLeft+1, scrollRight)
+	if lipgloss.Width(result) > availWidth {
+		result = ansi.Truncate(result, availWidth, "")
+	}
+	return result
 }
 
 // styleAroundCursor applies a lipgloss style to text while preserving cursor
@@ -605,11 +657,21 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 
 	case block.CodeBlock:
 		bs := theme.Current().Blocks.Code
-		highlighted := wrapped
-		if b.Language != "" {
-			highlighted = highlightCode(wrapped, b.Language)
+		title, body := block.ExtractCodeLanguage(content)
+		label := ""
+		if title != "" {
+			label = lipgloss.NewStyle().Faint(true).Render(title)
 		}
-		rendered = renderCodeBox(highlighted, b.Language, theme.Current().Border, bs.LabelPosition, contentWidth)
+		// Display only the body (after the title line).
+		displayContent := body
+		if wordWrap {
+			displayContent = wrapText(body, contentWidth)
+		}
+		// Syntax highlighting when the title is a recognized language.
+		if title != "" && lexers.Get(title) != nil {
+			displayContent = highlightCode(displayContent, title)
+		}
+		rendered = renderCodeBox(displayContent, label, theme.Current().Border, bs.LabelAlign, contentWidth)
 
 	case block.Quote:
 		bs := theme.Current().Blocks.Quote
@@ -673,9 +735,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	// In no-wrap mode, truncate lines to terminal width.
 	if !wordWrap {
 		for i, l := range lines {
-			if lipgloss.Width(l) > width {
-				lines[i] = ansi.Truncate(l, width, "\u2192")
-			}
+			lines[i] = scrollOrTruncate(l, width, 0, false)
 		}
 	}
 

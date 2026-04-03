@@ -162,12 +162,12 @@ func TestBlockStylesComplete(t *testing.T) {
 			if bs.Divider.Char == "" {
 				t.Error("Divider.Char is empty")
 			}
-			if bs.Code.LabelPosition == "" {
-				t.Error("Code.LabelPosition is empty")
+			if bs.Code.LabelAlign == "" {
+				t.Error("Code.LabelAlign is empty")
 			}
-			valid := map[string]bool{"inside": true, "top": true, "bottom": true}
-			if !valid[bs.Code.LabelPosition] {
-				t.Errorf("Code.LabelPosition %q is not valid", bs.Code.LabelPosition)
+			valid := map[string]bool{"left": true, "center": true, "right": true}
+			if !valid[bs.Code.LabelAlign] {
+				t.Errorf("Code.LabelAlign %q is not valid", bs.Code.LabelAlign)
 			}
 		})
 	}
