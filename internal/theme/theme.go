@@ -1,9 +1,10 @@
 package theme
 
 import (
+	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // allPresets holds every named preset in display order.
@@ -610,7 +611,7 @@ func SetTheme(t Theme) {
 // the appropriate theme. When detection is not possible (e.g. piped output),
 // it defaults to Dark.
 func Detect() Theme {
-	if lipgloss.HasDarkBackground() {
+	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
 		return Dark
 	}
 	return Light

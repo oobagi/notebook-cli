@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/format"
@@ -299,32 +299,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Clear any lingering status text on next keypress.
 	m.statusText = ""
 
 	// Global quit keys.
-	switch msg.Type {
-	case tea.KeyCtrlC:
+	if msg.String() == "ctrl+c" {
 		m.quitting = true
 		return m, tea.Quit
 	}
 
 	// When help overlay is showing, only ? and Esc dismiss it.
 	if m.showHelp {
-		switch msg.Type {
-		case tea.KeyEsc:
+		switch msg.String() {
+		case "esc":
 			m.showHelp = false
 			return m, nil
-		case tea.KeyRunes:
-			if string(msg.Runes) == "?" {
+		default:
+			if msg.Text == "?" {
 				m.showHelp = false
 				return m, nil
 			}
@@ -347,8 +346,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFilterKey(msg)
 	}
 
-	switch msg.Type {
-	case tea.KeyTab:
+	switch msg.String() {
+	case "tab":
 		// Toggle between notebooks and recents at L0.
 		if m.level == 0 {
 			m.recentsView = !m.recentsView
@@ -363,13 +362,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyUp:
+	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 		return m, nil
 
-	case tea.KeyDown:
+	case "down":
 		max := m.listLen() - 1
 		if max < 0 {
 			max = 0
@@ -379,14 +378,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyEnter, tea.KeyRight:
+	case "enter", "right":
 		return m.handleEnter()
 
-	case tea.KeyEsc, tea.KeyLeft:
+	case "esc", "left":
 		return m.handleEsc()
 
-	case tea.KeyRunes:
-		s := string(msg.Runes)
+	default:
+		s := msg.Text
 		if s == "q" {
 			m.quitting = true
 			return m, tea.Quit
@@ -422,36 +421,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-
-	return m, nil
 }
 
-func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
+func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		m.filtering = false
 		m.filter = ""
 		m.filterCursor = 0
 		m.resetFilter()
 		return m, nil
 
-	case tea.KeyEnter:
+	case "enter":
 		m.filtering = false
 		return m.handleEnter()
 
-	case tea.KeyLeft:
+	case "left":
 		if m.filterCursor > 0 {
 			m.filterCursor--
 		}
 		return m, nil
 
-	case tea.KeyRight:
+	case "right":
 		if m.filterCursor < len(m.filter) {
 			m.filterCursor++
 		}
 		return m, nil
 
-	case tea.KeyBackspace:
+	case "backspace":
 		if m.filterCursor > 0 {
 			m.filter = m.filter[:m.filterCursor-1] + m.filter[m.filterCursor:]
 			m.filterCursor--
@@ -459,13 +456,13 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyUp:
+	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 		return m, nil
 
-	case tea.KeyDown:
+	case "down":
 		max := len(m.filtered) - 1
 		if max < 0 {
 			max = 0
@@ -475,26 +472,28 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeySpace:
+	case "space":
 		m.filter = m.filter[:m.filterCursor] + " " + m.filter[m.filterCursor:]
 		m.filterCursor++
 		m.applyFilter()
 		return m, nil
 
-	case tea.KeyRunes:
-		ch := string(msg.Runes)
-		m.filter = m.filter[:m.filterCursor] + ch + m.filter[m.filterCursor:]
-		m.filterCursor += len(ch)
-		m.applyFilter()
-		return m, nil
+	default:
+		if len(msg.Text) > 0 {
+			ch := msg.Text
+			m.filter = m.filter[:m.filterCursor] + ch + m.filter[m.filterCursor:]
+			m.filterCursor += len(ch)
+			m.applyFilter()
+			return m, nil
+		}
 	}
 
 	return m, nil
 }
 
-func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
+func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		m.inputMode = false
 		m.inputPrompt = ""
 		m.inputValue = ""
@@ -502,7 +501,7 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputAction = nil
 		return m, nil
 
-	case tea.KeyEnter:
+	case "enter":
 		action := m.inputAction
 		value := m.inputValue
 		m.inputMode = false
@@ -515,35 +514,37 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyLeft:
+	case "left":
 		if m.inputCursor > 0 {
 			m.inputCursor--
 		}
 		return m, nil
 
-	case tea.KeyRight:
+	case "right":
 		if m.inputCursor < len(m.inputValue) {
 			m.inputCursor++
 		}
 		return m, nil
 
-	case tea.KeyBackspace:
+	case "backspace":
 		if m.inputCursor > 0 {
 			m.inputValue = m.inputValue[:m.inputCursor-1] + m.inputValue[m.inputCursor:]
 			m.inputCursor--
 		}
 		return m, nil
 
-	case tea.KeySpace:
+	case "space":
 		m.inputValue = m.inputValue[:m.inputCursor] + " " + m.inputValue[m.inputCursor:]
 		m.inputCursor++
 		return m, nil
 
-	case tea.KeyRunes:
-		ch := string(msg.Runes)
-		m.inputValue = m.inputValue[:m.inputCursor] + ch + m.inputValue[m.inputCursor:]
-		m.inputCursor += len(ch)
-		return m, nil
+	default:
+		if len(msg.Text) > 0 {
+			ch := msg.Text
+			m.inputValue = m.inputValue[:m.inputCursor] + ch + m.inputValue[m.inputCursor:]
+			m.inputCursor += len(ch)
+			return m, nil
+		}
 	}
 
 	return m, nil
@@ -761,13 +762,13 @@ func (m Model) startThemePicker() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
+func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		m.themeMode = false
 		return m, nil
 
-	case tea.KeyUp:
+	case "up":
 		if m.uiThemeCursor > 0 {
 			m.uiThemeCursor--
 			presets := theme.Presets()
@@ -777,7 +778,7 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyDown:
+	case "down":
 		presets := theme.Presets()
 		if m.uiThemeCursor < len(presets)-1 {
 			m.uiThemeCursor++
@@ -785,7 +786,7 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyEnter:
+	case "enter":
 		presets := theme.Presets()
 		if len(presets) == 0 {
 			return m, nil
@@ -811,8 +812,8 @@ func (m Model) handleThemeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusText = fmt.Sprintf("UI theme set to %s", selected.Name)
 		return m, m.scheduleStatusDismiss()
 
-	case tea.KeyRunes:
-		if string(msg.Runes) == "q" || string(msg.Runes) == "t" {
+	default:
+		if msg.Text == "q" || msg.Text == "t" {
 			m.themeMode = false
 			return m, nil
 		}
@@ -1270,11 +1271,15 @@ func (m Model) renderHelpOverlay() string {
 		h = 24
 	}
 
+	// Strip tab characters from Go source indentation in raw strings.
+	// Lipgloss v2 does not expand tabs.
+	help = strings.ReplaceAll(help, "\t", "")
+
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
-		Width(36).
+		Width(38).
 		Align(lipgloss.Left)
 
 	rendered := box.Render(help)
@@ -1283,52 +1288,55 @@ func (m Model) renderHelpOverlay() string {
 }
 
 // View implements tea.Model.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.quitting {
-		return ""
+		v := tea.NewView("")
+		v.AltScreen = true
+		return v
 	}
+
+	var content string
 
 	if m.showHelp {
-		return m.renderHelpOverlay()
-	}
+		content = m.renderHelpOverlay()
+	} else if m.themeMode {
+		content = m.renderThemeOverlay()
+	} else if m.err != nil {
+		content = fmt.Sprintf("\n  Error: %v\n", m.err)
+	} else {
+		var b strings.Builder
 
-	if m.themeMode {
-		return m.renderThemeOverlay()
-	}
+		// Breadcrumb / path.
+		breadcrumb := m.renderBreadcrumb()
+		b.WriteString(breadcrumb)
+		b.WriteString("\n\n")
 
-	if m.err != nil {
-		return fmt.Sprintf("\n  Error: %v\n", m.err)
-	}
-
-	var b strings.Builder
-
-	// Breadcrumb / path.
-	breadcrumb := m.renderBreadcrumb()
-	b.WriteString(breadcrumb)
-	b.WriteString("\n\n")
-
-	// Content area.
-	contentHeight := m.height - 4 // breadcrumb + blank + status bar + blank
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
-	content := m.renderContent(contentHeight)
-	b.WriteString(content)
-
-	// Pad to push status bar to bottom.
-	contentLines := strings.Count(content, "\n")
-	if contentLines < contentHeight {
-		for i := 0; i < contentHeight-contentLines; i++ {
-			b.WriteString("\n")
+		// Content area.
+		contentHeight := m.height - 4 // breadcrumb + blank + status bar + blank
+		if contentHeight < 1 {
+			contentHeight = 1
 		}
+
+		c := m.renderContent(contentHeight)
+		b.WriteString(c)
+
+		// Pad to push status bar to bottom.
+		contentLines := strings.Count(c, "\n")
+		if contentLines < contentHeight {
+			for i := 0; i < contentHeight-contentLines; i++ {
+				b.WriteString("\n")
+			}
+		}
+
+		// Status bar.
+		b.WriteString("\n")
+		b.WriteString(m.renderStatusBar())
+		content = b.String()
 	}
 
-	// Status bar.
-	b.WriteString("\n")
-	b.WriteString(m.renderStatusBar())
-
-	return b.String()
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 func (m Model) renderBreadcrumb() string {
