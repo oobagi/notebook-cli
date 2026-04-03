@@ -282,7 +282,16 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	case block.CodeBlock:
 		bs := th.Blocks.Code
-		rendered = renderCodeBox(taView, b.Language, th.Border, bs.LabelPosition, contentWidth)
+		boxWidth := contentWidth
+		if !m.wordWrap {
+			// In no-wrap mode contentWidth is 1000; size the box border to
+			// the terminal instead so it doesn't overflow every line.
+			boxWidth = m.width - gutterWidth - blockPrefixWidth(b.Type)
+			if boxWidth < 10 {
+				boxWidth = 10
+			}
+		}
+		rendered = renderCodeBox(taView, b.Language, th.Border, bs.LabelPosition, boxWidth)
 
 	case block.Quote:
 		bs := th.Blocks.Quote
@@ -342,8 +351,8 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			if i == cursorLine {
 				// Scroll to keep cursor visible.
 				cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
-				if cursorCol < m.width {
-					// Cursor on screen — just truncate right.
+				if cursorCol < m.width-1 {
+					// Cursor on screen (with room for → indicator) — just truncate right.
 					lines[i] = ansi.Truncate(l, m.width-1, "\u2192")
 				} else {
 					// Cursor off screen — shift window to show it.
