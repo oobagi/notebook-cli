@@ -208,7 +208,6 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 	}
 
-	_ = cursorVisIdx
 	taView := strings.Join(visualLines, "\n")
 
 	th := theme.Current()
@@ -317,11 +316,47 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 	}
 
-	// Truncate any line that exceeds terminal width.
-	for i, l := range lines {
-		if lipgloss.Width(l) > m.width {
-			if m.wordWrap {
+	// Truncate or horizontally scroll lines that exceed terminal width.
+	if m.wordWrap {
+		for i, l := range lines {
+			if lipgloss.Width(l) > m.width {
 				lines[i] = ansi.Truncate(l, m.width, "")
+			}
+		}
+	} else {
+		// Determine which output line has the cursor so we can scroll to it.
+		cursorLine := cursorVisIdx
+		if b.Type == block.CodeBlock {
+			cursorLine++ // top border line
+			if b.Language != "" && th.Blocks.Code.LabelPosition == "inside" {
+				cursorLine++ // label line inside box
+			}
+		}
+
+		for i, l := range lines {
+			lineW := lipgloss.Width(l)
+			if lineW <= m.width {
+				continue
+			}
+			if i == cursorLine {
+				// Scroll to keep cursor visible.
+				cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
+				if cursorCol < m.width {
+					// Cursor on screen — just truncate right.
+					lines[i] = ansi.Truncate(l, m.width-1, "\u2192")
+				} else {
+					// Cursor off screen — shift window to show it.
+					margin := m.width / 4
+					if margin < 5 {
+						margin = 5
+					}
+					scrollLeft := cursorCol - m.width + margin + 1
+					scrollRight := scrollLeft + m.width
+					lines[i] = "\u2190" + ansi.Cut(l, scrollLeft+1, scrollRight)
+					if lineW > scrollRight {
+						lines[i] = ansi.Truncate(lines[i], m.width-1, "\u2192")
+					}
+				}
 			} else {
 				lines[i] = ansi.Truncate(l, m.width, "\u2192")
 			}
