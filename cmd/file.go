@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/oobagi/notebook/internal/editor"
@@ -62,12 +61,7 @@ func openFile(path string) error {
 			if err := os.WriteFile(absPath, []byte(content), originalMode); err != nil {
 				return err
 			}
-			// Record in recents (best-effort, never block save).
-			_ = recents.Record(recents.DefaultPath(), recents.Entry{
-				Type:       "external",
-				Path:       absPath,
-				LastEdited: time.Now(),
-			})
+			recents.RecordExternal(absPath)
 			return nil
 		},
 	}
