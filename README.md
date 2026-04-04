@@ -63,6 +63,8 @@ Press **/** on an empty block to open the command palette and switch its type. P
 
 **10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block, Quote, Divider.
 
+**Coming soon:** Table, Collapsible Group.
+
 #### Editor keybindings
 
 | Key | Action |
