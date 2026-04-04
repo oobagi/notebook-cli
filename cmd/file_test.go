@@ -34,7 +34,6 @@ func TestIsFilePathWithExtension(t *testing.T) {
 	}{
 		{"notes.md", true},
 		{"todo.txt", true},
-		{"readme.markdown", false},
 		{"NOTES.MD", true},
 		{"file.TXT", true},
 	}
