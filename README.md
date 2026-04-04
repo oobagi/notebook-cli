@@ -49,7 +49,7 @@ notebook ideas new "First Thought"
 # Open it in the editor
 notebook ideas "First Thought"
 
-# Open any markdown file directly
+# Open any markdown or text file directly (.md, .txt, .markdown)
 notebook path/to/file.md
 ```
 
@@ -149,7 +149,7 @@ notebook <book> "Title" delete         Delete a note
 notebook <book> delete                 Delete a notebook
 notebook search "query"                Search across all notebooks
 notebook <book> search "query"         Search within a notebook
-notebook path/to/file.md              Open any file in the editor
+notebook path/to/file.md              Open any .md, .txt, or .markdown file
 notebook theme [name]                  List or set theme
 notebook config                        Show current config
 notebook config set <key> <value>      Set a config value
