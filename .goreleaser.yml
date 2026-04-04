@@ -5,10 +5,10 @@ before:
     - go mod tidy
 
 builds:
-  - main: .
+  - main: ./cmd/notebook
     binary: notebook
     ldflags:
-      - -s -w -X github.com/oobagi/notebook/cmd.Version={{.Version}}
+      - -s -w -X github.com/oobagi/notebook-cli/cmd.Version={{.Version}}
     env:
       - CGO_ENABLED=0
     goos:
@@ -37,4 +37,4 @@ changelog:
 release:
   github:
     owner: oobagi
-    name: notebook
+    name: notebook-cli
