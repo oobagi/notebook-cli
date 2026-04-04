@@ -690,6 +690,11 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
+	// Don't merge content into code blocks or quote blocks.
+	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote {
+		return false
+	}
+
 	m.pushUndo()
 	m.mergeBlockUp(m.active)
 	return true
