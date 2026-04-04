@@ -400,10 +400,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "enter", "right":
+	case "enter":
 		return m.handleEnter()
 
-	case "esc", "left":
+	case "esc":
 		return m.handleEsc()
 
 	default:
