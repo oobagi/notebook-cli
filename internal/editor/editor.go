@@ -194,6 +194,7 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 	}
 	ta.SetWidth(taWidth)
 	ta.SetValue(b.Content)
+	ta.MoveToBegin()
 
 	// Set height from the textarea's own wrapping — it knows best.
 	ta.SetHeight(ta.VisualLineCount())
@@ -304,26 +305,33 @@ func (m *Model) focusBlock(idx int) {
 	m.cursorCmd = m.textareas[idx].Focus()
 }
 
-// navigateUp moves focus to the previous block, placing cursor at end.
+// navigateUp moves focus to the previous block, preserving horizontal position.
 func (m *Model) navigateUp() {
 	if m.active <= 0 {
 		return
 	}
+	// Capture horizontal position before leaving.
+	charOffset := m.textareas[m.active].LineInfo().CharOffset
 	m.focusBlock(m.active - 1)
-	// Place cursor at the end of the previous block's textarea.
+	// Move to the last visual line and restore horizontal offset.
 	ta := &m.textareas[m.active]
-	ta.CursorEnd()
+	ta.MoveToEnd()
+	li := ta.LineInfo()
+	ta.SetCursorColumn(li.StartColumn + charOffset)
 }
 
-// navigateDown moves focus to the next block, placing cursor at start.
+// navigateDown moves focus to the next block, preserving horizontal position.
 func (m *Model) navigateDown() {
 	if m.active >= len(m.textareas)-1 {
 		return
 	}
+	// Capture horizontal position before leaving.
+	charOffset := m.textareas[m.active].LineInfo().CharOffset
 	m.focusBlock(m.active + 1)
-	// Place cursor at the start of the next block's textarea.
+	// Move to the first visual line and restore horizontal offset.
 	ta := &m.textareas[m.active]
-	ta.CursorStart()
+	ta.MoveToBegin()
+	ta.SetCursorColumn(charOffset)
 }
 
 // isMultiLine returns true if the block type allows multi-line content.
@@ -610,7 +618,7 @@ func (m *Model) handleEnter() {
 	m.insertBlockAfter(m.active, newBlock)
 	// Place cursor at the start of the new block (not at the end, which is
 	// where SetValue leaves it).
-	m.textareas[m.active].CursorStart()
+	m.textareas[m.active].MoveToBegin()
 }
 
 // handleBackspace processes Backspace at position 0 for block deletion/merging.
@@ -638,7 +646,7 @@ func (m *Model) handleBackspace() bool {
 	if bt == block.Divider {
 		m.pushUndo()
 		m.deleteBlock(m.active)
-		m.textareas[m.active].CursorEnd()
+		m.textareas[m.active].MoveToEnd()
 		return true
 	}
 
@@ -653,7 +661,7 @@ func (m *Model) handleBackspace() bool {
 		}
 		m.pushUndo()
 		m.deleteBlock(m.active)
-		m.textareas[m.active].CursorEnd()
+		m.textareas[m.active].MoveToEnd()
 		return true
 	}
 
