@@ -19,17 +19,13 @@ func runBrowser() error {
 	}
 
 	var lastBook string
-	var lastCursor, lastSavedCursor int
+	var lastCursor int
 	for {
 		m := browser.New(browser.Config{
-			Store: store,
-			EditNote: func(book, note string) error {
-				return editNote(nil, book, note)
-			},
-			InitialBook:        lastBook,
-			InitialCursor:      lastCursor,
-			InitialSavedCursor: lastSavedCursor,
-			DismissedHints:     config.LoadDismissedHints(),
+			Store:          store,
+			InitialBook:    lastBook,
+			InitialCursor:  lastCursor,
+			DismissedHints: config.LoadDismissedHints(),
 		})
 
 		p := tea.NewProgram(m)
@@ -46,17 +42,20 @@ func runBrowser() error {
 		}
 
 		lastCursor = final.Cursor()
-		lastSavedCursor = final.SavedCursor()
 
-		// External file selection from recents.
-		if sel.FilePath != "" {
+		if sel.FromRecent {
+			// Entered from recents — return to L0 at the same cursor.
 			lastBook = ""
+		} else {
+			// Entered from notebook list — return to L1 inside the book.
+			lastBook = sel.Book
+		}
+
+		if sel.FilePath != "" {
 			if err := openFile(sel.FilePath); err != nil {
 				return fmt.Errorf("open file: %w", err)
 			}
 		} else {
-			// Launch editor for the selected note.
-			lastBook = sel.Book
 			if err := editNote(os.Stderr, sel.Book, sel.Note); err != nil {
 				return fmt.Errorf("edit note: %w", err)
 			}

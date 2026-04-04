@@ -237,9 +237,6 @@ func TestParse(t *testing.T) {
 				if got[i].Content != tt.expect[i].Content {
 					t.Errorf("block[%d].Content: got %q, want %q", i, got[i].Content, tt.expect[i].Content)
 				}
-				if got[i].Language != tt.expect[i].Language {
-					t.Errorf("block[%d].Language: got %q, want %q", i, got[i].Language, tt.expect[i].Language)
-				}
 				if got[i].Checked != tt.expect[i].Checked {
 					t.Errorf("block[%d].Checked: got %v, want %v", i, got[i].Checked, tt.expect[i].Checked)
 				}

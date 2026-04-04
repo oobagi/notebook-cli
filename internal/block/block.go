@@ -83,10 +83,9 @@ func (bt BlockType) Short() string {
 
 // Block holds a single parsed content block.
 type Block struct {
-	Type     BlockType // kind of block
-	Content  string    // text content without markdown prefix
-	Language string    // code block language hint (CodeBlock only) — deprecated, kept for compat
-	Checked  bool      // whether checklist item is checked (Checklist only)
+	Type    BlockType // kind of block
+	Content string    // text content without markdown prefix
+	Checked bool      // whether checklist item is checked (Checklist only)
 }
 
 // ExtractCodeLanguage splits a code block's content into its title line

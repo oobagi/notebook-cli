@@ -174,9 +174,6 @@ func TestSerializeIdempotent(t *testing.T) {
 				if blocks1[i].Content != blocks2[i].Content {
 					t.Errorf("block[%d].Content: %q vs %q", i, blocks1[i].Content, blocks2[i].Content)
 				}
-				if blocks1[i].Language != blocks2[i].Language {
-					t.Errorf("block[%d].Language: %q vs %q", i, blocks1[i].Language, blocks2[i].Language)
-				}
 				if blocks1[i].Checked != blocks2[i].Checked {
 					t.Errorf("block[%d].Checked: %v vs %v", i, blocks1[i].Checked, blocks2[i].Checked)
 				}
