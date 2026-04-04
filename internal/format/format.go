@@ -29,6 +29,42 @@ func StatusBar(left, hint, right string, width int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// StatusBarInput renders an input bar with a prompt, editable value with a
+// visible cursor, and right-side hints. Returns a fully styled, width-padded
+// string (faint text with a reverse-video cursor).
+func StatusBarInput(prompt, value string, cursorPos int, hints string, width int, cursorVisible bool) string {
+	if width <= 0 {
+		width = 80
+	}
+
+	dim := lipgloss.NewStyle().Faint(true)
+	rev := lipgloss.NewStyle().Reverse(true)
+
+	before := value[:cursorPos]
+	cursorChar := " "
+	after := ""
+	if cursorPos < len(value) {
+		cursorChar = string(value[cursorPos])
+		after = value[cursorPos+1:]
+	}
+
+	left := dim.Render("  " + prompt + " " + before)
+	var cursor string
+	if cursorVisible {
+		cursor = rev.Render(cursorChar)
+	} else {
+		cursor = dim.Render(cursorChar)
+	}
+	right := dim.Render(after + " \u00B7 " + hints)
+
+	used := lipgloss.Width(left) + 1 + lipgloss.Width(right)
+	pad := width - used
+	if pad < 0 {
+		pad = 0
+	}
+	return left + cursor + right + dim.Render(strings.Repeat(" ", pad))
+}
+
 // ShortenHome replaces the home directory prefix with ~/ for display.
 func ShortenHome(path string) string {
 	home, err := os.UserHomeDir()

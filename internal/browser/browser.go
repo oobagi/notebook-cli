@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/cursor"
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook/internal/clipboard"
 	"github.com/oobagi/notebook/internal/config"
@@ -85,6 +86,9 @@ type Model struct {
 
 	// Onboarding hints.
 	dismissedHints map[string]bool
+
+	// Cursor blink for input/filter modes.
+	inputCur cursor.Model
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -110,6 +114,9 @@ func New(cfg Config) Model {
 	if m.dismissedHints == nil {
 		m.dismissedHints = make(map[string]bool)
 	}
+	m.inputCur = cursor.New()
+	m.inputCur.Style = lipgloss.NewStyle()
+	m.inputCur.TextStyle = lipgloss.NewStyle().Faint(true)
 	return m
 }
 
@@ -311,6 +318,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
+	// Forward to cursor blink model when in input/filter mode.
+	if m.inputMode || m.filtering {
+		var cmd tea.Cmd
+		m.inputCur, cmd = m.inputCur.Update(msg)
+		return m, cmd
+	}
+
 	return m, nil
 }
 
@@ -417,7 +431,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.filter = ""
 			m.filterCursor = 0
 			m.applyFilter()
-			return m, nil
+			return m, m.inputCur.Focus()
 		}
 		if s == "d" {
 			if m.recentsView {
@@ -442,16 +456,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.inputCur.IsBlinked = false
 	switch msg.String() {
 	case "esc":
 		m.filtering = false
 		m.filter = ""
 		m.filterCursor = 0
 		m.resetFilter()
+		m.inputCur.Blur()
 		return m, nil
 
 	case "enter":
 		m.filtering = false
+		m.inputCur.Blur()
 		return m.handleEnter()
 
 	case "left":
@@ -510,6 +527,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.inputCur.IsBlinked = false
 	switch msg.String() {
 	case "esc":
 		m.inputMode = false
@@ -517,6 +535,7 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inputValue = ""
 		m.inputCursor = 0
 		m.inputAction = nil
+		m.inputCur.Blur()
 		return m, nil
 
 	case "enter":
@@ -527,6 +546,7 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inputValue = ""
 		m.inputCursor = 0
 		m.inputAction = nil
+		m.inputCur.Blur()
 		if action != nil {
 			return m, action(value)
 		}
@@ -616,7 +636,7 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	return m, nil
+	return m, m.inputCur.Focus()
 }
 
 func (m Model) startRename() (tea.Model, tea.Cmd) {
@@ -675,7 +695,7 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	return m, nil
+	return m, m.inputCur.Focus()
 }
 
 func (m Model) startCreate() (tea.Model, tea.Cmd) {
@@ -716,7 +736,7 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	return m, nil
+	return m, m.inputCur.Focus()
 }
 
 func (m Model) copyNote() (tea.Model, tea.Cmd) {
@@ -1308,6 +1328,9 @@ func (m Model) renderHelpOverlay() string {
 // currentHintID returns the hint ID relevant to the current browser state,
 // or "" if no hint applies.
 func (m Model) currentHintID() string {
+	if m.recentsView && !m.filtering {
+		return "browser.recents"
+	}
 	if m.level == 0 && !m.recentsView && !m.filtering {
 		return "browser.theme"
 	}
@@ -1677,54 +1700,37 @@ func (m Model) renderEmptyNotes() string {
 }
 
 func (m Model) renderStatusBar() string {
-	dim := lipgloss.NewStyle().Faint(true)
-
-	if m.inputMode {
-		before := m.inputValue[:m.inputCursor]
-		after := m.inputValue[m.inputCursor:]
-		cursor := lipgloss.NewStyle().Reverse(true)
-		cursorChar := " "
-		if m.inputCursor < len(m.inputValue) {
-			cursorChar = string(m.inputValue[m.inputCursor])
-			after = after[1:]
-		}
-		return dim.Render(fmt.Sprintf("  %s %s", m.inputPrompt, before)) + cursor.Render(cursorChar) + dim.Render(after) + dim.Render(" · Enter confirm · Esc cancel")
-	}
-
-	if m.statusText != "" {
-		return dim.Render(fmt.Sprintf("  %s", m.statusText))
-	}
-
-	if m.filtering {
-		before := m.filter[:m.filterCursor]
-		after := m.filter[m.filterCursor:]
-		cursor := lipgloss.NewStyle().Reverse(true)
-		cursorChar := " "
-		if m.filterCursor < len(m.filter) {
-			cursorChar = string(m.filter[m.filterCursor])
-			after = after[1:]
-		}
-		return dim.Render("  Filter: "+before) + cursor.Render(cursorChar) + dim.Render(after+" \u00B7 Esc clear \u00B7 Enter select")
-	}
-
 	width := m.width
 	if width <= 0 {
 		width = 80
+	}
+
+	if m.inputMode {
+		return format.StatusBarInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
+	}
+
+	if m.filtering {
+		return format.StatusBarInput("Filter:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
 	}
 
 	left := " "
 	var hint string
 	var right string
 
-	if m.recentsView {
-		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 q quit \u00B7 ? help"
+	if m.statusText != "" {
+		left = "  " + m.statusText
+	} else if m.recentsView {
+		if !m.dismissedHints["browser.recents"] {
+			hint = "edit any file: notebook todo.txt  [h]ide"
+		}
+		right = "d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 ? help"
 	} else if m.level == 0 {
 		if !m.dismissedHints["browser.theme"] {
-			hint = lipgloss.NewStyle().Italic(true).Render("press t to change theme!  [h]ide")
+			hint = "press t to change theme!  [h]ide"
 		}
-		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 Tab recents \u00B7 / search \u00B7 q quit \u00B7 ? help"
+		right = "Tab recents \u00B7 / search \u00B7 ? help"
 	} else {
-		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help"
+		right = "/ search \u00B7 Esc back \u00B7 ? help"
 	}
 
 	bar := format.StatusBar(left, hint, right, width)
