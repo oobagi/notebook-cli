@@ -615,6 +615,9 @@ func TestEnterOnSingleLineBlockCreatesNewBlock(t *testing.T) {
 		t.Fatalf("expected 1 block, got %d", m.BlockCount())
 	}
 
+	// Move cursor to end (newTextareaForBlock places cursor at start).
+	m.textareas[m.active].MoveToEnd()
+
 	// Press Enter.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
@@ -1282,6 +1285,9 @@ func TestEnterOnEmptyBulletConvertsToParagraph(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
+	// Move cursor to end (newTextareaForBlock places cursor at start).
+	m.textareas[m.active].MoveToEnd()
+
 	// Press Enter on the non-empty bullet to create a new empty bullet.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
@@ -1315,6 +1321,9 @@ func TestEnterOnEmptyNumberedListConvertsToParagraph(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
+	// Move cursor to end (newTextareaForBlock places cursor at start).
+	m.textareas[m.active].MoveToEnd()
+
 	// Press Enter to create a new empty numbered list item.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
@@ -1342,6 +1351,9 @@ func TestEnterOnEmptyChecklistConvertsToParagraph(t *testing.T) {
 	m := New(Config{Title: "test", Content: "- [ ] task one"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
+
+	// Move cursor to end (newTextareaForBlock places cursor at start).
+	m.textareas[m.active].MoveToEnd()
 
 	// Press Enter to create a new empty checklist item.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
