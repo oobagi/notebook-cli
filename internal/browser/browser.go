@@ -19,36 +19,30 @@ import (
 	"github.com/oobagi/notebook/internal/theme"
 )
 
-// EditFunc is called when the user selects a note to edit.
-type EditFunc func(book, note string) error
-
 // Config holds the dependencies needed by the browser.
 type Config struct {
-	Store              *storage.Store
-	EditNote           EditFunc
-	InitialBook        string // if set, start at L1 in this notebook
-	InitialCursor      int    // cursor position to restore within the initial view
-	InitialSavedCursor int    // L0 cursor to restore when returning from L1
-	DismissedHints     map[string]bool
+	Store          *storage.Store
+	InitialBook    string // if set, start at L1 in this notebook
+	InitialCursor  int    // cursor position to restore within the initial view
+	DismissedHints map[string]bool
 }
 
 // Selection represents a note the user chose to open.
 type Selection struct {
-	Book     string
-	Note     string
-	FilePath string // non-empty for external file selections
+	Book       string
+	Note       string
+	FilePath   string // non-empty for external file selections
+	FromRecent bool   // true if selected from the recents section
 }
 
 // Model is the Bubble Tea model for the notebook/note browser.
 type Model struct {
 	store       *storage.Store
-	editNote    EditFunc
 	level       int    // 0=notebooks, 1=notes
 	notebooks   []notebookItem
 	notes       []model.Note
 	currentBook string // selected notebook name
 	cursor      int    // current selection index
-	savedCursor int    // notebook-level cursor restored on Esc
 	filter       string // fuzzy search filter text
 	filtering    bool   // whether filter mode is active
 	filterCursor int    // cursor position within filter
@@ -100,15 +94,13 @@ type notebookItem struct {
 // New creates a new browser model.
 func New(cfg Config) Model {
 	m := Model{
-		store:    cfg.Store,
-		editNote: cfg.EditNote,
+		store: cfg.Store,
 	}
 	if cfg.InitialBook != "" {
 		m.level = 1
 		m.currentBook = cfg.InitialBook
 	}
 	m.cursor = cfg.InitialCursor
-	m.savedCursor = cfg.InitialSavedCursor
 	m.dismissedHints = cfg.DismissedHints
 	if m.dismissedHints == nil {
 		m.dismissedHints = make(map[string]bool)
@@ -127,11 +119,6 @@ func (m Model) Selected() *Selection {
 // Cursor returns the current cursor position.
 func (m Model) Cursor() int {
 	return m.cursor
-}
-
-// SavedCursor returns the saved L0 cursor position.
-func (m Model) SavedCursor() int {
-	return m.savedCursor
 }
 
 // scheduleStatusDismiss increments the generation counter and returns a tick
@@ -253,29 +240,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notebooksLoadedMsg:
 		m.notebooks = msg.notebooks
 		m.resetFilter()
-		if m.selectAfterReload != "" {
-			for i, fi := range m.filtered {
-				if m.notebooks[fi].name == m.selectAfterReload {
-					m.cursor = len(m.filteredRecent) + i
-					break
-				}
-			}
-			m.selectAfterReload = ""
-		}
 		return m, nil
 
 	case notesLoadedMsg:
 		m.notes = msg.notes
 		m.resetFilter()
-		if m.selectAfterReload != "" {
-			for i, fi := range m.filtered {
-				if m.notes[fi].Name == m.selectAfterReload {
-					m.cursor = i
-					break
-				}
-			}
-			m.selectAfterReload = ""
-		}
 		return m, nil
 
 	case recentsLoadedMsg:
@@ -327,6 +296,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Clear any lingering status text on next keypress.
 	m.statusText = ""
+	// Clear deferred cursor positioning once the user interacts.
+	m.selectAfterReload = ""
 
 	// Global quit keys.
 	if msg.String() == "ctrl+c" {
@@ -1131,6 +1102,16 @@ func (m *Model) resetFilter() {
 		for i := range m.notebooks {
 			m.filtered[i] = i
 		}
+		// Re-apply deferred cursor positioning every time data loads,
+		// so whichever async source arrives last gets the final say.
+		if m.selectAfterReload != "" && len(m.notebooks) > 0 {
+			for i, fi := range m.filtered {
+				if m.notebooks[fi].name == m.selectAfterReload {
+					m.cursor = len(m.filteredRecent) + i
+					break
+				}
+			}
+		}
 		total := m.totalL0Items()
 		if m.cursor >= total {
 			m.cursor = total - 1
@@ -1144,6 +1125,16 @@ func (m *Model) resetFilter() {
 	m.filtered = make([]int, len(m.notes))
 	for i := range m.notes {
 		m.filtered[i] = i
+	}
+
+	// Re-apply deferred cursor positioning for note list.
+	if m.selectAfterReload != "" && len(m.notes) > 0 {
+		for i, fi := range m.filtered {
+			if m.notes[fi].Name == m.selectAfterReload {
+				m.cursor = i
+				break
+			}
+		}
 	}
 
 	if m.cursor >= len(m.filtered) {
@@ -1191,12 +1182,14 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			switch entry.Type {
 			case recents.TypeStore:
 				m.selected = &Selection{
-					Book: entry.Notebook,
-					Note: entry.Name,
+					Book:       entry.Notebook,
+					Note:       entry.Name,
+					FromRecent: true,
 				}
 			case recents.TypeExternal:
 				m.selected = &Selection{
-					FilePath: entry.Path,
+					FilePath:   entry.Path,
+					FromRecent: true,
 				}
 			}
 			return m, tea.Quit
@@ -1212,7 +1205,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		idx := m.filtered[localIdx]
 		m.currentBook = m.notebooks[idx].name
 		m.level = 1
-		m.savedCursor = m.cursor
 		m.cursor = 0
 		m.filter = ""
 		m.filtering = false
@@ -1242,7 +1234,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 	if m.level == 1 {
 		m.level = 0
-		m.cursor = m.savedCursor
+		m.selectAfterReload = m.currentBook
+		m.cursor = 0
 		m.filter = ""
 		m.filtering = false
 		m.notebooks = nil
@@ -1494,9 +1487,6 @@ func (m Model) renderSectionHeader(title string) string {
 	return " " + style.Render(title)
 }
 
-
-
-
 func (m Model) renderNoteList(maxLines int) string {
 	if len(m.notes) == 0 {
 		return m.renderEmptyNotes()
@@ -1523,7 +1513,6 @@ func (m Model) renderNoteList(maxLines int) string {
 	return b.String()
 }
 
-
 func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	bullet := "  "
 	label := recentEntryLabel(e)
@@ -1546,8 +1535,6 @@ func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	)
 }
 
-
-
 // recentEntryLabel returns the display label for a recent entry.
 func recentEntryLabel(e recents.Entry) string {
 	switch e.Type {
@@ -1558,7 +1545,6 @@ func recentEntryLabel(e recents.Entry) string {
 	}
 	return ""
 }
-
 
 // visibleRange returns the slice of filtered indices to display,
 // implementing scrolling so the cursor stays visible.
@@ -1667,8 +1653,6 @@ func (m Model) renderEmptyNotes() string {
 	return m.renderStarEmpty("No notes in "+storage.DisplayName(m.currentBook)+".", "Press n to create one.", 0)
 }
 
-// renderStarEmpty renders a centered empty state with a star/dot pattern
-// inspired by the portfolio 404 page.
 // renderStarEmpty renders a centered empty state with a star/dot pattern.
 // If maxHeight > 0, it constrains the height to that value.
 func (m Model) renderStarEmpty(title, subtitle string, maxHeight int) string {

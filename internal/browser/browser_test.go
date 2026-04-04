@@ -58,7 +58,6 @@ func initModel(t *testing.T, s *storage.Store) Model {
 	t.Setenv("HOME", t.TempDir())
 	m := New(Config{
 		Store:    s,
-		EditNote: func(book, note string) error { return nil },
 	})
 
 	// Run Init and process the resulting messages (including batches).
@@ -1090,7 +1089,6 @@ func TestBrowserInitialBook(t *testing.T) {
 
 	m := New(Config{
 		Store:       s,
-		EditNote:    func(book, note string) error { return nil },
 		InitialBook: "work",
 	})
 
