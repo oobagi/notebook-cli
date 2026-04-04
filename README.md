@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.0.0-blue" alt="v1.0.0">
+  <a href="https://github.com/oobagi/notebook-cli/releases/latest"><img src="https://img.shields.io/github/v/release/oobagi/notebook-cli?color=blue" alt="Latest Release"></a>
   <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
@@ -53,7 +53,7 @@ notebook ideas new "First Thought"
 # Open it in the editor
 notebook ideas "First Thought"
 
-# Open any markdown or text file directly (.md, .txt, .markdown)
+# Open any .md or .txt file directly
 notebook path/to/file.md
 ```
 
@@ -161,7 +161,7 @@ notebook <book> "Title" delete         Delete a note
 notebook <book> delete                 Delete a notebook
 notebook search "query"                Search across all notebooks
 notebook <book> search "query"         Search within a notebook
-notebook path/to/file.md              Open any .md, .txt, or .markdown file
+notebook path/to/file.md              Open any .md or .txt file
 notebook theme [name]                  List or set theme
 notebook config                        Show current config
 notebook config set <key> <value>      Set a config value

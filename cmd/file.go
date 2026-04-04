@@ -12,7 +12,7 @@ import (
 )
 
 // textFileExtensions lists file extensions treated as directly openable text files.
-var textFileExtensions = []string{".md", ".txt", ".markdown"}
+var textFileExtensions = []string{".md", ".txt"}
 
 // isFilePath returns true if arg looks like a file path rather than a notebook
 // name. It checks for path separators or known text file extensions.
