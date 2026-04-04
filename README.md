@@ -38,11 +38,7 @@ Everything runs in your terminal. No account, no sync, no config required. A wel
 ## Install
 
 ```bash
-# Install — binary is named "notebook-cli"
-go install github.com/oobagi/notebook-cli@latest
-
-# Optional: alias to "notebook" for shorter commands
-alias notebook=notebook-cli
+go install github.com/oobagi/notebook-cli/cmd/notebook@latest
 ```
 
 ## Quick Start
