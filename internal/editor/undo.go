@@ -68,6 +68,7 @@ func (m *Model) captureState() editorState {
 func (m *Model) pushUndo() {
 	m.undo.push(m.captureState())
 	m.redo.clear()
+	m.undoDirty = false
 }
 
 // restoreState rebuilds the editor from a snapshot.
@@ -94,13 +95,22 @@ func (m *Model) restoreState(state editorState) {
 		m.textareas[m.active].SetRow(state.row)
 		m.textareas[m.active].SetCursorColumn(state.col)
 	}
+
+	// Close palette if open and recalculate textarea dimensions
+	// (resizeTextareas respects wordWrap and sets correct viewport size).
+	m.palette.close()
 	m.undoDirty = false
+	m.resizeTextareas()
 }
 
 // performUndo restores the previous state. Returns true if undo was performed.
 func (m *Model) performUndo() bool {
 	if m.undo.len() == 0 {
 		return false
+	}
+	// Flush any pending dirty content before capturing current state for redo.
+	if m.active >= 0 && m.active < len(m.textareas) {
+		m.blocks[m.active].Content = m.textareas[m.active].Value()
 	}
 	m.redo.push(m.captureState())
 	state, _ := m.undo.pop()
@@ -112,6 +122,9 @@ func (m *Model) performUndo() bool {
 func (m *Model) performRedo() bool {
 	if m.redo.len() == 0 {
 		return false
+	}
+	if m.active >= 0 && m.active < len(m.textareas) {
+		m.blocks[m.active].Content = m.textareas[m.active].Value()
 	}
 	m.undo.push(m.captureState())
 	state, _ := m.redo.pop()
