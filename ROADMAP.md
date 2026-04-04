@@ -97,17 +97,23 @@ This roadmap orders open work by leverage and dependency. Each item links to a G
 
 ## Phase 15: Recent Notes
 
-- [ ] [#158 Recent notes: track and surface recently edited notes](https://github.com/oobagi/notebook/issues/158)
+- [x] [#158 Recent notes: track and surface recently edited notes](https://github.com/oobagi/notebook/issues/158)
 
 ## Phase 16: View Mode
 
-- [ ] [#161 View/edit mode toggle with clean read-only rendering](https://github.com/oobagi/notebook/issues/161)
-- [ ] [#162 Mouse click to toggle checklists in view mode](https://github.com/oobagi/notebook/issues/162)
+- [x] [#161 View/edit mode toggle with clean read-only rendering](https://github.com/oobagi/notebook/issues/161)
+- [x] [#162 Mouse click to toggle checklists in view mode](https://github.com/oobagi/notebook/issues/162)
 
 ## Phase 17: Undo/Redo
 
-- [ ] [#164 feat: undo/redo for block editor](https://github.com/oobagi/notebook/issues/164)
+- [x] [#164 feat: undo/redo for block editor](https://github.com/oobagi/notebook/issues/164)
+
+## Phase 18: Inline Formatting & Browser Preview
+
+- [x] [#172 feat: inline markdown formatting (bold, italic, strikethrough, underline)](https://github.com/oobagi/notebook/issues/172)
+- [x] [#185 feat: add note preview column to browser](https://github.com/oobagi/notebook/issues/185)
 
 ## Bug Fixes
 
-- [ ] [#163 Cursor placed at end of block on first downward navigation](https://github.com/oobagi/notebook/issues/163)
+- [x] [#163 Cursor placed at end of block on first downward navigation](https://github.com/oobagi/notebook/issues/163)
+- [x] [#167 fix: prevent backspace from merging content into code/quote blocks](https://github.com/oobagi/notebook/issues/167)
