@@ -1588,11 +1588,11 @@ func (m Model) renderStatusBar() string {
 		right = m.status
 	} else if m.viewMode {
 		if !m.dismissedHints["editor.checkbox"] {
-			hint = lipgloss.NewStyle().Italic(true).Render("click checkboxes to toggle!  [h]ide")
+			hint = "click checkboxes to toggle!  [h]ide"
 		}
 		right = "\u2303R edit \u00B7 \u2303Q quit"
 	} else {
-		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303R view \u00B7 \u2303G help \u00B7 \u2303Q quit"
+		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303R view \u00B7 \u2303Q quit"
 	}
 
 	bar := format.StatusBar(left, hint, right, width)

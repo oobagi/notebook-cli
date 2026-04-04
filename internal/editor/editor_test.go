@@ -416,8 +416,8 @@ func TestStatusBarContainsHelpHint(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View().Content
-	if !containsPlainText(view, "\u2303G help") {
-		t.Fatal("status bar should contain ⌃G help hint")
+	if !containsPlainText(view, "/ commands") {
+		t.Fatal("status bar should contain / commands hint")
 	}
 }
 
