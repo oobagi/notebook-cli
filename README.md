@@ -29,7 +29,7 @@
 
 Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor, an interactive browser with fuzzy search, 17 themes, inline markdown formatting, undo/redo, and a view mode for reading.
 
-Everything runs in your terminal. No account, no sync, no config required.
+Everything runs in your terminal. No account, no sync, no config required. A welcome note walks you through the basics on first launch.
 
 ## Install
 
@@ -61,9 +61,13 @@ The editor works with structured blocks instead of a single text buffer. Each bl
 
 Press **/** on an empty block to open the command palette and switch its type. Press **Enter** to create a new block below.
 
-**10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block, Quote, Divider.
+**10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block (with syntax highlighting), Quote, Divider.
 
-**Coming soon:** Table, Collapsible Group.
+**Coming soon:** Table, Collapsible Group, Callout, Definition List, Link Bookmark, Embed.
+
+#### Code blocks
+
+Code blocks support syntax highlighting for 500+ languages via Chroma. Put the language name on the first line of the block (e.g. `python`, `go`, `rust`) and the code below it. If no language is specified, it's auto-detected.
 
 #### Editor keybindings
 
@@ -122,7 +126,9 @@ The **preview pane** (p) shows note content in a side column while you browse.
 
 ### View Mode
 
-Press **Ctrl+R** in the editor to switch to a read-only view. Content is rendered with full theme styling — no cursor, no editing chrome. Scroll with arrow keys or Page Up/Down. Press **Ctrl+R** again to return to editing where you left off.
+Press **Ctrl+R** in the editor to switch to a clean, read-only view. Content is rendered with full theme styling — no cursor, no editing chrome. Scroll with arrow keys or Page Up/Down.
+
+In view mode you can **click checklists** to toggle them without entering edit mode — hover highlights the checkbox, click to check/uncheck. Press **Ctrl+R** again to return to editing where you left off.
 
 ### Themes
 
