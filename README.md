@@ -161,7 +161,7 @@ notebook <book> "Title" delete         Delete a note
 notebook <book> delete                 Delete a notebook
 notebook search "query"                Search across all notebooks
 notebook <book> search "query"         Search within a notebook
-notebook path/to/file.md              Open any .md or .txt file
+notebook path/to/file.md               Open any .md or .txt file
 notebook theme [name]                  List or set theme
 notebook config                        Show current config
 notebook config set <key> <value>      Set a config value
