@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/browser"
+	"github.com/oobagi/notebook/internal/config"
 )
 
 // runBrowser launches the TUI browser in a loop. When the user selects
@@ -28,6 +29,7 @@ func runBrowser() error {
 			InitialBook:        lastBook,
 			InitialCursor:      lastCursor,
 			InitialSavedCursor: lastSavedCursor,
+			DismissedHints:     config.LoadDismissedHints(),
 		})
 
 		p := tea.NewProgram(m)

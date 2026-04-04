@@ -12,6 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook/internal/config"
+	"github.com/oobagi/notebook/internal/format"
 	"github.com/oobagi/notebook/internal/theme"
 )
 
@@ -27,6 +29,8 @@ type Config struct {
 	Content string
 	// Save is called with the current content when the user presses Ctrl+S.
 	Save func(string) error
+	// DismissedHints tracks which onboarding hints have been dismissed.
+	DismissedHints map[string]bool
 }
 
 // savedMsg is sent after a successful save.
@@ -65,11 +69,12 @@ type Model struct {
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
 	palette     palette // "/" command palette for block type insertion
-	wordWrap         bool     // when true, text wraps at terminal width
-	viewMode         bool     // when true, read-only rendering with no cursor
-	hoverBlock       int      // view mode: block index under mouse cursor (-1 = none)
-	cursorCmd        tea.Cmd  // pending cursor blink command from Focus()
-	blockLineOffsets []int    // view mode: starting Y line of each block in rendered output
+	wordWrap         bool            // when true, text wraps at terminal width
+	viewMode         bool            // when true, read-only rendering with no cursor
+	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
+	cursorCmd        tea.Cmd         // pending cursor blink command from Focus()
+	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
+	dismissedHints   map[string]bool // tracks which onboarding hints the user has dismissed
 }
 
 type statusKind int
@@ -130,18 +135,24 @@ func New(cfg Config) Model {
 
 	vp := viewport.New(viewport.WithWidth(defaultWidth), viewport.WithHeight(defaultHeight-2)) // -1 header, -1 status bar
 
+	dismissed := cfg.DismissedHints
+	if dismissed == nil {
+		dismissed = make(map[string]bool)
+	}
+
 	return Model{
-		blocks:     blocks,
-		textareas:  textareas,
-		active:     0,
-		viewport:   vp,
-		config:     cfg,
-		initial:    cfg.Content,
-		width:      defaultWidth,
-		height:     defaultHeight,
-		palette:    newPalette(),
-		wordWrap:   true,
-		hoverBlock: -1,
+		blocks:         blocks,
+		textareas:      textareas,
+		active:         0,
+		viewport:       vp,
+		config:         cfg,
+		initial:        cfg.Content,
+		width:          defaultWidth,
+		height:         defaultHeight,
+		palette:        newPalette(),
+		wordWrap:       true,
+		dismissedHints: dismissed,
+		hoverBlock:     -1,
 	}
 }
 
@@ -943,6 +954,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
+			case "h":
+				if !m.dismissedHints["editor.checkbox"] {
+					m.dismissedHints["editor.checkbox"] = true
+					config.DismissHint("editor.checkbox")
+				}
+				return m, nil
 			case "ctrl+g":
 				m.showHelp = true
 				return m, nil
@@ -1565,22 +1582,20 @@ func (m Model) renderStatusBar() string {
 		left += " [modified]"
 	}
 
+	var hint string
 	var right string
 	if m.status != "" {
 		right = m.status
 	} else if m.viewMode {
-		left = " click checkboxes to toggle"
+		if !m.dismissedHints["editor.checkbox"] {
+			hint = lipgloss.NewStyle().Italic(true).Render("click checkboxes to toggle!  [h]ide")
+		}
 		right = "\u2303R edit \u00B7 \u2303Q quit"
 	} else {
 		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303R view \u00B7 \u2303G help \u00B7 \u2303Q quit"
 	}
 
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-
-	bar := left + strings.Repeat(" ", gap) + right
+	bar := format.StatusBar(left, hint, right, width)
 
 	style := lipgloss.NewStyle().Width(width)
 	switch m.statusStyle {

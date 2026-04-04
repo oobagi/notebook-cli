@@ -33,6 +33,7 @@ var ValidKeys = map[string]bool{
 	"editor":      true,
 	"theme":       true,
 	"date_format": true,
+	"show_hints":  true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -118,6 +119,12 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Theme = value
 	case "date_format":
 		cfg.DateFormat = value
+	case "show_hints":
+		if value != "true" {
+			return fmt.Errorf("show_hints only supports \"true\" to re-enable hints")
+		}
+		ResetHints()
+		return nil
 	default:
 		return fmt.Errorf("unknown config key: %q", key)
 	}
@@ -135,6 +142,12 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Theme, nil
 	case "date_format":
 		return cfg.DateFormat, nil
+	case "show_hints":
+		dismissed := LoadDismissedHints()
+		if len(dismissed) == 0 {
+			return "true", nil
+		}
+		return "false", nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}

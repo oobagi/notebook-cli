@@ -5,7 +5,29 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"charm.land/lipgloss/v2"
 )
+
+// StatusBar builds a status bar string with left status, an optional centered
+// hint, and right-aligned keybinds. Width constrains the total bar width.
+// All three sections always render — nothing is dropped at narrow widths.
+func StatusBar(left, hint, right string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+
+	if hint != "" {
+		left += " " + hint
+	}
+
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+
+	return left + strings.Repeat(" ", gap) + right
+}
 
 // ShortenHome replaces the home directory prefix with ~/ for display.
 func ShortenHome(path string) string {
