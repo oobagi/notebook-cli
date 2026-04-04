@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/oobagi/notebook-cli/releases/latest"><img src="https://img.shields.io/github/v/release/oobagi/notebook-cli?color=blue" alt="Latest Release"></a>
-  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
 </p>
@@ -38,7 +38,11 @@ Everything runs in your terminal. No account, no sync, no config required. A wel
 ## Install
 
 ```bash
+# Install — binary is named "notebook-cli"
 go install github.com/oobagi/notebook-cli@latest
+
+# Optional: alias to "notebook" for shorter commands
+alias notebook=notebook-cli
 ```
 
 ## Quick Start

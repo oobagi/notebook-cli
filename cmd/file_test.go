@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -88,40 +86,6 @@ func TestOpenFileNotFoundWithExtension(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "file not found") {
 		t.Errorf("expected 'file not found' in error, got %q", err.Error())
-	}
-}
-
-// --- openFile unit test (save callback) ---
-
-func TestOpenFileSaveCallback(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.md")
-	original := "# Hello\n\nOriginal content."
-	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
-		t.Fatalf("write temp file: %v", err)
-	}
-
-	// Read the file content and verify it matches what we wrote.
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read temp file: %v", err)
-	}
-	if string(data) != original {
-		t.Errorf("file content = %q, want %q", string(data), original)
-	}
-
-	// Simulate what the save callback does: write new content.
-	updated := "# Hello\n\nUpdated content."
-	if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
-		t.Fatalf("write updated file: %v", err)
-	}
-
-	data, err = os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read updated file: %v", err)
-	}
-	if string(data) != updated {
-		t.Errorf("file content = %q, want %q", string(data), updated)
 	}
 }
 

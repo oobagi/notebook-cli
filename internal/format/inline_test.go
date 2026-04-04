@@ -57,7 +57,7 @@ func TestRenderInlineMarkdown_EmptyDelimiters(t *testing.T) {
 		input string
 	}{
 		{"empty bold", "hello **** end"},
-		{"empty italic", "hello ** end"},
+		{"unmatched double star", "hello ** end"},
 		{"empty strikethrough", "hello ~~~~ end"},
 		{"empty underline", "hello ____ end"},
 	}

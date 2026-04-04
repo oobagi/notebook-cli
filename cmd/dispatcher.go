@@ -23,11 +23,11 @@ import (
 //	notebook <book> list               -> list notes in book
 //	notebook <book> new "Title"        -> create note in book
 //	notebook <book> delete "Title"     -> delete note from book
-//	notebook <book> search "query"     -> search within book (stub)
+//	notebook <book> search "query"     -> search within book
 //	notebook <book> <note>             -> edit note
-//	notebook <book> <note> edit        -> edit note (stub)
+//	notebook <book> <note> edit        -> edit note
 //	notebook <book> <note> delete      -> delete note
-//	notebook <book> <note> copy        -> copy note (stub)
+//	notebook <book> <note> copy        -> copy note
 func dispatch(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	book := args[0]
