@@ -75,7 +75,6 @@ type Model struct {
 	statusGen  int // generation counter for auto-dismiss
 
 	// Recents view fields.
-	recentsView    bool            // whether recents tab is active at L0
 	recentEntries  []recents.Entry // loaded recent entries
 	filteredRecent []int           // indices into recentEntries after filtering
 
@@ -165,7 +164,7 @@ func (m Model) Init() tea.Cmd {
 	if m.level == 1 {
 		return m.loadNotes(m.currentBook)
 	}
-	return m.loadNotebooks()
+	return tea.Batch(m.loadNotebooks(), m.loadRecents())
 }
 
 func (m Model) loadNotebooks() tea.Cmd {
@@ -257,7 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectAfterReload != "" {
 			for i, fi := range m.filtered {
 				if m.notebooks[fi].name == m.selectAfterReload {
-					m.cursor = i
+					m.cursor = len(m.filteredRecent) + i
 					break
 				}
 			}
@@ -285,11 +284,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case reloadMsg:
-		if m.recentsView {
-			return m, m.loadRecents()
-		}
 		if m.level == 0 {
-			return m, m.loadNotebooks()
+			return m, tea.Batch(m.loadNotebooks(), m.loadRecents())
 		}
 		return m, m.loadNotes(m.currentBook)
 
@@ -338,12 +334,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// When help overlay is showing, only ? and Esc dismiss it.
+	// When help overlay is showing, ?/Esc close it, Ctrl+C quits.
 	if m.showHelp {
 		switch msg.String() {
 		case "esc":
 			m.showHelp = false
 			return m, nil
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
 		default:
 			if msg.Text == "?" {
 				m.showHelp = false
@@ -370,17 +369,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "tab":
-		// Toggle between notebooks and recents at L0.
 		if m.level == 0 {
-			m.recentsView = !m.recentsView
-			m.cursor = 0
-			m.filter = ""
-			m.filtering = false
-			m.filtered = nil
-			if m.recentsView {
-				return m, m.loadRecents()
+			if m.inRecentsSection() {
+				if len(m.filtered) > 0 {
+					m.cursor = len(m.filteredRecent)
+				}
+			} else {
+				if len(m.filteredRecent) > 0 {
+					m.cursor = 0
+				}
 			}
-			return m, m.loadNotebooks()
 		}
 		return m, nil
 
@@ -408,10 +406,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		s := msg.Text
-		if s == "q" {
-			m.quitting = true
-			return m, tea.Quit
-		}
 		if s == "?" {
 			m.showHelp = true
 			return m, nil
@@ -434,15 +428,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.inputCur.Focus()
 		}
 		if s == "d" {
-			if m.recentsView {
+			if m.level == 0 && m.inRecentsSection() {
 				return m.removeRecentEntry()
 			}
 			return m.startDelete()
 		}
-		if s == "r" && !m.recentsView {
+		if s == "r" && !(m.level == 0 && m.inRecentsSection()) {
 			return m.startRename()
 		}
-		if s == "n" && !m.recentsView {
+		if s == "n" {
 			return m.startCreate()
 		}
 		if s == "c" && m.level == 1 {
@@ -498,7 +492,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "down":
-		max := len(m.filtered) - 1
+		max := m.listLen() - 1
 		if max < 0 {
 			max = 0
 		}
@@ -594,7 +588,8 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 		if len(m.filtered) == 0 {
 			return m, nil
 		}
-		idx := m.filtered[m.cursor]
+		_, localIdx := m.cursorSection()
+		idx := m.filtered[localIdx]
 		name := m.notebooks[idx].name
 		m.inputMode = true
 		m.inputPrompt = fmt.Sprintf("Delete %q? Type the name to confirm:", storage.DisplayName(name))
@@ -644,7 +639,8 @@ func (m Model) startRename() (tea.Model, tea.Cmd) {
 		if len(m.filtered) == 0 {
 			return m, nil
 		}
-		idx := m.filtered[m.cursor]
+		_, localIdx := m.cursorSection()
+		idx := m.filtered[localIdx]
 		name := m.notebooks[idx].name
 		m.inputMode = true
 		m.inputPrompt = "Rename notebook:"
@@ -761,10 +757,11 @@ func (m Model) removeRecentEntry() (tea.Model, tea.Cmd) {
 	if len(m.filteredRecent) == 0 {
 		return m, nil
 	}
-	if m.cursor >= len(m.filteredRecent) {
+	_, localIdx := m.cursorSection()
+	if localIdx >= len(m.filteredRecent) {
 		return m, nil
 	}
-	idx := m.filteredRecent[m.cursor]
+	idx := m.filteredRecent[localIdx]
 	target := m.recentEntries[idx]
 
 	return m, func() tea.Msg {
@@ -851,7 +848,7 @@ func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.scheduleStatusDismiss()
 
 	default:
-		if msg.Text == "q" || msg.Text == "t" {
+		if msg.Text == "t" {
 			m.themeMode = false
 			return m, nil
 		}
@@ -1080,7 +1077,7 @@ func (m Model) renderThemeOverlay() string {
 func (m *Model) applyFilter() {
 	query := strings.ToLower(m.filter)
 
-	if m.recentsView {
+	if m.level == 0 {
 		m.filteredRecent = nil
 		for i, e := range m.recentEntries {
 			label := recentEntryLabel(e)
@@ -1088,8 +1085,15 @@ func (m *Model) applyFilter() {
 				m.filteredRecent = append(m.filteredRecent, i)
 			}
 		}
-		if m.cursor >= len(m.filteredRecent) {
-			m.cursor = len(m.filteredRecent) - 1
+		m.filtered = nil
+		for i, nb := range m.notebooks {
+			if query == "" || strings.Contains(storage.DisplayName(nb.name), query) {
+				m.filtered = append(m.filtered, i)
+			}
+		}
+		total := m.totalL0Items()
+		if m.cursor >= total {
+			m.cursor = total - 1
 		}
 		if m.cursor < 0 {
 			m.cursor = 0
@@ -1098,18 +1102,9 @@ func (m *Model) applyFilter() {
 	}
 
 	m.filtered = nil
-
-	if m.level == 0 {
-		for i, nb := range m.notebooks {
-			if query == "" || strings.Contains(storage.DisplayName(nb.name), query) {
-				m.filtered = append(m.filtered, i)
-			}
-		}
-	} else {
-		for i, n := range m.notes {
-			if query == "" || strings.Contains(storage.DisplayName(n.Name), query) {
-				m.filtered = append(m.filtered, i)
-			}
+	for i, n := range m.notes {
+		if query == "" || strings.Contains(storage.DisplayName(n.Name), query) {
+			m.filtered = append(m.filtered, i)
 		}
 	}
 
@@ -1127,13 +1122,18 @@ func (m *Model) resetFilter() {
 	m.filtered = nil
 	m.filteredRecent = nil
 
-	if m.recentsView {
+	if m.level == 0 {
 		m.filteredRecent = make([]int, len(m.recentEntries))
 		for i := range m.recentEntries {
 			m.filteredRecent[i] = i
 		}
-		if m.cursor >= len(m.filteredRecent) {
-			m.cursor = len(m.filteredRecent) - 1
+		m.filtered = make([]int, len(m.notebooks))
+		for i := range m.notebooks {
+			m.filtered[i] = i
+		}
+		total := m.totalL0Items()
+		if m.cursor >= total {
+			m.cursor = total - 1
 		}
 		if m.cursor < 0 {
 			m.cursor = 0
@@ -1141,16 +1141,9 @@ func (m *Model) resetFilter() {
 		return
 	}
 
-	if m.level == 0 {
-		m.filtered = make([]int, len(m.notebooks))
-		for i := range m.notebooks {
-			m.filtered[i] = i
-		}
-	} else {
-		m.filtered = make([]int, len(m.notes))
-		for i := range m.notes {
-			m.filtered[i] = i
-		}
+	m.filtered = make([]int, len(m.notes))
+	for i := range m.notes {
+		m.filtered[i] = i
 	}
 
 	if m.cursor >= len(m.filtered) {
@@ -1161,48 +1154,62 @@ func (m *Model) resetFilter() {
 	}
 }
 
+func (m Model) totalL0Items() int {
+	return len(m.filteredRecent) + len(m.filtered)
+}
+
+func (m Model) cursorSection() (string, int) {
+	if m.cursor < len(m.filteredRecent) {
+		return "recent", m.cursor
+	}
+	return "notebook", m.cursor - len(m.filteredRecent)
+}
+
+func (m Model) inRecentsSection() bool {
+	return len(m.filteredRecent) > 0 && m.cursor < len(m.filteredRecent)
+}
+
 func (m Model) listLen() int {
-	if m.recentsView {
-		return len(m.filteredRecent)
+	if m.level == 0 {
+		return m.totalL0Items()
 	}
 	return len(m.filtered)
 }
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
-	// Handle recents view selection.
-	if m.recentsView {
-		if len(m.filteredRecent) == 0 {
-			return m, nil
-		}
-		if m.cursor >= len(m.filteredRecent) {
-			return m, nil
-		}
-		idx := m.filteredRecent[m.cursor]
-		entry := m.recentEntries[idx]
-		switch entry.Type {
-		case recents.TypeStore:
-			m.selected = &Selection{
-				Book: entry.Notebook,
-				Note: entry.Name,
-			}
-		case recents.TypeExternal:
-			m.selected = &Selection{
-				FilePath: entry.Path,
-			}
-		}
-		return m, tea.Quit
-	}
-
-	if len(m.filtered) == 0 {
-		return m, nil
-	}
-	if m.cursor >= len(m.filtered) {
-		return m, nil
-	}
-
-	idx := m.filtered[m.cursor]
-
 	if m.level == 0 {
+		section, localIdx := m.cursorSection()
+		if section == "recent" {
+			if len(m.filteredRecent) == 0 {
+				return m, nil
+			}
+			if localIdx >= len(m.filteredRecent) {
+				return m, nil
+			}
+			idx := m.filteredRecent[localIdx]
+			entry := m.recentEntries[idx]
+			switch entry.Type {
+			case recents.TypeStore:
+				m.selected = &Selection{
+					Book: entry.Notebook,
+					Note: entry.Name,
+				}
+			case recents.TypeExternal:
+				m.selected = &Selection{
+					FilePath: entry.Path,
+				}
+			}
+			return m, tea.Quit
+		}
+
+		// Notebook section.
+		if len(m.filtered) == 0 {
+			return m, nil
+		}
+		if localIdx >= len(m.filtered) {
+			return m, nil
+		}
+		idx := m.filtered[localIdx]
 		m.currentBook = m.notebooks[idx].name
 		m.level = 1
 		m.savedCursor = m.cursor
@@ -1211,11 +1218,19 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.filtering = false
 		m.notes = nil
 		m.filtered = nil
+		m.filteredRecent = nil
 		return m, m.loadNotes(m.currentBook)
 	}
 
-	// Level 1: quit the browser with the selection so the caller can
-	// launch the editor and then re-enter the browser.
+	// Level 1.
+	if len(m.filtered) == 0 {
+		return m, nil
+	}
+	if m.cursor >= len(m.filtered) {
+		return m, nil
+	}
+
+	idx := m.filtered[m.cursor]
 	note := m.notes[idx]
 	m.selected = &Selection{
 		Book: m.currentBook,
@@ -1225,15 +1240,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleEsc() (tea.Model, tea.Cmd) {
-	if m.recentsView {
-		m.recentsView = false
-		m.cursor = 0
-		m.filter = ""
-		m.filtering = false
-		m.filtered = nil
-		m.filteredRecent = nil
-		return m, m.loadNotebooks()
-	}
 	if m.level == 1 {
 		m.level = 0
 		m.cursor = m.savedCursor
@@ -1241,7 +1247,8 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 		m.filtering = false
 		m.notebooks = nil
 		m.filtered = nil
-		return m, m.loadNotebooks()
+		m.filteredRecent = nil
+		return m, tea.Batch(m.loadNotebooks(), m.loadRecents())
 	}
 	m.quitting = true
 	return m, tea.Quit
@@ -1249,56 +1256,24 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 
 // renderHelpOverlay builds the centered help panel.
 func (m Model) renderHelpOverlay() string {
-	var help string
-	if m.recentsView {
-		help = `  Keybindings
-  ───────────────────────────
-
+	help := `  Navigation
+  ─────────────────────
   ↑/↓       Navigate
-  Enter      Open note/file
-  d          Remove from recents
-  Tab        Switch to notebooks
-  t          Theme picker
-  /          Search
-  Esc        Back to notebooks
-  q          Quit
-  ?          Toggle help
+  Enter     Open / edit
+  Esc/⌃C    Back / quit
+  Tab       Jump section
+  /         Search
 
-  Press ? or Esc to close`
-	} else if m.level == 0 {
-		help = `  Keybindings
-  ───────────────────────────
+  Actions
+  ─────────────────────
+  n         New
+  d         Delete / remove
+  r         Rename
+  c         Copy (notes)
+  t         Theme
 
-  ↑/↓       Navigate
-  Enter      Open notebook
-  n          New notebook
-  d          Delete notebook
-  r          Rename notebook
-  Tab        Switch to recents
-  t          Theme picker
-  /          Search
-  q          Quit
-  ?          Toggle help
-
-  Press ? or Esc to close`
-	} else {
-		help = `  Keybindings
-  ───────────────────────────
-
-  ↑/↓       Navigate
-  Enter      Edit note
-  n          New note
-  d          Delete note
-  r          Rename note
-  c          Copy to clipboard
-  t          Theme picker
-  /          Search
-  Esc        Back to notebooks
-  q          Quit
-  ?          Toggle help
-
-  Press ? or Esc to close`
-	}
+  ─────────────────────
+  Esc/? to close`
 
 	w := m.width
 	if w <= 0 {
@@ -1317,7 +1292,7 @@ func (m Model) renderHelpOverlay() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
-		Width(38).
+		Width(36).
 		Align(lipgloss.Left)
 
 	rendered := box.Render(help)
@@ -1328,10 +1303,7 @@ func (m Model) renderHelpOverlay() string {
 // currentHintID returns the hint ID relevant to the current browser state,
 // or "" if no hint applies.
 func (m Model) currentHintID() string {
-	if m.recentsView && !m.filtering {
-		return "browser.recents"
-	}
-	if m.level == 0 && !m.recentsView && !m.filtering {
+	if m.level == 0 && !m.filtering {
 		return "browser.theme"
 	}
 	return ""
@@ -1364,13 +1336,19 @@ func (m Model) View() tea.View {
 	} else {
 		var b strings.Builder
 
-		// Breadcrumb / path.
+		// Breadcrumb / path (hidden at L0 — section headers serve as titles).
 		breadcrumb := m.renderBreadcrumb()
-		b.WriteString(breadcrumb)
-		b.WriteString("\n\n")
+		if breadcrumb != "" {
+			b.WriteString(breadcrumb)
+			b.WriteString("\n")
+		}
 
 		// Content area.
-		contentHeight := m.height - 3 - m.statusBarHeight() // breadcrumb + blank line above content + status bar + blank line above status
+		headerLines := 1 // breadcrumb line
+		if breadcrumb == "" {
+			headerLines = 0
+		}
+		contentHeight := m.height - headerLines - 1 - m.statusBarHeight() // header + status bar + blank line above status
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
@@ -1399,57 +1377,125 @@ func (m Model) View() tea.View {
 
 func (m Model) renderBreadcrumb() string {
 	style := lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	dim := lipgloss.NewStyle().Faint(true)
-
-	if m.recentsView {
-		active := style.Render("Recent")
-		inactive := dim.Render("Notebooks")
-		return fmt.Sprintf(" %s  %s", active, inactive)
-	}
 
 	if m.level == 0 {
-		active := style.Render("Notebooks")
-		inactive := dim.Render("Recent")
-		return fmt.Sprintf(" %s  %s", active, inactive)
+		return ""
 	}
 	return fmt.Sprintf(" %s", style.Render(fmt.Sprintf("notebook \u203A %s", storage.DisplayName(m.currentBook))))
 }
 
 func (m Model) renderContent(maxLines int) string {
-	if m.recentsView {
-		return m.renderRecentList(maxLines)
-	}
 	if m.level == 0 {
-		return m.renderNotebookList(maxLines)
+		return m.renderUnifiedList(maxLines)
 	}
 	return m.renderNoteList(maxLines)
 }
 
-func (m Model) renderNotebookList(maxLines int) string {
-	if len(m.notebooks) == 0 {
-		return m.renderEmptyNotebooks()
+func (m Model) renderUnifiedList(maxLines int) string {
+	// Build virtual rows: each row is either a section header, a blank
+	// separator, a recent item, or a notebook item. We track which
+	// data-item index each row maps to (or -1 for non-selectable rows).
+	type vrow struct {
+		text       string
+		dataIndex  int  // combined cursor index, or -1 for header/separator
+		isRecent   bool // whether this is a recent item row
 	}
 
-	if len(m.filtered) == 0 && m.filtering {
-		return "  No matches\n"
+	var rows []vrow
+	cursorRow := 0 // row index that corresponds to m.cursor
+
+	hasRecents := len(m.filteredRecent) > 0
+	hasNotebooks := len(m.filtered) > 0
+
+	// Recent section.
+	if hasRecents {
+		rows = append(rows, vrow{text: m.renderSectionHeader("Recent"), dataIndex: -1})
+
+		for i, fi := range m.filteredRecent {
+			combinedIdx := i
+			selected := combinedIdx == m.cursor
+			if selected {
+				cursorRow = len(rows)
+			}
+			line := m.formatRecentLine(m.recentEntries[fi], selected)
+			rows = append(rows, vrow{text: line, dataIndex: combinedIdx, isRecent: true})
+		}
+	}
+
+	// Blank separator before notebooks (if recents has items).
+	if hasRecents {
+		rows = append(rows, vrow{text: "", dataIndex: -1})
+	}
+
+	// Notebook section — always shown.
+	rows = append(rows, vrow{text: m.renderSectionHeader("Notebooks"), dataIndex: -1})
+
+	if hasNotebooks {
+		for i, fi := range m.filtered {
+			combinedIdx := len(m.filteredRecent) + i
+			selected := combinedIdx == m.cursor
+			if selected {
+				cursorRow = len(rows)
+			}
+			line := m.formatNotebookLine(m.notebooks[fi], selected)
+			rows = append(rows, vrow{text: line, dataIndex: combinedIdx})
+		}
+	} else if !m.filtering {
+		// Render recents rows above, then append star empty state below.
+		var b strings.Builder
+		for i, row := range rows {
+			b.WriteString(row.text)
+			if i < len(rows)-1 {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("\n")
+		remainingHeight := maxLines - len(rows) - 1
+		if remainingHeight < 1 {
+			remainingHeight = 1
+		}
+		b.WriteString(m.renderEmptyNotebooks(remainingHeight))
+		return b.String()
+	} else {
+		rows = append(rows, vrow{text: "  No matches", dataIndex: -1})
+	}
+
+	// Scroll window: keep cursorRow visible.
+	totalRows := len(rows)
+	start := 0
+	if totalRows > maxLines {
+		// Center the cursor row in the window.
+		start = cursorRow - maxLines/2
+		if start < 0 {
+			start = 0
+		}
+		if start+maxLines > totalRows {
+			start = totalRows - maxLines
+		}
+	}
+	end := start + maxLines
+	if end > totalRows {
+		end = totalRows
 	}
 
 	var b strings.Builder
-	visible := m.visibleRange(len(m.filtered), maxLines)
-
-	for vi, fi := range visible {
-		idx := m.filtered[fi]
-		nb := m.notebooks[idx]
-		selected := fi == m.cursor
-		line := m.formatNotebookLine(nb, selected)
-		b.WriteString(line)
-		if vi < len(visible)-1 {
+	for vi, row := range rows[start:end] {
+		b.WriteString(row.text)
+		if vi < end-start-1 {
 			b.WriteString("\n")
 		}
 	}
 
 	return b.String()
 }
+
+func (m Model) renderSectionHeader(title string) string {
+	style := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	return " " + style.Render(title)
+}
+
+
+
 
 func (m Model) renderNoteList(maxLines int) string {
 	if len(m.notes) == 0 {
@@ -1477,64 +1523,30 @@ func (m Model) renderNoteList(maxLines int) string {
 	return b.String()
 }
 
-func (m Model) renderRecentList(maxLines int) string {
-	if len(m.recentEntries) == 0 {
-		return m.renderEmptyRecents()
-	}
-
-	if len(m.filteredRecent) == 0 && m.filtering {
-		return "  No matches\n"
-	}
-
-	var b strings.Builder
-	visible := m.visibleRange(len(m.filteredRecent), maxLines)
-
-	for vi, fi := range visible {
-		idx := m.filteredRecent[fi]
-		e := m.recentEntries[idx]
-		selected := fi == m.cursor
-		line := m.formatRecentLine(e, selected)
-		b.WriteString(line)
-		if vi < len(visible)-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	return b.String()
-}
 
 func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	bullet := "  "
 	label := recentEntryLabel(e)
-	display := label
+	display := truncName(label)
 	timeStr := format.RelativeTime(e.LastEdited)
 
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-		display = nameStyle.Render(label)
+		display = nameStyle.Render(truncName(label))
 	}
 
+	// Pad to nameColMax + 4 + 10 to align time column with notebook rows
+	// (which have name + gap + middle column).
 	return fmt.Sprintf("%s%s    %s",
 		padRight(bullet, 2),
-		padRight(display, m.recentNameColWidth()),
+		padRight(display, nameColMax+4+10),
 		timeStr,
 	)
 }
 
-func (m Model) recentNameColWidth() int {
-	maxLen := 0
-	for _, e := range m.recentEntries {
-		if dl := len(recentEntryLabel(e)); dl > maxLen {
-			maxLen = dl
-		}
-	}
-	if maxLen < 10 {
-		maxLen = 10
-	}
-	return maxLen
-}
+
 
 // recentEntryLabel returns the display label for a recent entry.
 func recentEntryLabel(e recents.Entry) string {
@@ -1547,19 +1559,6 @@ func recentEntryLabel(e recents.Entry) string {
 	return ""
 }
 
-func (m Model) renderEmptyRecents() string {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	h := m.height - 4
-	if h < 1 {
-		h = 1
-	}
-	dim := lipgloss.NewStyle().Faint(true)
-	msg := "No recent notes.\n\nNotes appear here after you edit and save them."
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
-}
 
 // visibleRange returns the slice of filtered indices to display,
 // implementing scrolling so the cursor stays visible.
@@ -1602,7 +1601,7 @@ func padRight(s string, width int) string {
 
 func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 	bullet := "  "
-	display := storage.DisplayName(nb.name)
+	display := truncName(storage.DisplayName(nb.name))
 	name := display
 	countStr := pluralize(nb.noteCount, "note", "notes")
 
@@ -1613,17 +1612,17 @@ func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 		name = nameStyle.Render(display)
 	}
 
-	return fmt.Sprintf("%s%s    %-*s    %s",
+	return fmt.Sprintf("%s%s    %-10s    %s",
 		padRight(bullet, 2),
-		padRight(name, m.nameColWidth(0)),
-		10, countStr,
+		padRight(name, nameColMax),
+		countStr,
 		nb.modTime,
 	)
 }
 
 func (m Model) formatNoteLine(n model.Note, selected bool) string {
 	bullet := "  "
-	display := storage.DisplayName(n.Name)
+	display := truncName(storage.DisplayName(n.Name))
 	name := display
 
 	// Get file size.
@@ -1642,61 +1641,83 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 		name = nameStyle.Render(display)
 	}
 
-	return fmt.Sprintf("%s%s    %-*s    %s",
+	return fmt.Sprintf("%s%s    %-10s    %s",
 		padRight(bullet, 2),
-		padRight(name, m.nameColWidth(1)),
-		8, sizeStr,
+		padRight(name, nameColMax),
+		sizeStr,
 		timeStr,
 	)
 }
 
-func (m Model) nameColWidth(level int) int {
-	maxLen := 0
-	if level == 0 {
-		for _, nb := range m.notebooks {
-			if dl := len(storage.DisplayName(nb.name)); dl > maxLen {
-				maxLen = dl
-			}
-		}
-	} else {
-		for _, n := range m.notes {
-			if dl := len(storage.DisplayName(n.Name)); dl > maxLen {
-				maxLen = dl
-			}
-		}
+const nameColMax = 24
+
+// truncName truncates a display name to nameColMax, adding "..." if needed.
+func truncName(name string) string {
+	if len(name) <= nameColMax {
+		return name
 	}
-	if maxLen < 10 {
-		maxLen = 10
-	}
-	return maxLen
+	return name[:nameColMax-3] + "..."
 }
 
-func (m Model) renderEmptyNotebooks() string {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	h := m.height - 4
-	if h < 1 {
-		h = 1
-	}
-	dim := lipgloss.NewStyle().Faint(true)
-	msg := "No notebooks yet.\n\nPress n to create one."
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
+func (m Model) renderEmptyNotebooks(maxHeight int) string {
+	return m.renderStarEmpty("No notebooks yet.", "Press n to create one.", maxHeight)
 }
 
 func (m Model) renderEmptyNotes() string {
+	return m.renderStarEmpty("No notes in "+storage.DisplayName(m.currentBook)+".", "Press n to create one.", 0)
+}
+
+// renderStarEmpty renders a centered empty state with a star/dot pattern
+// inspired by the portfolio 404 page.
+// renderStarEmpty renders a centered empty state with a star/dot pattern.
+// If maxHeight > 0, it constrains the height to that value.
+func (m Model) renderStarEmpty(title, subtitle string, maxHeight int) string {
 	w := m.width
 	if w <= 0 {
 		w = 80
 	}
-	h := m.height - 4
+	h := maxHeight
+	if h <= 0 {
+		h = m.height - 4
+	}
 	if h < 1 {
 		h = 1
 	}
+
 	dim := lipgloss.NewStyle().Faint(true)
-	msg := fmt.Sprintf("No notes in %s.\n\nPress n to create one.", storage.DisplayName(m.currentBook))
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dim.Render(msg))
+	accent := lipgloss.NewStyle().Faint(true)
+
+	stars := []string{
+		"        *              .        ",
+		" .                *             ",
+		"             .            *     ",
+		"    *                           ",
+	}
+	bottom := []string{
+		"                       *        ",
+		"   *            .               ",
+		"          *               .     ",
+		" .              *              .",
+	}
+
+	var b strings.Builder
+	for _, line := range stars {
+		b.WriteString(dim.Render(line))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(accent.Render(title))
+	b.WriteString("\n")
+	b.WriteString(dim.Render(subtitle))
+	b.WriteString("\n\n")
+	for i, line := range bottom {
+		b.WriteString(dim.Render(line))
+		if i < len(bottom)-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, b.String())
 }
 
 func (m Model) renderStatusBar() string {
@@ -1719,16 +1740,11 @@ func (m Model) renderStatusBar() string {
 
 	if m.statusText != "" {
 		left = "  " + m.statusText
-	} else if m.recentsView {
-		if !m.dismissedHints["browser.recents"] {
-			hint = "edit any file: notebook todo.txt  [h]ide"
-		}
-		right = "d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 ? help"
 	} else if m.level == 0 {
 		if !m.dismissedHints["browser.theme"] {
 			hint = "press t to change theme!  [h]ide"
 		}
-		right = "Tab recents \u00B7 / search \u00B7 ? help"
+		right = "Tab jump \u00B7 / search \u00B7 ? help"
 	} else {
 		right = "/ search \u00B7 Esc back \u00B7 ? help"
 	}

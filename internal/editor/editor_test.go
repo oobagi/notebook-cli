@@ -138,23 +138,23 @@ func TestCtrlSSaveError(t *testing.T) {
 	}
 }
 
-func TestCtrlQQuitsWhenClean(t *testing.T) {
+func TestCtrlCQuitsWhenClean(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd == nil {
-		t.Fatal("Ctrl+Q on clean content should return tea.Quit command")
+		t.Fatal("Ctrl+C on clean content should return tea.Quit command")
 	}
 	if !m.quitting {
 		t.Fatal("model should be in quitting state")
 	}
 }
 
-func TestCtrlQShowsPromptWhenModified(t *testing.T) {
+func TestCtrlCShowsPromptWhenModified(t *testing.T) {
 	m := New(Config{Title: "test", Content: "hello"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -167,11 +167,11 @@ func TestCtrlQShowsPromptWhenModified(t *testing.T) {
 		t.Fatal("editor should be modified after typing")
 	}
 
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if cmd != nil {
-		t.Fatal("Ctrl+Q on modified content should show prompt, not quit")
+		t.Fatal("Ctrl+C on modified content should show prompt, not quit")
 	}
 	if !m.quitPrompt {
 		t.Fatal("should show quit prompt")
@@ -198,8 +198,8 @@ func TestQuitPromptSaveAndQuit(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	// Ctrl+C: shows prompt.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -242,8 +242,8 @@ func TestQuitPromptDiscardAndQuit(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	// Ctrl+C: shows prompt.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	// Press 'n' to quit without saving.
@@ -267,8 +267,8 @@ func TestQuitPromptCancel(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	// Ctrl+C: shows prompt.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -302,8 +302,8 @@ func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = updated.(Model)
 
-	// Ctrl+Q: shows prompt.
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
+	// Ctrl+C: shows prompt.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m = updated.(Model)
 
 	if !m.quitPrompt {
@@ -325,41 +325,6 @@ func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	}
 }
 
-func TestCtrlCForceQuitsWhenModified(t *testing.T) {
-	m := New(Config{Title: "test", Content: "hello"})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	// Modify content.
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	m = updated.(Model)
-
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	m = updated.(Model)
-
-	if cmd == nil {
-		t.Fatal("Ctrl+C should return a quit command")
-	}
-	if !m.quitting {
-		t.Fatal("expected quitting to be true")
-	}
-}
-
-func TestCtrlCQuitsWhenClean(t *testing.T) {
-	m := New(Config{Title: "test", Content: "hello"})
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = updated.(Model)
-
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	m = updated.(Model)
-
-	if cmd == nil {
-		t.Fatal("Ctrl+C should return tea.Quit command")
-	}
-	if !m.quitting {
-		t.Fatal("model should be in quitting state")
-	}
-}
 
 func TestWindowSizeMsgSetsSize(t *testing.T) {
 	m := New(Config{Title: "test", Content: ""})
@@ -416,8 +381,8 @@ func TestStatusBarContainsHelpHint(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View().Content
-	if !containsPlainText(view, "/ commands") {
-		t.Fatal("status bar should contain / commands hint")
+	if !containsPlainText(view, "/ blocks") {
+		t.Fatal("status bar should contain / blocks hint")
 	}
 }
 
@@ -477,9 +442,8 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 
 	keybindings := []string{
 		"\u2303S", "Save",
-		"\u2303Q", "Quit",
-		"\u2303C", "Force quit",
-		"\u2303G", "Toggle this help",
+		"\u2303C", "Quit",
+		"\u2303G", "to close",
 		"\u2303K", "Cut block",
 	}
 	for _, kb := range keybindings {
@@ -950,10 +914,9 @@ func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
 	view := m.View().Content
 
 	keybindings := []string{
-		"Enter", "New block below",
-		"Backspace", "Merge/delete block",
-		"\u2325\u2191", "Move block up",
-		"\u2325\u2193", "Move block down",
+		"Enter", "New block",
+		"Backspace", "Merge/delete",
+		"\u2325\u2191", "Move block",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {
@@ -1093,8 +1056,8 @@ func TestStatusBarContainsCommandsHint(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View().Content
-	if !containsPlainText(view, "/ commands") {
-		t.Fatal("status bar should contain '/ commands' hint")
+	if !containsPlainText(view, "/ blocks") {
+		t.Fatal("status bar should contain '/ blocks' hint")
 	}
 }
 
@@ -1107,8 +1070,8 @@ func TestHelpContainsBlockTypePalette(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View().Content
-	if !containsPlainText(view, "Block type palette") {
-		t.Fatal("help overlay should contain 'Block type palette' for / keybinding")
+	if !containsPlainText(view, "Block type") {
+		t.Fatal("help overlay should contain 'Block type' for / keybinding")
 	}
 }
 
@@ -1302,11 +1265,11 @@ func TestHelpContainsCtrlJKeybinding(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View().Content
-	if !containsPlainText(view, "\u2303J") {
-		t.Fatal("help overlay should contain ⌃J keybinding")
+	if !containsPlainText(view, "\u21E7Enter") {
+		t.Fatal("help overlay should contain ⇧Enter keybinding")
 	}
-	if !containsPlainText(view, "Newline within block") {
-		t.Fatal("help overlay should contain 'Newline within block' description")
+	if !containsPlainText(view, "Newline") {
+		t.Fatal("help overlay should contain 'Newline' description")
 	}
 }
 

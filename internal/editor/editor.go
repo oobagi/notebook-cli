@@ -835,11 +835,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyPressMsg:
-		// When help overlay is showing, only Ctrl+G and Esc dismiss it.
+		// When help overlay is showing, Ctrl+G/Esc close it, Ctrl+C quits.
 		if m.showHelp {
 			switch msg.String() {
 			case "ctrl+g", "esc":
 				m.showHelp = false
+			case "ctrl+c":
+				m.showHelp = false
+				if m.modified() {
+					m.quitPrompt = true
+					m.status = "Save before quitting? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.quitting = true
+				return m, tea.Quit
 			}
 			return m, nil
 		}
@@ -901,6 +911,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			default:
+				if msg.Code == '/' {
+					m.palette.close()
+					m.updateViewport()
+					return m, nil
+				}
 				if len(msg.Text) > 0 {
 					for _, r := range msg.Text {
 						m.palette.addFilterRune(r)
@@ -931,16 +946,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.updateViewport()
 				return m, nil
-			case "ctrl+q":
+			case "esc", "ctrl+c":
 				if m.modified() {
 					m.quitPrompt = true
 					m.status = "Save before quitting? [Y/n/Esc]"
 					m.statusStyle = statusWarning
 					return m, nil
 				}
-				m.quitting = true
-				return m, tea.Quit
-			case "ctrl+c":
 				m.quitting = true
 				return m, tea.Quit
 			case "ctrl+s":
@@ -1013,17 +1025,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+q":
+		case "esc", "ctrl+c":
 			if m.modified() {
 				m.quitPrompt = true
 				m.status = "Save before quitting? [Y/n/Esc]"
 				m.statusStyle = statusWarning
 				return m, nil
 			}
-			m.quitting = true
-			return m, tea.Quit
-
-		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
 
@@ -1521,26 +1529,24 @@ func (m Model) View() tea.View {
 // renderHelpOverlay builds the full-screen help panel.
 func (m Model) renderHelpOverlay() string {
 	help := `  Keybindings
-  ───────────────────────────
+  ─────────────────────────
 
-  Enter       New block below
-  ⇧Enter/⌃J   Newline within block
-  Backspace   Merge/delete block
-  ⌃K          Cut block
-  ⌥↑          Move block up
-  ⌥↓          Move block down
-  /           Block type palette
+  Enter        New block
+  ⇧Enter       Newline
+  Backspace    Merge/delete
+  ⌃K           Cut block
+  ⌥↑/⌥↓        Move block
+  /            Block type
 
-  ⌃R          Toggle view/edit mode
-  ⌃X          Toggle checkbox
-  ⌃W          Toggle word wrap
+  ⌃R           View mode
+  ⌃X           Checkbox
+  ⌃W           Word wrap
 
-  ⌃S          Save
-  ⌃Q          Quit
-  ⌃C          Force quit (no save)
-  ⌃G          Toggle this help
+  ⌃S           Save
+  Esc/⌃C       Quit
 
-  Press ⌃G or Esc to close`
+  ─────────────────────────
+  Esc/⌃G to close`
 
 	// Strip tab characters that come from Go source indentation in the
 	// raw string literal. Lipgloss v2 does not expand tabs.
@@ -1559,7 +1565,7 @@ func (m Model) renderHelpOverlay() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
 		Padding(1, 2).
-		Width(42).
+		Width(36).
 		Align(lipgloss.Left)
 
 	rendered := box.Render(help)
@@ -1590,9 +1596,9 @@ func (m Model) renderStatusBar() string {
 		if !m.dismissedHints["editor.checkbox"] {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
-		right = "\u2303R edit \u00B7 \u2303Q quit"
+		right = "\u2303R edit \u00B7 Esc quit"
 	} else {
-		right = "/ commands \u00B7 \u2303S save \u00B7 \u2303R view \u00B7 \u2303Q quit"
+		right = "/ blocks \u00B7 \u2303G help \u00B7 Esc quit"
 	}
 
 	bar := format.StatusBar(left, hint, right, width)
