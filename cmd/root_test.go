@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/storage"
 )
 
 func TestRootCommandUseField(t *testing.T) {

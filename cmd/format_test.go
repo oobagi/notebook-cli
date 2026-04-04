@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oobagi/notebook/internal/format"
+	"github.com/oobagi/notebook-cli/internal/format"
 )
 
 func TestRelativeTime(t *testing.T) {

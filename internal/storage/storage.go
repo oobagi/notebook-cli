@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oobagi/notebook/internal/model"
+	"github.com/oobagi/notebook-cli/internal/model"
 )
 
 // SearchResult represents a single line that matched a search query.

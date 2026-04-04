@@ -5,8 +5,8 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/browser"
-	"github.com/oobagi/notebook/internal/config"
+	"github.com/oobagi/notebook-cli/internal/browser"
+	"github.com/oobagi/notebook-cli/internal/config"
 )
 
 // runBrowser launches the TUI browser in a loop. When the user selects

@@ -2,7 +2,7 @@ package editor
 
 import (
 	"charm.land/bubbles/v2/textarea"
-	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook-cli/internal/block"
 )
 
 const maxUndoDepth = 100

@@ -1,4 +1,4 @@
-module github.com/oobagi/notebook
+module github.com/oobagi/notebook-cli
 
 go 1.25.0
 

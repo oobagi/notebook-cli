@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/clipboard"
-	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/editor"
-	"github.com/oobagi/notebook/internal/format"
-	"github.com/oobagi/notebook/internal/recents"
-	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/clipboard"
+	"github.com/oobagi/notebook-cli/internal/config"
+	"github.com/oobagi/notebook-cli/internal/editor"
+	"github.com/oobagi/notebook-cli/internal/format"
+	"github.com/oobagi/notebook-cli/internal/recents"
+	"github.com/oobagi/notebook-cli/internal/storage"
 	"github.com/spf13/cobra"
 )
 

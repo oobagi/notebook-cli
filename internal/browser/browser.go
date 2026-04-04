@@ -10,13 +10,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/lipgloss/v2"
-	"github.com/oobagi/notebook/internal/clipboard"
-	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/format"
-	"github.com/oobagi/notebook/internal/model"
-	"github.com/oobagi/notebook/internal/recents"
-	"github.com/oobagi/notebook/internal/storage"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/clipboard"
+	"github.com/oobagi/notebook-cli/internal/config"
+	"github.com/oobagi/notebook-cli/internal/format"
+	"github.com/oobagi/notebook-cli/internal/model"
+	"github.com/oobagi/notebook-cli/internal/recents"
+	"github.com/oobagi/notebook-cli/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
 // Config holds the dependencies needed by the browser.

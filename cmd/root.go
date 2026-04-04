@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/storage"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/config"
+	"github.com/oobagi/notebook-cli/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/theme"
 	"github.com/spf13/cobra"
 )
 

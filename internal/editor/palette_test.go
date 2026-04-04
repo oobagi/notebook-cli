@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook-cli/internal/block"
 )
 
 func TestSlashAtPos0OpensPalette(t *testing.T) {

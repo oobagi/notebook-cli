@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/storage"
 	"github.com/spf13/cobra"
 )
 

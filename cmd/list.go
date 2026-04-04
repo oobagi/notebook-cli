@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/oobagi/notebook/internal/format"
+	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/spf13/cobra"
 )
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook-cli/internal/block"
 )
 
 // helper to create an editor with the given markdown content.

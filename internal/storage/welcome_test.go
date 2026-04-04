@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/oobagi/notebook/internal/block"
+	"github.com/oobagi/notebook-cli/internal/block"
 )
 
 func TestEnsureWelcomeFirstLaunch(t *testing.T) {

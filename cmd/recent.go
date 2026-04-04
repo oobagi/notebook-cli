@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/oobagi/notebook/internal/format"
-	"github.com/oobagi/notebook/internal/recents"
-	"github.com/oobagi/notebook/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/format"
+	"github.com/oobagi/notebook-cli/internal/recents"
+	"github.com/oobagi/notebook-cli/internal/storage"
 	"github.com/spf13/cobra"
 )
 

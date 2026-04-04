@@ -12,9 +12,9 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/oobagi/notebook/internal/block"
-	"github.com/oobagi/notebook/internal/format"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/format"
+	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
 // countNumberedPosition returns the 1-based position of a numbered list block

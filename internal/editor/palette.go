@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/oobagi/notebook/internal/block"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
 // palette is the "/" command palette for changing a block's type.

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/storage"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/storage"
+	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
 // setupTestStore creates a temp directory with optional notebooks and notes.

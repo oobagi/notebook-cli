@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oobagi/notebook/internal/config"
-	"github.com/oobagi/notebook/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/config"
+	"github.com/oobagi/notebook-cli/internal/theme"
 	"github.com/spf13/cobra"
 )
 

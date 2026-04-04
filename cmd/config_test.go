@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oobagi/notebook/internal/config"
+	"github.com/oobagi/notebook-cli/internal/config"
 )
 
 func TestConfigShowsDefaults(t *testing.T) {

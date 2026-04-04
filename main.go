@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/oobagi/notebook/cmd"
+	"github.com/oobagi/notebook-cli/cmd"
 )
 
 func main() {

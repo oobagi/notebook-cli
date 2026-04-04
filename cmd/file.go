@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook/internal/editor"
-	"github.com/oobagi/notebook/internal/recents"
+	"github.com/oobagi/notebook-cli/internal/editor"
+	"github.com/oobagi/notebook-cli/internal/recents"
 )
 
 // textFileExtensions lists file extensions treated as directly openable text files.
