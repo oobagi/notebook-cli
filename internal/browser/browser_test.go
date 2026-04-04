@@ -1093,11 +1093,7 @@ func TestBrowserInitialBook(t *testing.T) {
 	})
 
 	cmd := m.Init()
-	if cmd != nil {
-		msg := cmd()
-		updated, _ := m.Update(msg)
-		m = updated.(Model)
-	}
+	m = processCmd(m, cmd)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
 
