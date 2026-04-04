@@ -2,7 +2,7 @@
   <img src="assets/notebook-icon.png" width="128" height="128" alt="notebook icon">
 </p>
 
-<h1 align="center">Notebook</h1>
+<h1 align="center">notebook-cli</h1>
 
 <p align="center">
   <strong>A terminal-native note editor with a block-based editing experience.</strong>
