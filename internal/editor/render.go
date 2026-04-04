@@ -550,6 +550,12 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		wrapped = wrapText(content, contentWidth)
 	}
 
+	// Apply inline markdown formatting (bold, italic, etc.) to all blocks
+	// except code blocks, which display raw content.
+	if b.Type != block.CodeBlock {
+		wrapped = format.RenderInlineMarkdown(wrapped)
+	}
+
 	var rendered string
 
 	switch b.Type {
@@ -678,6 +684,12 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 
 	// Always wrap in view mode regardless of the no-wrap setting.
 	wrapped := wrapText(content, contentWidth)
+
+	// Apply inline markdown formatting (bold, italic, etc.) to all blocks
+	// except code blocks, which display raw content.
+	if b.Type != block.CodeBlock {
+		wrapped = format.RenderInlineMarkdown(wrapped)
+	}
 
 	var rendered string
 
