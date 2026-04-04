@@ -3,49 +3,41 @@ package format
 import (
 	"strings"
 	"testing"
-
-	"charm.land/lipgloss/v2"
 )
 
-func TestRenderInlineMarkdown_Bold(t *testing.T) {
-	input := "hello **world** end"
-	result := RenderInlineMarkdown(input)
+// Helper: wrap text in targeted ANSI on/off codes.
+func bold(s string) string          { return boldOn + s + boldOff }
+func italic(s string) string        { return italicOn + s + italicOff }
+func underline(s string) string     { return underlineOn + s + underlineOff }
+func strikethrough(s string) string { return strikethroughOn + s + strikethroughOff }
 
-	bold := lipgloss.NewStyle().Bold(true).Render("world")
-	expected := "hello " + bold + " end"
+func TestRenderInlineMarkdown_Bold(t *testing.T) {
+	result := RenderInlineMarkdown("hello **world** end")
+	expected := "hello " + bold("world") + " end"
 	if result != expected {
 		t.Errorf("bold:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_Italic(t *testing.T) {
-	input := "hello *world* end"
-	result := RenderInlineMarkdown(input)
-
-	italic := lipgloss.NewStyle().Italic(true).Render("world")
-	expected := "hello " + italic + " end"
+	result := RenderInlineMarkdown("hello *world* end")
+	expected := "hello " + italic("world") + " end"
 	if result != expected {
 		t.Errorf("italic:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_Strikethrough(t *testing.T) {
-	input := "hello ~~world~~ end"
-	result := RenderInlineMarkdown(input)
-
-	strike := lipgloss.NewStyle().Strikethrough(true).Render("world")
-	expected := "hello " + strike + " end"
+	result := RenderInlineMarkdown("hello ~~world~~ end")
+	expected := "hello " + strikethrough("world") + " end"
 	if result != expected {
 		t.Errorf("strikethrough:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_Underline(t *testing.T) {
-	input := "hello __world__ end"
-	result := RenderInlineMarkdown(input)
-
-	underline := lipgloss.NewStyle().Underline(true).Render("world")
-	expected := "hello " + underline + " end"
+	result := RenderInlineMarkdown("hello __world__ end")
+	expected := "hello " + underline("world") + " end"
 	if result != expected {
 		t.Errorf("underline:\n got: %q\nwant: %q", result, expected)
 	}
@@ -54,7 +46,6 @@ func TestRenderInlineMarkdown_Underline(t *testing.T) {
 func TestRenderInlineMarkdown_SnakeCaseNotUnderline(t *testing.T) {
 	input := "use snake_case_variable here"
 	result := RenderInlineMarkdown(input)
-
 	if result != input {
 		t.Errorf("snake_case should not be treated as underline:\n got: %q\nwant: %q", result, input)
 	}
@@ -73,7 +64,6 @@ func TestRenderInlineMarkdown_EmptyDelimiters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := RenderInlineMarkdown(tt.input)
-			// Should not contain ANSI escapes — everything rendered literally
 			if strings.Contains(result, "\x1b[") {
 				t.Errorf("%s: expected literal output, got ANSI: %q", tt.name, result)
 			}
@@ -102,49 +92,34 @@ func TestRenderInlineMarkdown_UnmatchedDelimiters(t *testing.T) {
 }
 
 func TestRenderInlineMarkdown_Nested_BoldItalic(t *testing.T) {
-	input := "hello ***bold italic*** end"
-	result := RenderInlineMarkdown(input)
-
-	// *** opens as ** (bold) then * (italic). Closing *** closes * (italic) then ** (bold).
-	inner := lipgloss.NewStyle().Italic(true).Render("bold italic")
-	outer := lipgloss.NewStyle().Bold(true).Render(inner)
-	expected := "hello " + outer + " end"
+	result := RenderInlineMarkdown("hello ***bold italic*** end")
+	// Both turn off at same boundary; emitTransition disables bold before italic.
+	expected := "hello " + boldOn + italicOn + "bold italic" + boldOff + italicOff + " end"
 	if result != expected {
 		t.Errorf("nested bold+italic:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_BoldWithItalicInside(t *testing.T) {
-	input := "**bold with *italic* inside**"
-	result := RenderInlineMarkdown(input)
-
-	italic := lipgloss.NewStyle().Italic(true).Render("italic")
-	bold := lipgloss.NewStyle().Bold(true).Render("bold with " + italic + " inside")
-	if result != bold {
-		t.Errorf("bold with italic inside:\n got: %q\nwant: %q", result, bold)
+	result := RenderInlineMarkdown("**bold with *italic* inside**")
+	// bold on → "bold with " → +italic "italic" -italic → " inside" → bold off
+	expected := boldOn + "bold with " + italicOn + "italic" + italicOff + " inside" + boldOff
+	if result != expected {
+		t.Errorf("bold with italic inside:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_MixedFormatting(t *testing.T) {
-	input := "**bold** and *italic* and ~~strike~~"
-	result := RenderInlineMarkdown(input)
-
-	bold := lipgloss.NewStyle().Bold(true).Render("bold")
-	italic := lipgloss.NewStyle().Italic(true).Render("italic")
-	strike := lipgloss.NewStyle().Strikethrough(true).Render("strike")
-	expected := bold + " and " + italic + " and " + strike
+	result := RenderInlineMarkdown("**bold** and *italic* and ~~strike~~")
+	expected := bold("bold") + " and " + italic("italic") + " and " + strikethrough("strike")
 	if result != expected {
 		t.Errorf("mixed:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_MultiLine(t *testing.T) {
-	input := "**bold** line1\n*italic* line2"
-	result := RenderInlineMarkdown(input)
-
-	bold := lipgloss.NewStyle().Bold(true).Render("bold")
-	italic := lipgloss.NewStyle().Italic(true).Render("italic")
-	expected := bold + " line1\n" + italic + " line2"
+	result := RenderInlineMarkdown("**bold** line1\n*italic* line2")
+	expected := bold("bold") + " line1\n" + italic("italic") + " line2"
 	if result != expected {
 		t.Errorf("multiline:\n got: %q\nwant: %q", result, expected)
 	}
@@ -159,19 +134,14 @@ func TestRenderInlineMarkdown_PlainText(t *testing.T) {
 }
 
 func TestRenderInlineMarkdown_UnderlineAtWordBoundary(t *testing.T) {
-	// __ at start/end of words should work
-	input := "__underlined text__ here"
-	result := RenderInlineMarkdown(input)
-
-	underline := lipgloss.NewStyle().Underline(true).Render("underlined text")
-	expected := underline + " here"
+	result := RenderInlineMarkdown("__underlined text__ here")
+	expected := underline("underlined text") + " here"
 	if result != expected {
 		t.Errorf("underline at word boundary:\n got: %q\nwant: %q", result, expected)
 	}
 }
 
 func TestRenderInlineMarkdown_DoubleUnderscoreInsideWord(t *testing.T) {
-	// foo__bar__baz — underscores inside a word should not trigger underline
 	input := "foo__bar__baz"
 	result := RenderInlineMarkdown(input)
 	if result != input {
@@ -183,5 +153,59 @@ func TestRenderInlineMarkdown_EmptyInput(t *testing.T) {
 	result := RenderInlineMarkdown("")
 	if result != "" {
 		t.Errorf("empty input should return empty:\n got: %q", result)
+	}
+}
+
+// --- New: cross-type nesting (the bugs this rewrite fixes) ---
+
+func TestRenderInlineMarkdown_ItalicWithUnderline(t *testing.T) {
+	result := RenderInlineMarkdown("*__test__*")
+	expected := italicOn + underlineOn + "test" + italicOff + underlineOff
+	if result != expected {
+		t.Errorf("italic+underline:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdown_BoldWithUnderline(t *testing.T) {
+	result := RenderInlineMarkdown("**__test__**")
+	expected := boldOn + underlineOn + "test" + boldOff + underlineOff
+	if result != expected {
+		t.Errorf("bold+underline:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdown_BoldWithStrikethrough(t *testing.T) {
+	result := RenderInlineMarkdown("**~~test~~**")
+	expected := boldOn + strikethroughOn + "test" + boldOff + strikethroughOff
+	if result != expected {
+		t.Errorf("bold+strikethrough:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdown_ItalicWithStrikethrough(t *testing.T) {
+	result := RenderInlineMarkdown("*~~test~~*")
+	expected := italicOn + strikethroughOn + "test" + italicOff + strikethroughOff
+	if result != expected {
+		t.Errorf("italic+strikethrough:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdown_NoFullReset(t *testing.T) {
+	// The key property: output must never contain \x1b[0m (full reset)
+	// which would kill outer block-level styles like heading bold.
+	inputs := []string{
+		"**bold**",
+		"*italic*",
+		"__underline__",
+		"~~strike~~",
+		"***bold italic***",
+		"*__nested__*",
+		"**~~nested~~**",
+	}
+	for _, input := range inputs {
+		result := RenderInlineMarkdown(input)
+		if strings.Contains(result, "\x1b[0m") {
+			t.Errorf("output for %q contains full reset \\x1b[0m: %q", input, result)
+		}
 	}
 }

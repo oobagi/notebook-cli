@@ -3,18 +3,24 @@ package format
 import (
 	"strings"
 	"unicode"
+)
 
-	"charm.land/lipgloss/v2"
+// Targeted ANSI SGR codes — no full resets, so outer block styles survive.
+const (
+	boldOn           = "\x1b[1m"
+	boldOff          = "\x1b[22m"
+	italicOn         = "\x1b[3m"
+	italicOff        = "\x1b[23m"
+	underlineOn      = "\x1b[4m"
+	underlineOff     = "\x1b[24m"
+	strikethroughOn  = "\x1b[9m"
+	strikethroughOff = "\x1b[29m"
 )
 
 // RenderInlineMarkdown applies inline markdown formatting to plain text.
-// It supports **bold**, *italic*, ~~strikethrough~~, and __underline__.
-// Nesting is supported (e.g. ***bold italic***). Empty delimiters and
-// unmatched delimiters are rendered literally. snake_case words are NOT
-// treated as underline markup.
-//
-// The input should be plain text (no ANSI escapes). The output contains
-// lipgloss-styled ANSI sequences.
+// Supports **bold**, *italic*, ~~strikethrough~~, and __underline__ with
+// correct nesting. Uses targeted ANSI SGR codes (not full resets) so that
+// outer block-level styles (e.g. heading bold) are preserved.
 func RenderInlineMarkdown(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
@@ -23,100 +29,182 @@ func RenderInlineMarkdown(text string) string {
 	return strings.Join(lines, "\n")
 }
 
-// delimKind represents the type of inline markdown delimiter.
 type delimKind int
 
 const (
-	delimBold          delimKind = iota // **
-	delimItalic                         // *
-	delimStrikethrough                  // ~~
-	delimUnderline                      // __
+	delimBold          delimKind = iota
+	delimItalic
+	delimStrikethrough
+	delimUnderline
 )
 
-// stackEntry tracks an opening delimiter's position and kind.
-type stackEntry struct {
-	kind     delimKind
-	pos      int // byte offset in buf where content starts (after delimiter text)
-	snapshot int // byte offset in buf just before the delimiter text
+// delimPair records a matched open/close delimiter and the rune ranges it covers.
+type delimPair struct {
+	kind       delimKind
+	openStart  int // first rune of opening delimiter
+	openEnd    int // rune after opening delimiter (content starts here)
+	closeStart int // first rune of closing delimiter
+	closeEnd   int // rune after closing delimiter
+}
+
+type styleFlags struct {
+	bold, italic, strikethrough, underline bool
 }
 
 func renderInlineLine(line string) string {
 	runes := []rune(line)
 	n := len(runes)
+	if n == 0 {
+		return ""
+	}
 
-	// Use a byte slice so we can truncate freely.
-	buf := make([]byte, 0, n*2)
+	// Pass 1: find all matched delimiter pairs.
+	pairs := findDelimiterPairs(runes)
+	if len(pairs) == 0 {
+		return line
+	}
+
+	// Mark delimiter runes for removal.
+	skip := make([]bool, n)
+	for _, p := range pairs {
+		for j := p.openStart; j < p.openEnd; j++ {
+			skip[j] = true
+		}
+		for j := p.closeStart; j < p.closeEnd; j++ {
+			skip[j] = true
+		}
+	}
+
+	// Pass 2: emit text with targeted ANSI style transitions.
+	var buf strings.Builder
+	buf.Grow(n * 2)
+	var active styleFlags
+
+	for i := 0; i < n; i++ {
+		if skip[i] {
+			continue
+		}
+
+		// Determine which styles are active at this rune.
+		var flags styleFlags
+		for _, p := range pairs {
+			if i >= p.openEnd && i < p.closeStart {
+				switch p.kind {
+				case delimBold:
+					flags.bold = true
+				case delimItalic:
+					flags.italic = true
+				case delimStrikethrough:
+					flags.strikethrough = true
+				case delimUnderline:
+					flags.underline = true
+				}
+			}
+		}
+
+		if flags != active {
+			emitTransition(&buf, active, flags)
+			active = flags
+		}
+		buf.WriteRune(runes[i])
+	}
+
+	// Disable any styles still open.
+	emitTransition(&buf, active, styleFlags{})
+	return buf.String()
+}
+
+// emitTransition writes only the ANSI codes needed to move from one style set to another.
+func emitTransition(buf *strings.Builder, from, to styleFlags) {
+	if from.bold && !to.bold {
+		buf.WriteString(boldOff)
+	} else if !from.bold && to.bold {
+		buf.WriteString(boldOn)
+	}
+	if from.italic && !to.italic {
+		buf.WriteString(italicOff)
+	} else if !from.italic && to.italic {
+		buf.WriteString(italicOn)
+	}
+	if from.underline && !to.underline {
+		buf.WriteString(underlineOff)
+	} else if !from.underline && to.underline {
+		buf.WriteString(underlineOn)
+	}
+	if from.strikethrough && !to.strikethrough {
+		buf.WriteString(strikethroughOff)
+	} else if !from.strikethrough && to.strikethrough {
+		buf.WriteString(strikethroughOn)
+	}
+}
+
+// --- Pass 1: delimiter pair matching ---
+
+type stackEntry struct {
+	kind      delimKind
+	openStart int
+	openEnd   int
+}
+
+func findDelimiterPairs(runes []rune) []delimPair {
+	n := len(runes)
+	var pairs []delimPair
 	var stack []stackEntry
 
 	i := 0
 	for i < n {
-		// --- ~~ strikethrough ---
+		// ~~ strikethrough
 		if i+1 < n && runes[i] == '~' && runes[i+1] == '~' {
 			if idx := findStack(stack, delimStrikethrough); idx >= 0 {
 				entry := stack[idx]
-				content := string(buf[entry.pos:])
-				if content == "" {
-					// Empty delimiter — pop stack, leave literal delimiters
-					stack = stack[:idx]
-					buf = append(buf, '~', '~')
-					i += 2
-					continue
+				if i > entry.openEnd { // non-empty content
+					pairs = append(pairs, delimPair{
+						kind:       delimStrikethrough,
+						openStart:  entry.openStart,
+						openEnd:    entry.openEnd,
+						closeStart: i,
+						closeEnd:   i + 2,
+					})
 				}
-				rendered := lipgloss.NewStyle().Strikethrough(true).Render(content)
-				buf = append(buf[:entry.snapshot], rendered...)
 				stack = stack[:idx]
 			} else {
-				stack = append(stack, stackEntry{
-					kind:     delimStrikethrough,
-					snapshot: len(buf),
-					pos:      len(buf) + 2, // after "~~"
-				})
-				buf = append(buf, '~', '~')
+				stack = append(stack, stackEntry{delimStrikethrough, i, i + 2})
 			}
 			i += 2
 			continue
 		}
 
-		// --- __ underline (word-boundary only) ---
+		// __ underline (word-boundary only)
 		if i+1 < n && runes[i] == '_' && runes[i+1] == '_' {
 			if idx := findStack(stack, delimUnderline); idx >= 0 {
-				// Potential closing __
 				afterOk := (i+2 >= n) || !isWordChar(runes[i+2])
 				if afterOk {
 					entry := stack[idx]
-					content := string(buf[entry.pos:])
-					if content == "" {
-						stack = stack[:idx]
-						buf = append(buf, '_', '_')
-						i += 2
-						continue
+					if i > entry.openEnd {
+						pairs = append(pairs, delimPair{
+							kind:       delimUnderline,
+							openStart:  entry.openStart,
+							openEnd:    entry.openEnd,
+							closeStart: i,
+							closeEnd:   i + 2,
+						})
 					}
-					rendered := lipgloss.NewStyle().Underline(true).Render(content)
-					buf = append(buf[:entry.snapshot], rendered...)
 					stack = stack[:idx]
 					i += 2
 					continue
 				}
 			}
-			// Potential opening __
 			beforeOk := (i == 0) || !isWordChar(runes[i-1])
 			if beforeOk {
-				stack = append(stack, stackEntry{
-					kind:     delimUnderline,
-					snapshot: len(buf),
-					pos:      len(buf) + 2,
-				})
-				buf = append(buf, '_', '_')
+				stack = append(stack, stackEntry{delimUnderline, i, i + 2})
 				i += 2
 				continue
 			}
-			// Not at word boundary — literal
-			buf = append(buf, string(runes[i:i+2])...)
 			i += 2
 			continue
 		}
 
-		// --- * or ** stars (bold / italic) ---
+		// * or ** (italic / bold)
 		if runes[i] == '*' {
 			starCount := 0
 			j := i
@@ -124,29 +212,23 @@ func renderInlineLine(line string) string {
 				starCount++
 				j++
 			}
-			i += handleStars(&buf, &stack, starCount)
+			processStars(i, starCount, &stack, &pairs)
+			i += starCount
 			continue
 		}
 
-		// Regular character
-		buf = append(buf, string(runes[i:i+1])...)
 		i++
 	}
-
-	return string(buf)
+	return pairs
 }
 
-// handleStars processes a run of * characters for bold/italic.
-// Returns number of runes consumed.
-func handleStars(buf *[]byte, stack *[]stackEntry, starCount int) int {
+func processStars(pos, starCount int, stack *[]stackEntry, pairs *[]delimPair) {
 	remaining := starCount
 
 	for remaining > 0 {
-		// Find the topmost (most recently opened) star-based delimiter.
 		boldIdx := findStack(*stack, delimBold)
 		italicIdx := findStack(*stack, delimItalic)
 
-		// Determine which to close first — always close the topmost.
 		closeBold := false
 		closeItalic := false
 		if boldIdx >= 0 && italicIdx >= 0 {
@@ -163,15 +245,16 @@ func handleStars(buf *[]byte, stack *[]stackEntry, starCount int) int {
 
 		if closeBold {
 			entry := (*stack)[boldIdx]
-			content := string((*buf)[entry.pos:])
-			if content == "" {
-				*stack = (*stack)[:boldIdx]
-				*buf = append(*buf, '*', '*')
-				remaining -= 2
-				continue
+			closeStart := pos + (starCount - remaining)
+			if closeStart > entry.openEnd {
+				*pairs = append(*pairs, delimPair{
+					kind:       delimBold,
+					openStart:  entry.openStart,
+					openEnd:    entry.openEnd,
+					closeStart: closeStart,
+					closeEnd:   closeStart + 2,
+				})
 			}
-			rendered := lipgloss.NewStyle().Bold(true).Render(content)
-			*buf = append((*buf)[:entry.snapshot], rendered...)
 			*stack = (*stack)[:boldIdx]
 			remaining -= 2
 			continue
@@ -179,48 +262,33 @@ func handleStars(buf *[]byte, stack *[]stackEntry, starCount int) int {
 
 		if closeItalic {
 			entry := (*stack)[italicIdx]
-			content := string((*buf)[entry.pos:])
-			if content == "" {
-				*stack = (*stack)[:italicIdx]
-				*buf = append(*buf, '*')
-				remaining--
-				continue
+			closeStart := pos + (starCount - remaining)
+			if closeStart > entry.openEnd {
+				*pairs = append(*pairs, delimPair{
+					kind:       delimItalic,
+					openStart:  entry.openStart,
+					openEnd:    entry.openEnd,
+					closeStart: closeStart,
+					closeEnd:   closeStart + 1,
+				})
 			}
-			rendered := lipgloss.NewStyle().Italic(true).Render(content)
-			*buf = append((*buf)[:entry.snapshot], rendered...)
 			*stack = (*stack)[:italicIdx]
 			remaining--
 			continue
 		}
 
-		// No matching closer — open new delimiters.
-		// Open bold (**) first if we have 2+, then italic (*) for remainder.
+		// Open new delimiters.
+		openPos := pos + (starCount - remaining)
 		if remaining >= 2 {
-			*stack = append(*stack, stackEntry{
-				kind:     delimBold,
-				snapshot: len(*buf),
-				pos:      len(*buf) + 2,
-			})
-			*buf = append(*buf, '*', '*')
+			*stack = append(*stack, stackEntry{delimBold, openPos, openPos + 2})
 			remaining -= 2
 			continue
 		}
-		if remaining >= 1 {
-			*stack = append(*stack, stackEntry{
-				kind:     delimItalic,
-				snapshot: len(*buf),
-				pos:      len(*buf) + 1,
-			})
-			*buf = append(*buf, '*')
-			remaining--
-			continue
-		}
+		*stack = append(*stack, stackEntry{delimItalic, openPos, openPos + 1})
+		remaining--
 	}
-
-	return starCount
 }
 
-// findStack finds the last (most recent) stack entry with the given kind.
 func findStack(stack []stackEntry, kind delimKind) int {
 	for i := len(stack) - 1; i >= 0; i-- {
 		if stack[i].kind == kind {
@@ -230,7 +298,6 @@ func findStack(stack []stackEntry, kind delimKind) int {
 	return -1
 }
 
-// isWordChar returns true if r is a letter, digit, or underscore.
 func isWordChar(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
