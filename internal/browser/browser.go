@@ -1554,24 +1554,24 @@ func (m Model) renderNoteList(maxLines int) string {
 func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	bullet := "  "
 	label := recentEntryLabel(e)
-	display := truncName(label)
+	// Recents don't have the count column, so the name can use that space.
+	const recentNameMax = nameColMax + 4 + 10 // 38
+	display := truncAt(label, recentNameMax)
 	timeStr := format.RelativeTime(e.LastEdited)
 
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-		display = nameStyle.Render(truncName(label))
+		display = nameStyle.Render(truncAt(label, recentNameMax))
 	}
 
 	const timeColMax = 8
-	const fixedCols = 2 + nameColMax + 4 + 10 + 4 + timeColMax + 4
+	const fixedCols = 2 + recentNameMax + 4 + timeColMax + 4
 
-	// Pad to nameColMax + 4 + 10 to align time column with notebook rows
-	// (which have name + gap + middle column).
 	line := fmt.Sprintf("%s%s    %s",
 		padRight(bullet, 2),
-		padRight(display, nameColMax+4+10),
+		padRight(display, recentNameMax),
 		padRight(timeStr, timeColMax),
 	)
 
@@ -1738,10 +1738,15 @@ const nameColMax = 24
 
 // truncName truncates a display name to nameColMax, adding "..." if needed.
 func truncName(name string) string {
-	if len(name) <= nameColMax {
+	return truncAt(name, nameColMax)
+}
+
+// truncAt truncates a string to max characters, adding "..." if needed.
+func truncAt(name string, max int) string {
+	if len(name) <= max {
 		return name
 	}
-	return name[:nameColMax-3] + "..."
+	return name[:max-3] + "..."
 }
 
 func (m Model) renderEmptyNotebooks(maxHeight int) string {
