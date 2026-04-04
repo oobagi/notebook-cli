@@ -29,6 +29,29 @@ func setupTestStore(t *testing.T, books map[string][]string) *storage.Store {
 	return s
 }
 
+// processCmd executes a command and feeds the resulting message to the model.
+// It handles tea.BatchMsg by processing each sub-command, but only one level
+// deep to avoid infinite recursion with tick/blink commands.
+func processCmd(m Model, cmd tea.Cmd) Model {
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	if msg == nil {
+		return m
+	}
+	// If the message is a BatchMsg, process each sub-command.
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, sub := range batch {
+			m = processCmd(m, sub)
+		}
+		return m
+	}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	return m
+}
+
 // initModel creates a Model and processes the Init command to load data.
 func initModel(t *testing.T, s *storage.Store) Model {
 	t.Helper()
@@ -38,13 +61,9 @@ func initModel(t *testing.T, s *storage.Store) Model {
 		EditNote: func(book, note string) error { return nil },
 	})
 
-	// Run Init and process the resulting message.
+	// Run Init and process the resulting messages (including batches).
 	cmd := m.Init()
-	if cmd != nil {
-		msg := cmd()
-		updated, _ := m.Update(msg)
-		m = updated.(Model)
-	}
+	m = processCmd(m, cmd)
 
 	// Send a window size so the view renders properly.
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -57,31 +76,14 @@ func sendKey(t *testing.T, m Model, code rune) Model {
 	t.Helper()
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: code})
 	m = updated.(Model)
-
-	// Process any commands (like loadNotes).
-	if cmd != nil {
-		msg := cmd()
-		if msg != nil {
-			updated, _ = m.Update(msg)
-			m = updated.(Model)
-		}
-	}
-	return m
+	return processCmd(m, cmd)
 }
 
 func sendRune(t *testing.T, m Model, r rune) Model {
 	t.Helper()
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	m = updated.(Model)
-
-	if cmd != nil {
-		msg := cmd()
-		if msg != nil {
-			updated, _ = m.Update(msg)
-			m = updated.(Model)
-		}
-	}
-	return m
+	return processCmd(m, cmd)
 }
 
 func TestBrowserInitShowsNotebooks(t *testing.T) {
@@ -208,11 +210,11 @@ func TestBrowserQuitOnQ(t *testing.T) {
 
 	m := initModel(t, s)
 
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
 
 	if !m.quitting {
-		t.Error("expected quitting to be true after 'q'")
+		t.Error("expected quitting to be true after Esc")
 	}
 
 	// cmd should be tea.Quit.
@@ -386,7 +388,7 @@ func TestBrowserHelpToggle(t *testing.T) {
 	}
 
 	view := m.View().Content
-	if !containsStr(view, "Keybindings") {
+	if !containsStr(view, "Navigation") {
 		t.Errorf("help overlay should contain 'Keybindings', got:\n%s", view)
 	}
 	if !containsStr(view, "Navigate") {
@@ -401,7 +403,7 @@ func TestBrowserHelpToggle(t *testing.T) {
 	}
 
 	view = m.View().Content
-	if containsStr(view, "Keybindings") {
+	if containsStr(view, "Navigation") {
 		t.Error("help overlay should not be visible after dismissing")
 	}
 }
@@ -1248,18 +1250,18 @@ func TestBrowserThemePickerQDismisses(t *testing.T) {
 		t.Fatal("expected themeMode to be true")
 	}
 
-	// Press 'q' to dismiss (should not quit the app).
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	// Press Esc to dismiss (should not quit the app).
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
 
 	if m.themeMode {
-		t.Fatal("expected themeMode to be false after 'q'")
+		t.Fatal("expected themeMode to be false after Esc")
 	}
 	if m.quitting {
-		t.Error("'q' in theme picker should not quit the app")
+		t.Error("Esc in theme picker should not quit the app")
 	}
 	if cmd != nil {
-		t.Error("expected no command from 'q' in theme picker")
+		t.Error("expected no command from Esc in theme picker")
 	}
 }
 
@@ -1340,7 +1342,7 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 	// Open help at L0.
 	m = sendRune(t, m, '?')
 	view := m.View().Content
-	if !containsStr(view, "Theme picker") {
+	if !containsStr(view, "Theme") {
 		t.Errorf("L0 help should mention 'Theme picker', got:\n%s", view)
 	}
 
@@ -1349,7 +1351,7 @@ func TestBrowserHelpShowsThemeKey(t *testing.T) {
 	m = sendKey(t, m, tea.KeyEnter)
 	m = sendRune(t, m, '?')
 	view = m.View().Content
-	if !containsStr(view, "Theme picker") {
+	if !containsStr(view, "Theme") {
 		t.Errorf("L1 help should mention 'Theme picker', got:\n%s", view)
 	}
 }

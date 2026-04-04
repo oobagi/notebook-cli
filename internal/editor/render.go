@@ -110,16 +110,9 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		if divColor == "" {
 			divColor = dth.Accent
 		}
-		maxW := bs.MaxWidth
-		if maxW <= 0 {
-			maxW = 40
-		}
 		w := m.width - gutterWidth
 		if w <= 0 {
-			w = maxW
-		}
-		if w > maxW {
-			w = maxW
+			w = 40
 		}
 		rendered := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(divColor)).
@@ -663,16 +656,9 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if divColor == "" {
 			divColor = theme.Current().Muted
 		}
-		maxW := bs.MaxWidth
-		if maxW <= 0 {
-			maxW = 40
-		}
 		w := width - gutterWidth
 		if w <= 0 {
-			w = maxW
-		}
-		if w > maxW {
-			w = maxW
+			w = 40
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
 
@@ -722,10 +708,8 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		contentWidth = 1
 	}
 
-	wrapped := content
-	if wordWrap {
-		wrapped = wrapText(content, contentWidth)
-	}
+	// Always wrap in view mode regardless of the no-wrap setting.
+	wrapped := wrapText(content, contentWidth)
 
 	var rendered string
 
@@ -833,15 +817,7 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		if divColor == "" {
 			divColor = theme.Current().Muted
 		}
-		maxW := bs.MaxWidth
-		if maxW <= 0 {
-			maxW = 40
-		}
-		w := width
-		if w > maxW {
-			w = maxW
-		}
-		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, width))
 
 	case block.Paragraph:
 		if wrapped == "" {
@@ -852,15 +828,6 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 
 	default:
 		rendered = wrapped
-	}
-
-	// In no-wrap mode, truncate lines to content column width.
-	if !wordWrap {
-		lines := strings.Split(rendered, "\n")
-		for i, l := range lines {
-			lines[i] = scrollOrTruncate(l, width, 0, false)
-		}
-		rendered = strings.Join(lines, "\n")
 	}
 
 	return rendered

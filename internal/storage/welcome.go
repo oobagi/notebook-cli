@@ -43,7 +43,7 @@ Great for snippets, commands, or ASCII art.
 ## Keyboard Shortcuts
 
 - **Ctrl+S** — Save
-- **Ctrl+Q** — Quit
+- **Ctrl+C** — Quit
 - **Ctrl+G** — Help overlay
 - **Ctrl+K** — Cut block
 - **Enter** — New block
