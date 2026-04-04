@@ -85,6 +85,9 @@ type Model struct {
 
 	// Cursor blink for input/filter modes.
 	inputCur cursor.Model
+
+	// Preview toggle.
+	showPreview bool
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -97,7 +100,8 @@ type notebookItem struct {
 // New creates a new browser model.
 func New(cfg Config) Model {
 	m := Model{
-		store: cfg.Store,
+		store:       cfg.Store,
+		showPreview: true,
 	}
 	if cfg.InitialBook != "" {
 		m.level = 1
@@ -414,6 +418,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "t" {
 			return m.startThemePicker()
+		}
+		if s == "p" {
+			m.showPreview = !m.showPreview
+			return m, nil
 		}
 		return m, nil
 	}
@@ -1304,7 +1312,8 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("  d           Delete " + s + " remove\n")
 	help.WriteString("  r           Rename\n")
 	help.WriteString("  c           Copy (notes)\n")
-	help.WriteString("  t           Theme")
+	help.WriteString("  t           Theme\n")
+	help.WriteString("  p           Preview")
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1555,13 +1564,48 @@ func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 		display = nameStyle.Render(truncName(label))
 	}
 
+	const timeColMax = 8
+	const fixedCols = 2 + nameColMax + 4 + 10 + 4 + timeColMax + 4
+
 	// Pad to nameColMax + 4 + 10 to align time column with notebook rows
 	// (which have name + gap + middle column).
-	return fmt.Sprintf("%s%s    %s",
+	line := fmt.Sprintf("%s%s    %s",
 		padRight(bullet, 2),
 		padRight(display, nameColMax+4+10),
-		timeStr,
+		padRight(timeStr, timeColMax),
 	)
+
+	if m.showPreview {
+		if remain := m.width - fixedCols; remain > 0 {
+			content := m.recentContent(e)
+			if content != "" {
+				preview := notePreview(content, remain)
+				if preview != "" {
+					dim := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Muted))
+					line += "    " + dim.Render(preview)
+				}
+			}
+		}
+	}
+
+	return line
+}
+
+// recentContent returns the text content for a recent entry (best-effort).
+func (m Model) recentContent(e recents.Entry) string {
+	switch e.Type {
+	case recents.TypeStore:
+		n, err := m.store.GetNote(e.Notebook, e.Name)
+		if err == nil {
+			return n.Content
+		}
+	case recents.TypeExternal:
+		data, err := os.ReadFile(e.Path)
+		if err == nil {
+			return string(data)
+		}
+	}
+	return ""
 }
 
 // recentEntryLabel returns the display label for a recent entry.
@@ -1656,12 +1700,38 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 		name = nameStyle.Render(display)
 	}
 
-	return fmt.Sprintf("%s%s    %-10s    %s",
+	const timeColMax = 8
+	const fixedCols = 2 + nameColMax + 4 + 10 + 4 + timeColMax + 4 // bullet+name+gap+size+gap+time+gap
+
+	line := fmt.Sprintf("%s%s    %-10s    %s",
 		padRight(bullet, 2),
 		padRight(name, nameColMax),
 		sizeStr,
-		timeStr,
+		padRight(timeStr, timeColMax),
 	)
+
+	if m.showPreview {
+		if remain := m.width - fixedCols; remain > 0 && n.Content != "" {
+			preview := notePreview(n.Content, remain)
+			if preview != "" {
+				dim := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Muted))
+				line += "    " + dim.Render(preview)
+			}
+		}
+	}
+
+	return line
+}
+
+// notePreview returns a one-line plain-text snippet of a note's content,
+// truncated to maxWidth runes.
+func notePreview(content string, maxWidth int) string {
+	snippet := strings.Join(strings.Fields(content), " ")
+	runes := []rune(snippet)
+	if len(runes) > maxWidth {
+		runes = runes[:maxWidth]
+	}
+	return string(runes)
 }
 
 const nameColMax = 24
