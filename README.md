@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/oobagi/notebook-cli/releases/latest"><img src="https://img.shields.io/github/v/release/oobagi/notebook-cli?color=blue" alt="Latest Release"></a>
+  <img src="https://img.shields.io/badge/release-v1.0.0-blue" alt="v1.0.0">
   <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
@@ -21,6 +21,10 @@
   <a href="#quick-start"><strong>Quick Start</strong></a>
   ·
   <a href="#features"><strong>Features</strong></a>
+  ·
+  <a href="#cli-reference"><strong>CLI Reference</strong></a>
+  ·
+  <a href="#configuration"><strong>Configuration</strong></a>
   ·
   <a href="ROADMAP.md"><strong>Roadmap</strong></a>
 </p>
