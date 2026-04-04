@@ -1213,15 +1213,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Capture pre-typing state on the first content-changing keystroke.
-		// Subsequent characters in the same block are batched into one undo entry.
+		// Capture state before the textarea processes the keystroke so we
+		// can detect whether content actually changed (vs. cursor movement).
+		var preState editorState
 		if !m.undoDirty {
-			m.undo.push(m.captureState())
-			m.undoDirty = true
+			preState = m.captureState()
 		}
 
 		var cmd tea.Cmd
 		m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
+
+		// Only push an undo entry when content actually changed, not on
+		// cursor-only movements (left, right, home, end, etc.).
+		if !m.undoDirty && m.textareas[m.active].Value() != preState.blocks[preState.active].Content {
+			m.undo.push(preState)
+			m.redo.clear()
+			m.undoDirty = true
+		}
 
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
