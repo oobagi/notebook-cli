@@ -23,11 +23,12 @@ type EditFunc func(book, note string) error
 
 // Config holds the dependencies needed by the browser.
 type Config struct {
-	Store         *storage.Store
-	EditNote      EditFunc
+	Store              *storage.Store
+	EditNote           EditFunc
 	InitialBook        string // if set, start at L1 in this notebook
 	InitialCursor      int    // cursor position to restore within the initial view
 	InitialSavedCursor int    // L0 cursor to restore when returning from L1
+	DismissedHints     map[string]bool
 }
 
 // Selection represents a note the user chose to open.
@@ -81,6 +82,9 @@ type Model struct {
 	themeMode      bool   // theme picker overlay visible
 	uiThemeCursor  int    // cursor in UI theme preset list
 	uiThemePreview string // preview for highlighted UI preset
+
+	// Onboarding hints.
+	dismissedHints map[string]bool
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -102,6 +106,10 @@ func New(cfg Config) Model {
 	}
 	m.cursor = cfg.InitialCursor
 	m.savedCursor = cfg.InitialSavedCursor
+	m.dismissedHints = cfg.DismissedHints
+	if m.dismissedHints == nil {
+		m.dismissedHints = make(map[string]bool)
+	}
 	return m
 }
 
@@ -392,6 +400,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "?" {
 			m.showHelp = true
+			return m, nil
+		}
+		if s == "h" {
+			if hint := m.currentHintID(); hint != "" {
+				if m.dismissedHints == nil {
+					m.dismissedHints = make(map[string]bool)
+				}
+				m.dismissedHints[hint] = true
+				config.DismissHint(hint)
+			}
 			return m, nil
 		}
 		if s == "/" {
@@ -1287,6 +1305,23 @@ func (m Model) renderHelpOverlay() string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
 }
 
+// currentHintID returns the hint ID relevant to the current browser state,
+// or "" if no hint applies.
+func (m Model) currentHintID() string {
+	if m.level == 0 && !m.recentsView && !m.filtering {
+		return "browser.theme"
+	}
+	return ""
+}
+
+// statusBarHeight returns the number of terminal lines the rendered status
+// bar will occupy. When the bar text is wider than the terminal, lipgloss
+// wraps it onto multiple lines; this helper accounts for that.
+func (m Model) statusBarHeight() int {
+	rendered := m.renderStatusBar()
+	return strings.Count(rendered, "\n") + 1
+}
+
 // View implements tea.Model.
 func (m Model) View() tea.View {
 	if m.quitting {
@@ -1312,7 +1347,7 @@ func (m Model) View() tea.View {
 		b.WriteString("\n\n")
 
 		// Content area.
-		contentHeight := m.height - 4 // breadcrumb + blank + status bar + blank
+		contentHeight := m.height - 3 - m.statusBarHeight() // breadcrumb + blank line above content + status bar + blank line above status
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
@@ -1672,15 +1707,28 @@ func (m Model) renderStatusBar() string {
 		return dim.Render("  Filter: "+before) + cursor.Render(cursorChar) + dim.Render(after+" \u00B7 Esc clear \u00B7 Enter select")
 	}
 
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+
+	left := " "
+	var hint string
+	var right string
+
 	if m.recentsView {
-		return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 q quit \u00B7 ? help")
+		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 d remove \u00B7 Tab notebooks \u00B7 / search \u00B7 q quit \u00B7 ? help"
+	} else if m.level == 0 {
+		if !m.dismissedHints["browser.theme"] {
+			hint = lipgloss.NewStyle().Italic(true).Render("press t to change theme!  [h]ide")
+		}
+		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 Tab recents \u00B7 / search \u00B7 q quit \u00B7 ? help"
+	} else {
+		right = "\u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help"
 	}
 
-	if m.level == 0 {
-		return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 Tab recents \u00B7 / search \u00B7 q quit \u00B7 ? help")
-	}
-
-	return dim.Render("  \u2191/\u2193 navigate \u00B7 Enter open \u00B7 / search \u00B7 Esc back \u00B7 q quit \u00B7 ? help")
+	bar := format.StatusBar(left, hint, right, width)
+	return lipgloss.NewStyle().Faint(true).Width(width).Render(bar)
 }
 
 // pluralize returns "1 note" or "3 notes" style strings.

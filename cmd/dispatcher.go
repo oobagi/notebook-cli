@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook/internal/clipboard"
+	"github.com/oobagi/notebook/internal/config"
 	"github.com/oobagi/notebook/internal/editor"
 	"github.com/oobagi/notebook/internal/format"
 	"github.com/oobagi/notebook/internal/recents"
@@ -214,6 +215,7 @@ func editNote(w io.Writer, book, note string) error {
 			recents.RecordStore(book, note)
 			return nil
 		},
+		DismissedHints: config.LoadDismissedHints(),
 	}
 
 	m := editor.New(cfg)
