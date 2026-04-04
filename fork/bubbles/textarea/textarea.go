@@ -737,6 +737,17 @@ func (m *Model) SetCursorColumn(col int) {
 	m.lastCharOffset = 0
 }
 
+// SetRow moves the cursor to the given row. If the row is out of bounds it is
+// clamped. The column is clamped to the length of the new row.
+func (m *Model) SetRow(row int) {
+	m.row = clamp(row, 0, len(m.value)-1)
+	if m.col > len(m.value[m.row]) {
+		m.col = len(m.value[m.row])
+	}
+	m.lastCharOffset = 0
+	m.repositionView()
+}
+
 // CursorStart moves the cursor to the start of the input field.
 func (m *Model) CursorStart() {
 	m.SetCursorColumn(0)

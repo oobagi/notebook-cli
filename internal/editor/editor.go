@@ -76,6 +76,9 @@ type Model struct {
 	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
 	blockLineCounts  []int           // per-block rendered line counts from renderAllBlocks
 	dismissedHints   map[string]bool // tracks which onboarding hints the user has dismissed
+	undo      undoStack // undo history
+	redo      undoStack // redo history
+	undoDirty bool      // true when textarea content changed since last snapshot
 }
 
 type statusKind int
@@ -284,12 +287,16 @@ func (m *Model) scheduleStatusDismiss() tea.Cmd {
 }
 
 // focusBlock switches focus from the current block to the block at index idx.
+// If undoDirty is true (content changed via typing since the last snapshot),
+// a snapshot is pushed so that character-level edits are batched per focus change.
 func (m *Model) focusBlock(idx int) {
 	if idx < 0 || idx >= len(m.textareas) {
 		return
 	}
+	if m.undoDirty {
+		m.pushUndo()
+	}
 	if m.active >= 0 && m.active < len(m.textareas) {
-		// Sync content from old active textarea back to block.
 		m.blocks[m.active].Content = m.textareas[m.active].Value()
 		m.textareas[m.active].Blur()
 	}
@@ -629,6 +636,7 @@ func (m *Model) handleBackspace() bool {
 
 	// Divider: backspace always deletes the divider (selected as a unit).
 	if bt == block.Divider {
+		m.pushUndo()
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
 		return true
@@ -641,9 +649,9 @@ func (m *Model) handleBackspace() bool {
 				if m.blocks[0].Type == block.Paragraph {
 					return true // Already empty paragraph, nothing to do.
 				}
-				// Non-paragraph single block: deleteBlock will convert to empty paragraph.
 			}
 		}
+		m.pushUndo()
 		m.deleteBlock(m.active)
 		m.textareas[m.active].CursorEnd()
 		return true
@@ -651,6 +659,7 @@ func (m *Model) handleBackspace() bool {
 
 	// List item at position 0: convert to paragraph, keeping text.
 	if bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist {
+		m.pushUndo()
 		m.blocks[m.active].Type = block.Paragraph
 		m.blocks[m.active].Checked = false
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
@@ -668,10 +677,12 @@ func (m *Model) handleBackspace() bool {
 
 	// If previous block is a divider, just delete the divider.
 	if m.blocks[m.active-1].Type == block.Divider {
+		m.pushUndo()
 		m.deleteBlock(m.active - 1)
 		return true
 	}
 
+	m.pushUndo()
 	m.mergeBlockUp(m.active)
 	return true
 }
@@ -807,6 +818,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Left-click on a checklist block toggles its checked state.
 			if msg.Button == tea.MouseLeft {
 				if idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist {
+					m.pushUndo()
 					m.blocks[idx].Checked = !m.blocks[idx].Checked
 					if idx < len(m.textareas) {
 						m.blocks[idx].Content = m.textareas[idx].Value()
@@ -887,6 +899,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if sel := m.palette.selected(); sel != nil {
+					m.pushUndo()
 					m.applyPaletteSelection(sel.Type)
 				}
 				m.palette.close()
@@ -1000,7 +1013,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = true
 			return m, nil
 
+		case "ctrl+z":
+			if m.performUndo() {
+				m.updateViewport()
+			} else {
+				m.status = "Nothing to undo"
+				m.statusStyle = statusWarning
+			}
+			return m, m.scheduleStatusDismiss()
+
+		case "ctrl+y":
+			if m.performRedo() {
+				m.updateViewport()
+			} else {
+				m.status = "Nothing to redo"
+				m.statusStyle = statusWarning
+			}
+			return m, m.scheduleStatusDismiss()
+
 		case "ctrl+k":
+			m.pushUndo()
 			m.cutBlock()
 			m.updateViewport()
 			return m, nil
@@ -1033,6 +1065,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if bt == block.CodeBlock || bt == block.Quote || bt == block.Divider {
 					// These types don't split on Enter, so there's no other
 					// way to insert content above them. Create a paragraph.
+					m.pushUndo()
 					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
 					m.updateViewport()
 					return m, nil
@@ -1052,11 +1085,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "alt+up":
+			m.pushUndo()
 			m.swapBlocks(-1)
 			m.updateViewport()
 			return m, nil
 
 		case "alt+down":
+			m.pushUndo()
 			m.swapBlocks(1)
 			m.updateViewport()
 			return m, nil
@@ -1091,6 +1126,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+x":
 			// Toggle checklist checked state.
 			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
+				m.pushUndo()
 				m.blocks[m.active].Checked = !m.blocks[m.active].Checked
 				m.updateViewport()
 				return m, nil
@@ -1146,6 +1182,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Handle Enter key: always split/create via handleEnter.
 			if keyMsg.Code == tea.KeyEnter {
+				m.pushUndo()
 				m.handleEnter()
 				m.updateViewport()
 				return m, nil
@@ -1174,6 +1211,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			}
+		}
+
+		// Capture pre-typing state on the first content-changing keystroke.
+		// Subsequent characters in the same block are batched into one undo entry.
+		if !m.undoDirty {
+			m.undo.push(m.captureState())
+			m.undoDirty = true
 		}
 
 		var cmd tea.Cmd
@@ -1536,6 +1580,7 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("  ⇧Enter       Newline\n")
 	help.WriteString("  Backspace    Merge " + s + " delete\n")
 	help.WriteString("  ⌃K           Cut block\n")
+	help.WriteString("  ⌃Z" + s + "⌃Y        Undo " + s + " redo\n")
 	help.WriteString("  ⌥↑" + s + "⌥↓        Move block\n")
 	help.WriteString("  /            Block type\n")
 	help.WriteString("\n")
