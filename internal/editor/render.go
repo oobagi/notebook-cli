@@ -17,6 +17,28 @@ import (
 	"github.com/oobagi/notebook/internal/theme"
 )
 
+// countNumberedPosition returns the 1-based position of a numbered list block
+// by counting consecutive NumberedList blocks preceding it.
+func countNumberedPosition(blocks []block.Block, idx int) int {
+	num := 1
+	for i := idx - 1; i >= 0; i-- {
+		if blocks[i].Type == block.NumberedList {
+			num++
+		} else {
+			break
+		}
+	}
+	return num
+}
+
+// resolveColor returns color if non-empty, otherwise returns fallback.
+func resolveColor(color, fallback string) string {
+	if color == "" {
+		return fallback
+	}
+	return color
+}
+
 // renderHeader builds the header bar displayed at the top of the editor.
 // It shows the title on the left and file path + size on the right.
 func (m Model) renderHeader() string {
@@ -93,6 +115,8 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	ta := m.textareas[idx]
 	content := ta.Value()
 
+	th := theme.Current()
+
 	// Content width for this block type.
 	contentWidth := m.width - gutterWidth - blockPrefixWidth(b.Type)
 	if contentWidth < 1 {
@@ -104,12 +128,8 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	// Divider: selected as a unit — render highlighted hr, no cursor.
 	if b.Type == block.Divider {
-		dth := theme.Current()
-		bs := dth.Blocks.Divider
-		divColor := bs.Color
-		if divColor == "" {
-			divColor = dth.Accent
-		}
+		bs := th.Blocks.Divider
+		divColor := resolveColor(bs.Color, th.Accent)
 		w := m.width - gutterWidth
 		if w <= 0 {
 			w = 40
@@ -118,7 +138,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			Foreground(lipgloss.Color(divColor)).
 			Render(strings.Repeat(bs.Char, w))
 		label := fmt.Sprintf("%2s", b.Type.Short())
-		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(dth.Accent))
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
 		return accentStyle.Render(label) + " " + accentStyle.Render("│") + " " + rendered
 	}
 
@@ -175,8 +195,6 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	taView := strings.Join(visualLines, "\n")
 	cursorANSI := ta.CursorView()
 
-	th := theme.Current()
-
 	var rendered string
 
 	switch b.Type {
@@ -194,37 +212,21 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	case block.BulletList:
 		bs := th.Blocks.Bullet
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = th.Muted
-		}
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.NumberedList:
 		bs := th.Blocks.Numbered
-		num := 1
-		for i := idx - 1; i >= 0; i-- {
-			if m.blocks[i].Type == block.NumberedList {
-				num++
-			} else {
-				break
-			}
-		}
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = th.Muted
-		}
+		num := countNumberedPosition(m.blocks, idx)
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
 		if b.Checked {
-			checkedColor := bs.CheckedColor
-			if checkedColor == "" {
-				checkedColor = th.Accent
-			}
+			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
@@ -236,10 +238,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			}
 			rendered = prefixFirstLine(prefix, text)
 		} else {
-			uncheckedColor := bs.UncheckedColor
-			if uncheckedColor == "" {
-				uncheckedColor = th.Muted
-			}
+			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
 			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, taView)
 		}
@@ -293,10 +292,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 	case block.Quote:
 		bs := th.Blocks.Quote
-		barColor := bs.BarColor
-		if barColor == "" {
-			barColor = th.Muted
-		}
+		barColor := resolveColor(bs.BarColor, th.Muted)
 		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(taView, "\n")
 		for i, l := range lines {
@@ -546,6 +542,8 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		contentWidth = 1
 	}
 
+	th := theme.Current()
+
 	// Wrap content to fit within the available width.
 	wrapped := content
 	if wordWrap {
@@ -556,50 +554,34 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 
 	switch b.Type {
 	case block.Heading1:
-		style := theme.Current().Blocks.Heading1.Text.ToLipgloss(theme.Current().Accent)
+		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
 		rendered = style.Render(wrapped)
 
 	case block.Heading2:
-		style := theme.Current().Blocks.Heading2.Text.ToLipgloss("")
+		style := th.Blocks.Heading2.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.Heading3:
-		style := theme.Current().Blocks.Heading3.Text.ToLipgloss("")
+		style := th.Blocks.Heading3.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.BulletList:
-		bs := theme.Current().Blocks.Bullet
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Bullet
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
-		bs := theme.Current().Blocks.Numbered
-		num := 1
-		for i := idx - 1; i >= 0; i-- {
-			if blocks[i].Type == block.NumberedList {
-				num++
-			} else {
-				break
-			}
-		}
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Numbered
+		num := countNumberedPosition(blocks, idx)
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
-		bs := theme.Current().Blocks.Checklist
+		bs := th.Blocks.Checklist
 		if b.Checked {
-			checkedColor := bs.CheckedColor
-			if checkedColor == "" {
-				checkedColor = theme.Current().Accent
-			}
+			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
@@ -611,16 +593,13 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 			}
 			rendered = prefixFirstLine(prefix, text)
 		} else {
-			uncheckedColor := bs.UncheckedColor
-			if uncheckedColor == "" {
-				uncheckedColor = theme.Current().Muted
-			}
+			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
 			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
 	case block.CodeBlock:
-		bs := theme.Current().Blocks.Code
+		bs := th.Blocks.Code
 		title, body := block.ExtractCodeLanguage(content)
 		label := ""
 		if title != "" {
@@ -635,14 +614,11 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if title != "" && lexers.Get(title) != nil {
 			displayContent = highlightCode(displayContent, title)
 		}
-		rendered = renderCodeBox(displayContent, label, theme.Current().Border, bs.LabelAlign, contentWidth)
+		rendered = renderCodeBox(displayContent, label, th.Border, bs.LabelAlign, contentWidth)
 
 	case block.Quote:
-		bs := theme.Current().Blocks.Quote
-		barColor := bs.BarColor
-		if barColor == "" {
-			barColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Quote
+		barColor := resolveColor(bs.BarColor, th.Muted)
 		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(wrapped, "\n")
 		for i, l := range lines {
@@ -651,23 +627,13 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
-		bs := theme.Current().Blocks.Divider
-		divColor := bs.Color
-		if divColor == "" {
-			divColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Divider
+		divColor := resolveColor(bs.Color, th.Muted)
 		w := width - gutterWidth
 		if w <= 0 {
 			w = 40
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
-
-	case block.Paragraph:
-		if wrapped == "" {
-			rendered = ""
-		} else {
-			rendered = wrapped
-		}
 
 	default:
 		rendered = wrapped
@@ -708,6 +674,8 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		contentWidth = 1
 	}
 
+	th := theme.Current()
+
 	// Always wrap in view mode regardless of the no-wrap setting.
 	wrapped := wrapText(content, contentWidth)
 
@@ -715,50 +683,34 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 
 	switch b.Type {
 	case block.Heading1:
-		style := theme.Current().Blocks.Heading1.Text.ToLipgloss(theme.Current().Accent)
+		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
 		rendered = style.Render(wrapped)
 
 	case block.Heading2:
-		style := theme.Current().Blocks.Heading2.Text.ToLipgloss("")
+		style := th.Blocks.Heading2.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.Heading3:
-		style := theme.Current().Blocks.Heading3.Text.ToLipgloss("")
+		style := th.Blocks.Heading3.Text.ToLipgloss("")
 		rendered = style.Render(wrapped)
 
 	case block.BulletList:
-		bs := theme.Current().Blocks.Bullet
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Bullet
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
-		bs := theme.Current().Blocks.Numbered
-		num := 1
-		for i := idx - 1; i >= 0; i-- {
-			if blocks[i].Type == block.NumberedList {
-				num++
-			} else {
-				break
-			}
-		}
-		markerColor := bs.MarkerColor
-		if markerColor == "" {
-			markerColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Numbered
+		num := countNumberedPosition(blocks, idx)
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
-		bs := theme.Current().Blocks.Checklist
+		bs := th.Blocks.Checklist
 		if b.Checked {
-			checkedColor := bs.CheckedColor
-			if checkedColor == "" {
-				checkedColor = theme.Current().Accent
-			}
+			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
@@ -770,20 +722,17 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			}
 			rendered = prefixFirstLine(prefix, text)
 		} else {
-			uncheckedColor := bs.UncheckedColor
-			if uncheckedColor == "" {
-				uncheckedColor = theme.Current().Muted
-			}
+			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
 			// On hover, light up the checkbox marker with the accent color.
 			if hovered {
-				uncheckedColor = theme.Current().Accent
+				uncheckedColor = th.Accent
 			}
 			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
 	case block.CodeBlock:
-		bs := theme.Current().Blocks.Code
+		bs := th.Blocks.Code
 		title, body := block.ExtractCodeLanguage(content)
 		label := ""
 		if title != "" {
@@ -796,14 +745,11 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		if title != "" && lexers.Get(title) != nil {
 			displayContent = highlightCode(displayContent, title)
 		}
-		rendered = renderCodeBox(displayContent, label, theme.Current().Border, bs.LabelAlign, contentWidth)
+		rendered = renderCodeBox(displayContent, label, th.Border, bs.LabelAlign, contentWidth)
 
 	case block.Quote:
-		bs := theme.Current().Blocks.Quote
-		barColor := bs.BarColor
-		if barColor == "" {
-			barColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Quote
+		barColor := resolveColor(bs.BarColor, th.Muted)
 		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render(bs.Bar)
 		lines := strings.Split(wrapped, "\n")
 		for i, l := range lines {
@@ -812,19 +758,9 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		rendered = strings.Join(lines, "\n")
 
 	case block.Divider:
-		bs := theme.Current().Blocks.Divider
-		divColor := bs.Color
-		if divColor == "" {
-			divColor = theme.Current().Muted
-		}
+		bs := th.Blocks.Divider
+		divColor := resolveColor(bs.Color, th.Muted)
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, width))
-
-	case block.Paragraph:
-		if wrapped == "" {
-			rendered = ""
-		} else {
-			rendered = wrapped
-		}
 
 	default:
 		rendered = wrapped

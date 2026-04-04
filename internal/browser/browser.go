@@ -419,6 +419,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// insertAtCursor inserts ch into s at the given cursor position and returns the
+// updated string and new cursor position.
+func insertAtCursor(s string, cursor int, ch string) (string, int) {
+	return s[:cursor] + ch + s[cursor:], cursor + len(ch)
+}
+
+// backspaceAtCursor removes the character before cursor and returns the updated
+// string and new cursor position. If cursor is already at 0, s is unchanged.
+func backspaceAtCursor(s string, cursor int) (string, int) {
+	if cursor > 0 {
+		return s[:cursor-1] + s[cursor:], cursor - 1
+	}
+	return s, cursor
+}
+
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.inputCur.IsBlinked = false
 	switch msg.String() {
@@ -448,11 +463,8 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "backspace":
-		if m.filterCursor > 0 {
-			m.filter = m.filter[:m.filterCursor-1] + m.filter[m.filterCursor:]
-			m.filterCursor--
-			m.applyFilter()
-		}
+		m.filter, m.filterCursor = backspaceAtCursor(m.filter, m.filterCursor)
+		m.applyFilter()
 		return m, nil
 
 	case "up":
@@ -472,16 +484,13 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "space":
-		m.filter = m.filter[:m.filterCursor] + " " + m.filter[m.filterCursor:]
-		m.filterCursor++
+		m.filter, m.filterCursor = insertAtCursor(m.filter, m.filterCursor, " ")
 		m.applyFilter()
 		return m, nil
 
 	default:
 		if len(msg.Text) > 0 {
-			ch := msg.Text
-			m.filter = m.filter[:m.filterCursor] + ch + m.filter[m.filterCursor:]
-			m.filterCursor += len(ch)
+			m.filter, m.filterCursor = insertAtCursor(m.filter, m.filterCursor, msg.Text)
 			m.applyFilter()
 			return m, nil
 		}
@@ -529,22 +538,16 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "backspace":
-		if m.inputCursor > 0 {
-			m.inputValue = m.inputValue[:m.inputCursor-1] + m.inputValue[m.inputCursor:]
-			m.inputCursor--
-		}
+		m.inputValue, m.inputCursor = backspaceAtCursor(m.inputValue, m.inputCursor)
 		return m, nil
 
 	case "space":
-		m.inputValue = m.inputValue[:m.inputCursor] + " " + m.inputValue[m.inputCursor:]
-		m.inputCursor++
+		m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, " ")
 		return m, nil
 
 	default:
 		if len(msg.Text) > 0 {
-			ch := msg.Text
-			m.inputValue = m.inputValue[:m.inputCursor] + ch + m.inputValue[m.inputCursor:]
-			m.inputCursor += len(ch)
+			m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, msg.Text)
 			return m, nil
 		}
 	}
