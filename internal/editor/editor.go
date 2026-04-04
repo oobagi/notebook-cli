@@ -74,6 +74,7 @@ type Model struct {
 	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
 	cursorCmd        tea.Cmd         // pending cursor blink command from Focus()
 	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
+	blockLineCounts  []int           // per-block rendered line counts from renderAllBlocks
 	dismissedHints   map[string]bool // tracks which onboarding hints the user has dismissed
 }
 
@@ -92,6 +93,10 @@ const (
 	defaultWidth  = 80
 	defaultHeight = 24
 )
+
+// noWrapWidth is a very large width used when word-wrap is disabled so that
+// text never wraps within the textarea.
+const noWrapWidth = 1000
 
 // gutterWidth is the fixed width of the left gutter that shows block type
 // labels. The format is "h1 │ " = label(2) + space + sep(1) + space = 5.
@@ -117,6 +122,23 @@ func blockPrefixWidth(bt block.BlockType) int {
 	default:
 		return 0
 	}
+}
+
+// contentWidth returns the effective textarea width for a block, accounting
+// for the gutter, block prefix, and word-wrap setting.
+func (m Model) contentWidth(bt block.BlockType) int {
+	mw := m.width
+	if mw <= 0 {
+		mw = defaultWidth
+	}
+	w := mw - gutterWidth - blockPrefixWidth(bt)
+	if w < 1 {
+		w = 1
+	}
+	if !m.wordWrap {
+		w = noWrapWidth
+	}
+	return w
 }
 
 // New creates a new editor Model from the given config.
@@ -238,14 +260,7 @@ func (m *Model) resizeTextareas() {
 		w = defaultWidth
 	}
 	for i, b := range m.blocks {
-		taWidth := w - gutterWidth - blockPrefixWidth(b.Type)
-		if taWidth < 1 {
-			taWidth = 1
-		}
-		if !m.wordWrap {
-			taWidth = 1000
-		}
-		m.textareas[i].SetWidth(taWidth)
+		m.textareas[i].SetWidth(m.contentWidth(b.Type))
 		m.textareas[i].SetHeight(m.textareas[i].VisualLineCount())
 	}
 	// Update viewport dimensions, reserving space for the header and status bar
@@ -340,21 +355,18 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	}
 	ta := newTextareaForBlock(b, m.width)
 
-	// Insert into blocks slice.
 	newBlocks := make([]block.Block, 0, len(m.blocks)+1)
 	newBlocks = append(newBlocks, m.blocks[:idx+1]...)
 	newBlocks = append(newBlocks, b)
 	newBlocks = append(newBlocks, m.blocks[idx+1:]...)
 	m.blocks = newBlocks
 
-	// Insert into textareas slice.
 	newTAs := make([]textarea.Model, 0, len(m.textareas)+1)
 	newTAs = append(newTAs, m.textareas[:idx+1]...)
 	newTAs = append(newTAs, ta)
 	newTAs = append(newTAs, m.textareas[idx+1:]...)
 	m.textareas = newTAs
 
-	// Focus the new block.
 	m.focusBlock(idx + 1)
 }
 
@@ -392,14 +404,12 @@ func (m *Model) mergeBlockUp(idx int) {
 		return
 	}
 
-	// Sync content from textarea.
 	currentContent := m.textareas[idx].Value()
 	prevContent := m.textareas[idx-1].Value()
 	// Merge content: concatenate directly (no added newline), matching
 	// Notion/Google Docs behavior where backspace joins text on the same line.
 	merged := prevContent + currentContent
 
-	// Update previous block content.
 	m.blocks[idx-1].Content = merged
 	m.textareas[idx-1].SetValue(merged)
 
@@ -412,17 +422,9 @@ func (m *Model) mergeBlockUp(idx int) {
 	}
 
 	// Reconfigure textarea for the (possibly changed) block type.
-	taWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[idx-1].Type)
-	if taWidth < 1 {
-		taWidth = 1
-	}
-	if !m.wordWrap {
-		taWidth = 1000
-	}
-	m.textareas[idx-1].SetWidth(taWidth)
+	m.textareas[idx-1].SetWidth(m.contentWidth(m.blocks[idx-1].Type))
 	m.textareas[idx-1].SetHeight(m.textareas[idx-1].VisualLineCount())
 
-	// Remove the current block.
 	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
 	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
 
@@ -458,11 +460,9 @@ func (m *Model) swapBlocks(delta int) {
 	m.blocks[m.active].Content = m.textareas[m.active].Value()
 	m.blocks[target].Content = m.textareas[target].Value()
 
-	// Swap blocks.
 	m.blocks[m.active], m.blocks[target] = m.blocks[target], m.blocks[m.active]
 	m.textareas[m.active], m.textareas[target] = m.textareas[target], m.textareas[m.active]
 
-	// Move focus to the new position.
 	m.textareas[m.active].Blur()
 	m.active = target
 	m.cursorCmd = m.textareas[m.active].Focus()
@@ -714,15 +714,7 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		return
 	}
 	m.blocks[m.active].Type = bt
-
-	taWidth := m.width - gutterWidth - blockPrefixWidth(bt)
-	if taWidth < 1 {
-		taWidth = 1
-	}
-	if !m.wordWrap {
-		taWidth = 1000
-	}
-	m.textareas[m.active].SetWidth(taWidth)
+	m.textareas[m.active].SetWidth(m.contentWidth(bt))
 
 	if bt == block.Divider {
 		m.blocks[m.active].Content = ""
@@ -1190,15 +1182,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
 		// (e.g. deleting a newline inserted via Ctrl+J).
-		bt := m.blocks[m.active].Type
-		taWidth := m.width - gutterWidth - blockPrefixWidth(bt)
-		if taWidth < 1 {
-			taWidth = 1
-		}
-		if !m.wordWrap {
-			taWidth = 1000
-		}
-		m.textareas[m.active].SetWidth(taWidth)
+		m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active].Type))
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 
 		m.updateViewport()
@@ -1235,16 +1219,11 @@ func (m *Model) updateViewport() {
 	// because SetContent may reset the viewport's internal scroll state.
 	if m.active >= 0 && m.active < len(m.blocks) && m.active < len(m.textareas) {
 		// Count rendered lines for all blocks before the active one,
-		// including the "\n" join separators between blocks.
+		// using cached line counts from renderAllBlocks to avoid re-rendering.
 		lineOffset := 0
 		for i := 0; i < m.active; i++ {
-			rendered := m.renderBlock(i)
-			lineOffset += strings.Count(rendered, "\n") + 1
-			// Account for palette rendered after a preceding block.
-			if m.palette.visible && i == m.palette.blockIdx {
-				if pv := m.palette.render(m.width); pv != "" {
-					lineOffset += strings.Count(pv, "\n") + 1
-				}
+			if i < len(m.blockLineCounts) {
+				lineOffset += m.blockLineCounts[i]
 			}
 		}
 
@@ -1407,18 +1386,25 @@ func (m Model) blockIndexAtLine(line int) int {
 
 // renderAllBlocks renders each block and joins them vertically.
 // When the command palette is visible, it is rendered below the active block.
-func (m Model) renderAllBlocks() string {
+// As a side effect, it populates m.blockLineCounts with the number of rendered
+// lines for each block (including any palette lines appended after it).
+func (m *Model) renderAllBlocks() string {
 	if m.viewMode {
 		return m.renderViewContent()
 	}
+	m.blockLineCounts = make([]int, len(m.blocks))
 	var parts []string
 	for i := range m.blocks {
-		parts = append(parts, m.renderBlock(i))
+		rendered := m.renderBlock(i)
+		lineCount := strings.Count(rendered, "\n") + 1
+		parts = append(parts, rendered)
 		if m.palette.visible && i == m.active {
 			if pv := m.palette.render(m.width); pv != "" {
+				lineCount += strings.Count(pv, "\n") + 1
 				parts = append(parts, pv)
 			}
 		}
+		m.blockLineCounts[i] = lineCount
 	}
 	return strings.Join(parts, "\n")
 }
