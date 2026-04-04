@@ -915,8 +915,9 @@ func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
 
 	keybindings := []string{
 		"Enter", "New block",
-		"Backspace", "Merge/delete",
-		"\u2325\u2191", "Move block",
+		"Backspace", "Merge",
+		"delete",
+		"Move block",
 	}
 	for _, kb := range keybindings {
 		if !containsPlainText(view, kb) {

@@ -19,12 +19,12 @@ func runBrowser() error {
 	}
 
 	var lastBook string
-	var lastCursor int
+	var lastSel *browser.Selection
 	for {
 		m := browser.New(browser.Config{
 			Store:          store,
 			InitialBook:    lastBook,
-			InitialCursor:  lastCursor,
+			RestoreSel:     lastSel,
 			DismissedHints: config.LoadDismissedHints(),
 		})
 
@@ -41,10 +41,10 @@ func runBrowser() error {
 			return nil
 		}
 
-		lastCursor = final.Cursor()
+		lastSel = sel
 
 		if sel.FromRecent {
-			// Entered from recents — return to L0 at the same cursor.
+			// Entered from recents — return to L0.
 			lastBook = ""
 		} else {
 			// Entered from notebook list — return to L1 inside the book.

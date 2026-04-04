@@ -1528,30 +1528,6 @@ func (m Model) View() tea.View {
 
 // renderHelpOverlay builds the full-screen help panel.
 func (m Model) renderHelpOverlay() string {
-	help := `  Keybindings
-  ─────────────────────────
-
-  Enter        New block
-  ⇧Enter       Newline
-  Backspace    Merge/delete
-  ⌃K           Cut block
-  ⌥↑/⌥↓        Move block
-  /            Block type
-
-  ⌃R           View mode
-  ⌃X           Checkbox
-  ⌃W           Word wrap
-
-  ⌃S           Save
-  Esc/⌃C       Quit
-
-  ─────────────────────────
-  Esc/⌃G to close`
-
-	// Strip tab characters that come from Go source indentation in the
-	// raw string literal. Lipgloss v2 does not expand tabs.
-	help = strings.ReplaceAll(help, "\t", "")
-
 	w := m.width
 	if w <= 0 {
 		w = 80
@@ -1561,6 +1537,29 @@ func (m Model) renderHelpOverlay() string {
 		h = 24
 	}
 
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent)).Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	sep := dim.Render("─────────────────────────")
+	s := dim.Render("/") // dimmed slash separator
+
+	var help strings.Builder
+	help.WriteString("  " + accent.Render("Keybindings") + "\n")
+	help.WriteString("  " + sep + "\n")
+	help.WriteString("\n")
+	help.WriteString("  Enter        New block\n")
+	help.WriteString("  ⇧Enter       Newline\n")
+	help.WriteString("  Backspace    Merge " + s + " delete\n")
+	help.WriteString("  ⌃K           Cut block\n")
+	help.WriteString("  ⌥↑" + s + "⌥↓        Move block\n")
+	help.WriteString("  /            Block type\n")
+	help.WriteString("\n")
+	help.WriteString("  ⌃R           View mode\n")
+	help.WriteString("  ⌃X           Checkbox\n")
+	help.WriteString("  ⌃W           Word wrap\n")
+	help.WriteString("\n")
+	help.WriteString("  ⌃S           Save\n")
+	help.WriteString("  Esc" + s + "⌃C       Quit")
+
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.Current().Border)).
@@ -1568,9 +1567,13 @@ func (m Model) renderHelpOverlay() string {
 		Width(36).
 		Align(lipgloss.Left)
 
-	rendered := box.Render(help)
+	rendered := box.Render(help.String())
 
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
+	statusHint := dim.Render("Esc/⌃G to close")
+
+	full := rendered + "\n" + statusHint
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
 }
 
 // renderStatusBar builds the bottom status bar.

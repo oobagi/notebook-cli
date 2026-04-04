@@ -22,8 +22,8 @@ import (
 // Config holds the dependencies needed by the browser.
 type Config struct {
 	Store          *storage.Store
-	InitialBook    string // if set, start at L1 in this notebook
-	InitialCursor  int    // cursor position to restore within the initial view
+	InitialBook    string     // if set, start at L1 in this notebook
+	RestoreSel     *Selection // if set, reposition cursor to this item after load
 	DismissedHints map[string]bool
 }
 
@@ -64,6 +64,9 @@ type Model struct {
 	// After a rename, this holds the new name so the cursor repositions to it.
 	selectAfterReload string
 
+	// restoreSel holds the previously selected item to reposition the cursor after load.
+	restoreSel *Selection
+
 	// Temporary status message shown in the status bar.
 	statusText string
 	statusGen  int // generation counter for auto-dismiss
@@ -100,7 +103,7 @@ func New(cfg Config) Model {
 		m.level = 1
 		m.currentBook = cfg.InitialBook
 	}
-	m.cursor = cfg.InitialCursor
+	m.restoreSel = cfg.RestoreSel
 	m.dismissedHints = cfg.DismissedHints
 	if m.dismissedHints == nil {
 		m.dismissedHints = make(map[string]bool)
@@ -114,11 +117,6 @@ func New(cfg Config) Model {
 // Selected returns the note selection if the user chose one, or nil.
 func (m Model) Selected() *Selection {
 	return m.selected
-}
-
-// Cursor returns the current cursor position.
-func (m Model) Cursor() int {
-	return m.cursor
 }
 
 // scheduleStatusDismiss increments the generation counter and returns a tick
@@ -298,6 +296,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.statusText = ""
 	// Clear deferred cursor positioning once the user interacts.
 	m.selectAfterReload = ""
+	m.restoreSel = nil
 
 	// Global quit keys.
 	if msg.String() == "ctrl+c" {
@@ -970,13 +969,14 @@ func (m Model) renderThemeOverlay() string {
 		h = 24
 	}
 
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent)).Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
 
 	// Left pane: UI theme preset list.
 	listWidth := 30
 	var left strings.Builder
-	left.WriteString("  UI Theme\n")
-	left.WriteString("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n")
+	left.WriteString("  " + accent.Render("UI Theme") + "\n")
+	left.WriteString("  " + dim.Render("─────────────────") + "\n")
 
 	presets := theme.Presets()
 	for i, p := range presets {
@@ -1038,7 +1038,7 @@ func (m Model) renderThemeOverlay() string {
 	rendered := outer.Render(combined)
 
 	// Status hint.
-	statusHint := dim.Render("  \u2191/\u2193 navigate \u00b7 Enter apply \u00b7 Esc cancel")
+	statusHint := dim.Render("↑/↓ navigate · Enter apply · Esc cancel")
 
 	full := rendered + "\n" + statusHint
 
@@ -1104,6 +1104,20 @@ func (m *Model) resetFilter() {
 		}
 		// Re-apply deferred cursor positioning every time data loads,
 		// so whichever async source arrives last gets the final say.
+		if m.restoreSel != nil {
+			for i, fi := range m.filteredRecent {
+				e := m.recentEntries[fi]
+				if m.restoreSel.FilePath != "" {
+					if e.Path == m.restoreSel.FilePath {
+						m.cursor = i
+						break
+					}
+				} else if e.Notebook == m.restoreSel.Book && e.Name == m.restoreSel.Note {
+					m.cursor = i
+					break
+				}
+			}
+		}
 		if m.selectAfterReload != "" && len(m.notebooks) > 0 {
 			for i, fi := range m.filtered {
 				if m.notebooks[fi].name == m.selectAfterReload {
@@ -1127,6 +1141,15 @@ func (m *Model) resetFilter() {
 		m.filtered[i] = i
 	}
 
+	// Restore cursor to previously-opened note.
+	if m.restoreSel != nil && m.restoreSel.Note != "" && len(m.notes) > 0 {
+		for i, fi := range m.filtered {
+			if m.notes[fi].Name == m.restoreSel.Note {
+				m.cursor = i
+				break
+			}
+		}
+	}
 	// Re-apply deferred cursor positioning for note list.
 	if m.selectAfterReload != "" && len(m.notes) > 0 {
 		for i, fi := range m.filtered {
@@ -1249,25 +1272,6 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 
 // renderHelpOverlay builds the centered help panel.
 func (m Model) renderHelpOverlay() string {
-	help := `  Navigation
-  ─────────────────────
-  ↑/↓       Navigate
-  Enter     Open / edit
-  Esc/⌃C    Back / quit
-  Tab       Jump section
-  /         Search
-
-  Actions
-  ─────────────────────
-  n         New
-  d         Delete / remove
-  r         Rename
-  c         Copy (notes)
-  t         Theme
-
-  ─────────────────────
-  Esc/? to close`
-
 	w := m.width
 	if w <= 0 {
 		w = 80
@@ -1277,9 +1281,27 @@ func (m Model) renderHelpOverlay() string {
 		h = 24
 	}
 
-	// Strip tab characters from Go source indentation in raw strings.
-	// Lipgloss v2 does not expand tabs.
-	help = strings.ReplaceAll(help, "\t", "")
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent)).Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	sep := dim.Render("─────────────────────")
+	s := dim.Render("/") // dimmed slash separator
+
+	var help strings.Builder
+	help.WriteString("  " + accent.Render("Navigation") + "\n")
+	help.WriteString("  " + sep + "\n")
+	help.WriteString("  ↑" + s + "↓         Navigate\n")
+	help.WriteString("  Enter       Open " + s + " edit\n")
+	help.WriteString("  Esc" + s + "⌃C      Back " + s + " quit\n")
+	help.WriteString("  Tab         Jump section\n")
+	help.WriteString("  /           Search\n")
+	help.WriteString("\n")
+	help.WriteString("  " + accent.Render("Actions") + "\n")
+	help.WriteString("  " + sep + "\n")
+	help.WriteString("  n           New\n")
+	help.WriteString("  d           Delete " + s + " remove\n")
+	help.WriteString("  r           Rename\n")
+	help.WriteString("  c           Copy (notes)\n")
+	help.WriteString("  t           Theme")
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1288,9 +1310,13 @@ func (m Model) renderHelpOverlay() string {
 		Width(36).
 		Align(lipgloss.Left)
 
-	rendered := box.Render(help)
+	rendered := box.Render(help.String())
 
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
+	statusHint := dim.Render("Esc/? to close")
+
+	full := rendered + "\n" + statusHint
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
 }
 
 // currentHintID returns the hint ID relevant to the current browser state,
@@ -1415,7 +1441,7 @@ func (m Model) renderUnifiedList(maxLines int) string {
 		}
 	}
 
-	// Blank separator before notebooks (if recents has items).
+	// Blank separator before notebooks (if recents above).
 	if hasRecents {
 		rows = append(rows, vrow{text: "", dataIndex: -1})
 	}
