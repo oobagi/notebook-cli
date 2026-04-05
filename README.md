@@ -44,7 +44,7 @@ Everything runs in your terminal. No account, no sync, no config required. A wel
 #### Homebrew
 
 ```bash
-brew install oobagi/tap/notebook
+brew install oobagi/notebook-cli/notebook
 ```
 
 #### Go
