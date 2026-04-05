@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/oobagi/notebook-cli/releases/latest"><img src="https://img.shields.io/github/v/release/oobagi/notebook-cli?color=blue" alt="Latest Release"></a>
-  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.24+">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="Platform">
 </p>
@@ -70,8 +70,6 @@ The editor works with structured blocks instead of a single text buffer. Each bl
 Press **/** on an empty block to open the command palette and switch its type. Press **Enter** to create a new block below.
 
 **10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block (with syntax highlighting), Quote, Divider.
-
-**Coming soon:** Table, Collapsible Group, Callout, Definition List, Link Bookmark, Embed.
 
 #### Code blocks
 
