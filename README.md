@@ -47,10 +47,9 @@ brew install oobagi/tap/notebook
 # Go (1.25+)
 go install github.com/oobagi/notebook-cli/cmd/notebook@latest
 
-# Or download a binary from the releases page
 ```
 
-Prebuilt binaries for macOS and Linux are available on the [releases page](https://github.com/oobagi/notebook-cli/releases/latest).
+Alternatively, prebuilt binaries for macOS and Linux are available on the [releases page](https://github.com/oobagi/notebook-cli/releases/latest).
 
 ## Quick Start
 
