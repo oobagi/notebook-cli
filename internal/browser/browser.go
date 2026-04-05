@@ -355,17 +355,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "tab":
-		if m.level == 0 {
-			if m.inRecentsSection() {
-				if len(m.filtered) > 0 {
-					m.cursor = len(m.filteredRecent)
-				}
-			} else {
-				if len(m.filteredRecent) > 0 {
-					m.cursor = 0
-				}
-			}
-		}
+		m.tabNextSection()
 		return m, nil
 
 	case "up":
@@ -483,21 +473,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		if m.level == 0 && m.filter != "" {
-			// Jump between Notebooks and Notes sections.
-			notesStart := len(m.filteredRecent) + len(m.filtered)
-			if m.cursor < notesStart {
-				// In notebooks section → jump to notes.
-				if len(m.searchResults) > 0 {
-					m.cursor = notesStart
-				}
-			} else {
-				// In notes section → jump to notebooks.
-				if len(m.filtered) > 0 {
-					m.cursor = len(m.filteredRecent)
-				}
-			}
-		}
+		m.tabNextSection()
 		return m, nil
 
 	case "backspace":
@@ -1279,6 +1255,40 @@ func (m Model) cursorSection() (string, int) {
 
 func (m Model) inRecentsSection() bool {
 	return len(m.filteredRecent) > 0 && m.cursor < len(m.filteredRecent)
+}
+
+// tabNextSection cycles the cursor to the first item of the next L0 section.
+// Sections (recents, notebooks, notes) are skipped if empty.
+func (m *Model) tabNextSection() {
+	if m.level != 0 {
+		return
+	}
+
+	// Build the list of section start indices (only non-empty sections).
+	type section struct{ start int }
+	var sections []section
+	if len(m.filteredRecent) > 0 {
+		sections = append(sections, section{0})
+	}
+	if len(m.filtered) > 0 {
+		sections = append(sections, section{len(m.filteredRecent)})
+	}
+	if len(m.searchResults) > 0 {
+		sections = append(sections, section{len(m.filteredRecent) + len(m.filtered)})
+	}
+	if len(sections) < 2 {
+		return // nothing to cycle
+	}
+
+	// Find which section the cursor is currently in, then jump to the next.
+	for i, s := range sections {
+		next := sections[(i+1)%len(sections)]
+		if i == len(sections)-1 || m.cursor < sections[i+1].start {
+			m.cursor = next.start
+			return
+		}
+		_ = s
+	}
 }
 
 func (m Model) listLen() int {
