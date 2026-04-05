@@ -69,53 +69,38 @@ notebook path/to/file.md
 
 ## Features
 
-### Block Editor
+- **Block editor** — 10 block types: paragraphs, headings, lists, checklists, code blocks, quotes, dividers. Press **/** to switch types.
+- **Syntax highlighting** — 500+ languages via Chroma. Name the language on the first line of a code block.
+- **Inline formatting** — `**bold**`, `*italic*`, `~~strikethrough~~`, `__underline__` render live in inactive blocks.
+- **View mode** — Ctrl+R for a clean, read-only view. Click checklists to toggle them without editing.
+- **Search** — Press **/** in the browser to search across all notebooks by title.
+- **Preview pane** — Press **p** to see note content while browsing.
+- **17 themes** — Dark, Light, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
+- **Undo/redo** — 100 levels, tracks content changes only.
+- **Mouse support** — Click checklists in view mode, native text selection in the editor.
 
-The editor works with structured blocks instead of a single text buffer. Each block has a type — paragraph, heading, list, code, quote, or divider — and you edit one block at a time.
-
-Press **/** on an empty block to open the command palette and switch its type. Press **Enter** to create a new block below.
-
-**10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block (with syntax highlighting), Quote, Divider.
-
-#### Code blocks
-
-Code blocks support syntax highlighting for 500+ languages via Chroma. Put the language name on the first line of the block (e.g. `python`, `go`, `rust`) and the code below it. If no language is specified, it's auto-detected.
-
-#### Editor keybindings
+<details>
+<summary><strong>Editor keybindings</strong></summary>
 
 | Key | Action |
 |---|---|
 | **Enter** | New block below |
 | **/** | Command palette (on empty block) |
 | **Ctrl+S** | Save |
-| **Ctrl+Z / Ctrl+Y** | Undo / Redo (100 levels) |
+| **Ctrl+Z / Ctrl+Y** | Undo / Redo |
 | **Ctrl+K** | Cut block |
 | **Alt+Up / Alt+Down** | Move block up/down |
-| **Ctrl+X** | Toggle checkbox (checklist blocks) |
-| **Ctrl+R** | Switch to view mode |
+| **Ctrl+X** | Toggle checkbox |
+| **Ctrl+R** | View mode |
 | **Ctrl+J / Shift+Enter** | Newline within block |
 | **Ctrl+W** | Toggle word wrap |
-| **Ctrl+G** | Help overlay |
+| **Ctrl+G** | Help |
 | **Esc** | Back to browser |
 
-### Inline Formatting
+</details>
 
-Inactive blocks render inline markdown — **bold**, *italic*, ~~strikethrough~~, and __underline__. Formatting nests correctly and won't interfere with block-level styles like headings.
-
-| Syntax | Result |
-|---|---|
-| `**text**` | **Bold** |
-| `*text*` | *Italic* |
-| `~~text~~` | ~~Strikethrough~~ |
-| `__text__` | Underline |
-| `***text***` | Bold + Italic |
-| `**__text__**` | Bold + Underline |
-
-`snake_case` is left alone. The active block you're editing always shows raw markdown.
-
-### Interactive Browser
-
-Launch `notebook` with no arguments to open the browser. Navigate notebooks and notes with arrow keys, open with Enter, go back with Escape.
+<details>
+<summary><strong>Browser keybindings</strong></summary>
 
 | Key | Action |
 |---|---|
@@ -124,36 +109,15 @@ Launch `notebook` with no arguments to open the browser. Navigate notebooks and 
 | **Esc** | Back / Quit |
 | **/** | Search |
 | **n** | New notebook/note |
-| **d** | Delete (with confirmation) |
+| **d** | Delete |
 | **r** | Rename |
-| **c** | Copy note to clipboard |
-| **p** | Toggle preview pane |
+| **c** | Copy to clipboard |
+| **p** | Preview pane |
 | **t** | Theme picker |
 | **Tab** | Cycle sections |
 | **?** | Help |
 
-The **recents** section (Tab) shows recently edited notes across all notebooks.
-
-The **preview pane** (p) shows note content in a side column while you browse.
-
-### View Mode
-
-Press **Ctrl+R** in the editor to switch to a clean, read-only view. Content is rendered with full theme styling — no cursor, no editing chrome. Scroll with arrow keys or Page Up/Down.
-
-In view mode you can **click checklists** to toggle them without entering edit mode — hover highlights the checkbox, click to check/uncheck. Press **Ctrl+R** again to return to editing where you left off.
-
-### Themes
-
-17 built-in themes with per-block customization (markers, heading styles, code block layouts, colors). Press **t** in the browser to open the theme picker and preview them live.
-
-Themes: Dark, Light, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
-
-Set a theme from the CLI:
-
-```bash
-notebook theme sunset
-notebook theme auto    # auto-detect dark/light terminal
-```
+</details>
 
 ## CLI Reference
 
