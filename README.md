@@ -33,8 +33,7 @@
 
 Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor, an interactive browser with search, 17 themes, inline markdown formatting, undo/redo, and a view mode for reading.
 
-Everything runs in your terminal. No account, no sync, no config required. A welcome note walks you through the basics on first launch.
-
+Everything runs in your terminal. No account, no sync, no config required.
 <p align="center">
   <img src="assets/hero.gif" alt="notebook demo" width="1010">
 </p>
