@@ -37,8 +37,8 @@ changelog:
 brews:
   - repository:
       owner: oobagi
-      name: notebook-cli
-    directory: Formula
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: notebook
     homepage: https://github.com/oobagi/notebook-cli
     description: A terminal-native note editor with a block-based editing experience
