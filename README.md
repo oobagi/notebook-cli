@@ -40,8 +40,6 @@ Everything runs in your terminal. No account, no sync, no config required.
 
 ## Install
 
-Pick one:
-
 ```bash
 # Homebrew
 brew install oobagi/tap/notebook
