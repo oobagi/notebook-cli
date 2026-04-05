@@ -31,9 +31,13 @@
 
 ---
 
-Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor, an interactive browser with fuzzy search, 17 themes, inline markdown formatting, undo/redo, and a view mode for reading.
+Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor, an interactive browser with search, 17 themes, inline markdown formatting, undo/redo, and a view mode for reading.
 
 Everything runs in your terminal. No account, no sync, no config required. A welcome note walks you through the basics on first launch.
+
+<p align="center">
+  <img src="assets/hero.gif" alt="notebook-cli demo" width="720">
+</p>
 
 ## Install
 
@@ -64,6 +68,10 @@ notebook path/to/file.md
 The editor works with structured blocks instead of a single text buffer. Each block has a type — paragraph, heading, list, code, quote, or divider — and you edit one block at a time.
 
 Press **/** on an empty block to open the command palette and switch its type. Press **Enter** to create a new block below.
+
+<p align="center">
+  <img src="assets/editor.gif" alt="Block editor demo" width="720">
+</p>
 
 **10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block (with syntax highlighting), Quote, Divider.
 
@@ -114,14 +122,14 @@ Launch `notebook` with no arguments to open the browser. Navigate notebooks and 
 | **Up/Down** | Navigate |
 | **Enter** | Open |
 | **Esc** | Back / Quit |
-| **/** | Filter (fuzzy search) |
+| **/** | Search |
 | **n** | New notebook/note |
 | **d** | Delete (with confirmation) |
 | **r** | Rename |
 | **c** | Copy note to clipboard |
 | **p** | Toggle preview pane |
 | **t** | Theme picker |
-| **Tab** | Switch to recents |
+| **Tab** | Cycle sections |
 | **?** | Help |
 
 The **recents** section (Tab) shows recently edited notes across all notebooks.
@@ -134,9 +142,17 @@ Press **Ctrl+R** in the editor to switch to a clean, read-only view. Content is 
 
 In view mode you can **click checklists** to toggle them without entering edit mode — hover highlights the checkbox, click to check/uncheck. Press **Ctrl+R** again to return to editing where you left off.
 
+<p align="center">
+  <img src="assets/view.gif" alt="View mode demo" width="720">
+</p>
+
 ### Themes
 
 17 built-in themes with per-block customization (markers, heading styles, code block layouts, colors). Press **t** in the browser to open the theme picker and preview them live.
+
+<p align="center">
+  <img src="assets/themes.gif" alt="Theme picker demo" width="720">
+</p>
 
 Themes: Dark, Light, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
 

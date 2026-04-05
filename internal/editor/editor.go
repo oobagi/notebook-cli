@@ -845,6 +845,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseWheelMsg:
+		// View mode captures mouse — forward wheel to viewport for scrolling.
+		if m.viewMode {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		// When help overlay is showing, Ctrl+G/Esc close it, Ctrl+C quits.
 		if m.showHelp {

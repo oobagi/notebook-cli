@@ -134,9 +134,17 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		if w <= 0 {
 			w = 40
 		}
+		charWidth := len([]rune(bs.Char))
+		if charWidth < 1 {
+			charWidth = 1
+		}
+		divLine := strings.Repeat(bs.Char, w/charWidth)
+		if runes := []rune(divLine); len(runes) > w {
+			divLine = string(runes[:w])
+		}
 		rendered := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(divColor)).
-			Render(strings.Repeat(bs.Char, w))
+			Render(divLine)
 		label := fmt.Sprintf("%2s", b.Type.Short())
 		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
 		return accentStyle.Render(label) + " " + accentStyle.Render("│") + " " + rendered
@@ -639,7 +647,15 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if w <= 0 {
 			w = 40
 		}
-		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, w))
+		charW := len([]rune(bs.Char))
+		if charW < 1 {
+			charW = 1
+		}
+		divLine := strings.Repeat(bs.Char, w/charW)
+		if runes := []rune(divLine); len(runes) > w {
+			divLine = string(runes[:w])
+		}
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
 
 	default:
 		rendered = wrapped
@@ -772,7 +788,17 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 	case block.Divider:
 		bs := th.Blocks.Divider
 		divColor := resolveColor(bs.Color, th.Muted)
-		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(strings.Repeat(bs.Char, width))
+		charWidth := len([]rune(bs.Char))
+		if charWidth < 1 {
+			charWidth = 1
+		}
+		repeatCount := width / charWidth
+		divLine := strings.Repeat(bs.Char, repeatCount)
+		// Trim to exact width in case of rounding.
+		if runes := []rune(divLine); len(runes) > width {
+			divLine = string(runes[:width])
+		}
+		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
 
 	default:
 		rendered = wrapped
