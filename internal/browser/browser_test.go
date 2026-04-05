@@ -182,23 +182,21 @@ func TestBrowserFilterReducesList(t *testing.T) {
 		t.Fatal("expected filtering to be true after '/'")
 	}
 
-	// Type "per" to filter.
+	// Type "pas" to search — matches "pasta" note title.
 	m = sendRune(t, m, 'p')
-	m = sendRune(t, m, 'e')
-	m = sendRune(t, m, 'r')
+	m = sendRune(t, m, 'a')
+	m = sendRune(t, m, 's')
 
-	if m.filter != "per" {
-		t.Errorf("expected filter 'per', got %q", m.filter)
+	if m.filter != "pas" {
+		t.Errorf("expected filter 'pas', got %q", m.filter)
 	}
 
-	if len(m.filtered) != 1 {
-		t.Errorf("expected 1 filtered item, got %d", len(m.filtered))
+	// At L0 with a query, we're in flat search mode.
+	if len(m.searchResults) != 1 {
+		t.Fatalf("expected 1 search result for 'pas', got %d", len(m.searchResults))
 	}
-
-	// The filtered item should be "personal".
-	idx := m.filtered[0]
-	if m.notebooks[idx].name != "personal" {
-		t.Errorf("expected filtered notebook 'personal', got %q", m.notebooks[idx].name)
+	if m.searchResults[0].note != "pasta" {
+		t.Errorf("expected 'pasta', got %q", m.searchResults[0].note)
 	}
 }
 
@@ -348,11 +346,12 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 	m = sendRune(t, m, '/')
 	m = sendRune(t, m, 'w')
 
-	if len(m.filtered) != 1 {
-		t.Fatalf("expected 1 filtered item, got %d", len(m.filtered))
+	// At L0 with a query, we're in flat search mode.
+	if !m.filtering {
+		t.Fatal("expected filtering to be true")
 	}
 
-	// Esc should clear filter and show all items.
+	// Esc should clear filter and restore normal browsing.
 	m = sendKey(t, m, tea.KeyEsc)
 
 	if m.filtering {
@@ -361,8 +360,12 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 	if m.filter != "" {
 		t.Errorf("expected empty filter after Esc, got %q", m.filter)
 	}
+	// Back to normal mode — all notebooks visible.
 	if len(m.filtered) != 2 {
 		t.Errorf("expected 2 filtered items after Esc, got %d", len(m.filtered))
+	}
+	if len(m.searchResults) != 0 {
+		t.Errorf("expected 0 search results after Esc, got %d", len(m.searchResults))
 	}
 }
 
@@ -1431,5 +1434,202 @@ func TestThemePickerUIThemePreviewContent(t *testing.T) {
 	}
 	if !containsStr(m.uiThemePreview, "My Notebook") {
 		t.Errorf("uiThemePreview should contain 'My Notebook', got:\n%s", m.uiThemePreview)
+	}
+}
+
+// setupTestStoreWithContent creates a store with notes that have custom content.
+func setupTestStoreWithContent(t *testing.T, books map[string]map[string]string) *storage.Store {
+	t.Helper()
+	dir := t.TempDir()
+	s := storage.NewStore(dir)
+	for book, notes := range books {
+		if err := s.CreateNotebook(book); err != nil {
+			t.Fatalf("create notebook %q: %v", book, err)
+		}
+		for name, content := range notes {
+			if err := s.CreateNote(book, name, content); err != nil {
+				t.Fatalf("create note %q/%q: %v", book, name, err)
+			}
+		}
+	}
+	return s
+}
+
+func TestSearchL1TitleOnly(t *testing.T) {
+	s := setupTestStoreWithContent(t, map[string]map[string]string{
+		"work": {
+			"meeting-notes": "Some content here.",
+			"todo":          "Other content.",
+			"readme":        "More content.",
+		},
+	})
+
+	m := initModel(t, s)
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// Search for "meet" — matches "meeting-notes" title.
+	m = sendRune(t, m, '/')
+	for _, r := range "meet" {
+		m = sendRune(t, m, r)
+	}
+
+	if len(m.filtered) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(m.filtered))
+	}
+	idx := m.filtered[0]
+	if m.notes[idx].Name != "meeting-notes" {
+		t.Errorf("expected 'meeting-notes', got %q", m.notes[idx].Name)
+	}
+}
+
+func TestSearchL1NoContentMatch(t *testing.T) {
+	s := setupTestStoreWithContent(t, map[string]map[string]string{
+		"work": {
+			"todo": "This note contains the word budget.",
+		},
+	})
+
+	m := initModel(t, s)
+	m = sendKey(t, m, tea.KeyEnter)
+
+	// "budget" is in content but not title — should NOT match.
+	m = sendRune(t, m, '/')
+	for _, r := range "budget" {
+		m = sendRune(t, m, r)
+	}
+
+	if len(m.filtered) != 0 {
+		t.Errorf("expected 0 results (title-only search), got %d", len(m.filtered))
+	}
+}
+
+func TestSearchL1ClearedOnEsc(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo", "readme"},
+	})
+
+	m := initModel(t, s)
+	m = sendKey(t, m, tea.KeyEnter)
+
+	m = sendRune(t, m, '/')
+	m = sendRune(t, m, 'x')
+
+	// Esc should show all notes.
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.filtering {
+		t.Error("expected not filtering")
+	}
+	if len(m.filtered) != 2 {
+		t.Errorf("expected 2 notes, got %d", len(m.filtered))
+	}
+}
+
+func TestSearchL0FlatResults(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work":     {"meeting", "todo"},
+		"personal": {"journal"},
+	})
+
+	m := initModel(t, s)
+
+	// Search for "meet" — matches "meeting" note title.
+	m = sendRune(t, m, '/')
+	for _, r := range "meet" {
+		m = sendRune(t, m, r)
+	}
+
+	if !m.filtering {
+		t.Fatal("expected filtering")
+	}
+	if len(m.searchResults) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(m.searchResults))
+	}
+	if m.searchResults[0].note != "meeting" {
+		t.Errorf("expected 'meeting', got %q", m.searchResults[0].note)
+	}
+	if m.searchResults[0].notebook != "work" {
+		t.Errorf("expected notebook 'work', got %q", m.searchResults[0].notebook)
+	}
+}
+
+func TestSearchL0SelectResult(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"meeting"},
+	})
+
+	m := initModel(t, s)
+
+	m = sendRune(t, m, '/')
+	for _, r := range "meet" {
+		m = sendRune(t, m, r)
+	}
+
+	if len(m.searchResults) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(m.searchResults))
+	}
+
+	// Enter on the result.
+	m.cursor = 0
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+
+	sel := m.Selected()
+	if sel == nil {
+		t.Fatal("expected selection")
+	}
+	if sel.Book != "work" || sel.Note != "meeting" {
+		t.Errorf("expected work/meeting, got %s/%s", sel.Book, sel.Note)
+	}
+}
+
+func TestSearchL0EscRestoresBrowsing(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work":     {"todo"},
+		"personal": {"journal"},
+	})
+
+	m := initModel(t, s)
+	origNotebooks := len(m.filtered)
+
+	m = sendRune(t, m, '/')
+	m = sendRune(t, m, 'x')
+
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.filtering {
+		t.Error("expected not filtering")
+	}
+	if len(m.searchResults) != 0 {
+		t.Error("expected search results cleared")
+	}
+	if len(m.filtered) != origNotebooks {
+		t.Errorf("expected %d notebooks, got %d", origNotebooks, len(m.filtered))
+	}
+}
+
+func TestSearchL0CacheInvalidatedOnReload(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Trigger a search to populate the cache.
+	m = sendRune(t, m, '/')
+	m = sendRune(t, m, 't')
+	if m.allNoteNames == nil {
+		t.Fatal("expected allNoteNames to be cached")
+	}
+
+	m = sendKey(t, m, tea.KeyEsc)
+
+	// Simulate a reload (e.g., after creating a note).
+	updated, cmd := m.Update(reloadMsg{})
+	m = updated.(Model)
+	_ = cmd
+
+	if m.allNoteNames != nil {
+		t.Error("expected allNoteNames cache to be invalidated on reload")
 	}
 }

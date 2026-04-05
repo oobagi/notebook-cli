@@ -46,7 +46,7 @@ type Model struct {
 	filter       string // fuzzy search filter text
 	filtering    bool   // whether filter mode is active
 	filterCursor int    // cursor position within filter
-	filtered    []int  // indices into notebooks/notes after filtering
+	filtered    []int // indices into notebooks/notes after filtering
 	width       int
 	height      int
 	showHelp    bool   // help overlay visible
@@ -88,6 +88,10 @@ type Model struct {
 
 	// Preview toggle.
 	showPreview bool
+
+	// L0 search (flat result list, in-memory).
+	allNoteNames  []l0SearchResult // all note names cached on first search
+	searchResults []l0SearchResult // flat search results filtered from allNoteNames
 }
 
 // notebookItem holds pre-fetched metadata for a notebook.
@@ -146,6 +150,12 @@ type notesLoadedMsg struct {
 // recentsLoadedMsg carries the loaded recents list.
 type recentsLoadedMsg struct {
 	entries []recents.Entry
+}
+
+// l0SearchResult represents a single note in the flat L0 search list.
+type l0SearchResult struct {
+	notebook string
+	note     string
 }
 
 // Init implements tea.Model.
@@ -255,12 +265,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case reloadMsg:
+		m.allNoteNames = nil // invalidate search cache
 		if m.level == 0 {
 			return m, tea.Batch(m.loadNotebooks(), m.loadRecents())
 		}
 		return m, m.loadNotes(m.currentBook)
 
 	case reloadAndSelectMsg:
+		m.allNoteNames = nil // invalidate search cache
 		m.selectAfterReload = msg.name
 		if m.level == 0 {
 			return m, m.loadNotebooks()
@@ -467,6 +479,24 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		if m.filterCursor < len(m.filter) {
 			m.filterCursor++
+		}
+		return m, nil
+
+	case "tab":
+		if m.level == 0 && m.filter != "" {
+			// Jump between Notebooks and Notes sections.
+			notesStart := len(m.filteredRecent) + len(m.filtered)
+			if m.cursor < notesStart {
+				// In notebooks section → jump to notes.
+				if len(m.searchResults) > 0 {
+					m.cursor = notesStart
+				}
+			} else {
+				// In notes section → jump to notebooks.
+				if len(m.filtered) > 0 {
+					m.cursor = len(m.filteredRecent)
+				}
+			}
 		}
 		return m, nil
 
@@ -1060,18 +1090,46 @@ func (m *Model) applyFilter() {
 	query := strings.ToLower(m.filter)
 
 	if m.level == 0 {
-		m.filteredRecent = nil
-		for i, e := range m.recentEntries {
-			label := recentEntryLabel(e)
-			if query == "" || strings.Contains(strings.ToLower(label), query) {
-				m.filteredRecent = append(m.filteredRecent, i)
+		if query != "" {
+			// Filter notebooks by name.
+			m.filteredRecent = nil
+			m.filtered = nil
+			for i, nb := range m.notebooks {
+				if strings.Contains(strings.ToLower(storage.DisplayName(nb.name)), query) {
+					m.filtered = append(m.filtered, i)
+				}
 			}
+
+			// Filter notes by title (lazy-load names on first search).
+			if m.allNoteNames == nil {
+				m.allNoteNames = m.loadNoteNames()
+			}
+			m.searchResults = nil
+			for _, r := range m.allNoteNames {
+				if strings.Contains(strings.ToLower(storage.DisplayName(r.note)), query) {
+					m.searchResults = append(m.searchResults, r)
+				}
+			}
+
+			total := m.totalL0Items()
+			if m.cursor >= total {
+				m.cursor = total - 1
+			}
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+			return
+		}
+
+		// No query — normal browsing mode.
+		m.searchResults = nil
+		m.filteredRecent = nil
+		for i := range m.recentEntries {
+			m.filteredRecent = append(m.filteredRecent, i)
 		}
 		m.filtered = nil
-		for i, nb := range m.notebooks {
-			if query == "" || strings.Contains(storage.DisplayName(nb.name), query) {
-				m.filtered = append(m.filtered, i)
-			}
+		for i := range m.notebooks {
+			m.filtered = append(m.filtered, i)
 		}
 		total := m.totalL0Items()
 		if m.cursor >= total {
@@ -1083,9 +1141,10 @@ func (m *Model) applyFilter() {
 		return
 	}
 
+	// L1: title-only filter.
 	m.filtered = nil
 	for i, n := range m.notes {
-		if query == "" || strings.Contains(storage.DisplayName(n.Name), query) {
+		if query == "" || strings.Contains(strings.ToLower(storage.DisplayName(n.Name)), query) {
 			m.filtered = append(m.filtered, i)
 		}
 	}
@@ -1098,11 +1157,35 @@ func (m *Model) applyFilter() {
 	}
 }
 
+// loadNoteNames reads all note names from all notebooks (no content).
+func (m *Model) loadNoteNames() []l0SearchResult {
+	var results []l0SearchResult
+	for _, nb := range m.notebooks {
+		dir := m.store.NotebookDir(nb.name)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".md")
+			results = append(results, l0SearchResult{
+				notebook: nb.name,
+				note:     name,
+			})
+		}
+	}
+	return results
+}
+
 func (m *Model) resetFilter() {
 	m.filter = ""
 	m.filtering = false
 	m.filtered = nil
 	m.filteredRecent = nil
+	m.searchResults = nil
 
 	if m.level == 0 {
 		m.filteredRecent = make([]int, len(m.recentEntries))
@@ -1180,14 +1263,18 @@ func (m *Model) resetFilter() {
 }
 
 func (m Model) totalL0Items() int {
-	return len(m.filteredRecent) + len(m.filtered)
+	return len(m.filteredRecent) + len(m.filtered) + len(m.searchResults)
 }
 
 func (m Model) cursorSection() (string, int) {
 	if m.cursor < len(m.filteredRecent) {
 		return "recent", m.cursor
 	}
-	return "notebook", m.cursor - len(m.filteredRecent)
+	nbStart := len(m.filteredRecent)
+	if m.cursor < nbStart+len(m.filtered) {
+		return "notebook", m.cursor - nbStart
+	}
+	return "search", m.cursor - nbStart - len(m.filtered)
 }
 
 func (m Model) inRecentsSection() bool {
@@ -1204,6 +1291,20 @@ func (m Model) listLen() int {
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.level == 0 {
 		section, localIdx := m.cursorSection()
+
+		// Flat search results mode.
+		if section == "search" {
+			if localIdx >= len(m.searchResults) {
+				return m, nil
+			}
+			r := m.searchResults[localIdx]
+			m.selected = &Selection{
+				Book: r.notebook,
+				Note: r.note,
+			}
+			return m, tea.Quit
+		}
+
 		if section == "recent" {
 			if len(m.filteredRecent) == 0 {
 				return m, nil
@@ -1245,6 +1346,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.notes = nil
 		m.filtered = nil
 		m.filteredRecent = nil
+		m.searchResults = nil
 		return m, m.loadNotes(m.currentBook)
 	}
 
@@ -1423,25 +1525,22 @@ func (m Model) renderContent(maxLines int) string {
 }
 
 func (m Model) renderUnifiedList(maxLines int) string {
-	// Build virtual rows: each row is either a section header, a blank
-	// separator, a recent item, or a notebook item. We track which
-	// data-item index each row maps to (or -1 for non-selectable rows).
 	type vrow struct {
-		text       string
-		dataIndex  int  // combined cursor index, or -1 for header/separator
-		isRecent   bool // whether this is a recent item row
+		text      string
+		dataIndex int // combined cursor index, or -1 for header/separator
 	}
 
 	var rows []vrow
-	cursorRow := 0 // row index that corresponds to m.cursor
+	cursorRow := 0
+	isSearching := m.filtering && m.filter != ""
 
 	hasRecents := len(m.filteredRecent) > 0
 	hasNotebooks := len(m.filtered) > 0
+	hasNotes := len(m.searchResults) > 0
 
-	// Recent section.
-	if hasRecents {
+	// Recent section (hidden during search).
+	if hasRecents && !isSearching {
 		rows = append(rows, vrow{text: m.renderSectionHeader("Recent"), dataIndex: -1})
-
 		for i, fi := range m.filteredRecent {
 			combinedIdx := i
 			selected := combinedIdx == m.cursor
@@ -1449,16 +1548,12 @@ func (m Model) renderUnifiedList(maxLines int) string {
 				cursorRow = len(rows)
 			}
 			line := m.formatRecentLine(m.recentEntries[fi], selected)
-			rows = append(rows, vrow{text: line, dataIndex: combinedIdx, isRecent: true})
+			rows = append(rows, vrow{text: line, dataIndex: combinedIdx})
 		}
-	}
-
-	// Blank separator before notebooks (if recents above).
-	if hasRecents {
 		rows = append(rows, vrow{text: "", dataIndex: -1})
 	}
 
-	// Notebook section — always shown.
+	// Notebooks section.
 	rows = append(rows, vrow{text: m.renderSectionHeader("Notebooks"), dataIndex: -1})
 
 	if hasNotebooks {
@@ -1472,7 +1567,7 @@ func (m Model) renderUnifiedList(maxLines int) string {
 			rows = append(rows, vrow{text: line, dataIndex: combinedIdx})
 		}
 	} else if !m.filtering {
-		// Render recents rows above, then append star empty state below.
+		// Empty state when not filtering.
 		var b strings.Builder
 		for i, row := range rows {
 			b.WriteString(row.text)
@@ -1487,15 +1582,31 @@ func (m Model) renderUnifiedList(maxLines int) string {
 		}
 		b.WriteString(m.renderEmptyNotebooks(remainingHeight))
 		return b.String()
-	} else {
+	} else if !hasNotes {
 		rows = append(rows, vrow{text: "  No matches", dataIndex: -1})
 	}
 
-	// Scroll window: keep cursorRow visible.
+	// Notes section (only during search).
+	if isSearching && hasNotes {
+		rows = append(rows, vrow{text: "", dataIndex: -1})
+		rows = append(rows, vrow{text: m.renderSectionHeader("Notes"), dataIndex: -1})
+
+		searchBase := len(m.filteredRecent) + len(m.filtered)
+		for i, r := range m.searchResults {
+			combinedIdx := searchBase + i
+			selected := combinedIdx == m.cursor
+			if selected {
+				cursorRow = len(rows)
+			}
+			line := m.formatL0SearchResult(r, selected)
+			rows = append(rows, vrow{text: line, dataIndex: combinedIdx})
+		}
+	}
+
+	// Scroll window.
 	totalRows := len(rows)
 	start := 0
 	if totalRows > maxLines {
-		// Center the cursor row in the window.
 		start = cursorRow - maxLines/2
 		if start < 0 {
 			start = 0
@@ -1591,6 +1702,32 @@ func (m Model) formatRecentLine(e recents.Entry, selected bool) string {
 	return line
 }
 
+// formatL0SearchResult renders a single result in the flat L0 search list.
+func (m Model) formatL0SearchResult(r l0SearchResult, selected bool) string {
+	bullet := "  "
+	noteName := truncAt(storage.DisplayName(r.note), nameColMax)
+	bookName := storage.DisplayName(r.notebook)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Muted))
+
+	var styledName string
+	if selected {
+		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		bullet = bulletStyle.Render("\u25CF") + " "
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		styledName = highlightMatch(noteName, m.filter, accentStyle)
+	} else {
+		styledName = highlightMatch(noteName, m.filter, lipgloss.NewStyle())
+	}
+
+	display := styledName + "  " + dim.Render(bookName)
+	const searchNameMax = nameColMax + 4 + 10 // 38
+
+	return fmt.Sprintf("%s%s",
+		padRight(bullet, 2),
+		padRight(display, searchNameMax),
+	)
+}
+
 // recentContent returns the text content for a recent entry (best-effort).
 func (m Model) recentContent(e recents.Entry) string {
 	switch e.Type {
@@ -1667,8 +1804,14 @@ func (m Model) formatNotebookLine(nb notebookItem, selected bool) string {
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-		name = nameStyle.Render(display)
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		if m.filtering && m.filter != "" {
+			name = highlightMatch(display, m.filter, accentStyle)
+		} else {
+			name = accentStyle.Render(display)
+		}
+	} else if m.filtering && m.filter != "" {
+		name = highlightMatch(display, m.filter, lipgloss.NewStyle())
 	}
 
 	return fmt.Sprintf("%s%s    %-10s    %s",
@@ -1696,8 +1839,14 @@ func (m Model) formatNoteLine(n model.Note, selected bool) string {
 	if selected {
 		bulletStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
 		bullet = bulletStyle.Render("\u25CF") + " "
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-		name = nameStyle.Render(display)
+		accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
+		if m.filtering && m.filter != "" {
+			name = highlightMatch(display, m.filter, accentStyle)
+		} else {
+			name = accentStyle.Render(display)
+		}
+	} else if m.filtering && m.filter != "" {
+		name = highlightMatch(display, m.filter, lipgloss.NewStyle())
 	}
 
 	const timeColMax = 8
@@ -1747,6 +1896,36 @@ func truncAt(name string, max int) string {
 		return name
 	}
 	return name[:max-3] + "..."
+}
+
+// highlightMatch renders a name with the matching query substring underlined.
+// baseStyle is applied to non-matching characters; matching characters get
+// the same style plus underline.
+func highlightMatch(name, query string, baseStyle lipgloss.Style) string {
+	if query == "" {
+		return baseStyle.Render(name)
+	}
+	lower := strings.ToLower(name)
+	lowerQ := strings.ToLower(query)
+	idx := strings.Index(lower, lowerQ)
+	if idx < 0 {
+		return baseStyle.Render(name)
+	}
+
+	matchStyle := baseStyle.Underline(true)
+	before := name[:idx]
+	matched := name[idx : idx+len(query)]
+	after := name[idx+len(query):]
+
+	var b strings.Builder
+	if before != "" {
+		b.WriteString(baseStyle.Render(before))
+	}
+	b.WriteString(matchStyle.Render(matched))
+	if after != "" {
+		b.WriteString(baseStyle.Render(after))
+	}
+	return b.String()
 }
 
 func (m Model) renderEmptyNotebooks(maxHeight int) string {
@@ -1819,7 +1998,7 @@ func (m Model) renderStatusBar() string {
 	}
 
 	if m.filtering {
-		return format.StatusBarInput("Filter:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
+		return format.StatusBarInput("Search:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
 	}
 
 	left := " "
