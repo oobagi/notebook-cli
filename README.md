@@ -40,30 +40,19 @@ Everything runs in your terminal. No account, no sync, no config required.
 
 ## Install
 
-#### Homebrew
+Pick one:
 
 ```bash
+# Homebrew
 brew install oobagi/tap/notebook
-```
 
-#### Go
-
-Requires [Go 1.25+](https://go.dev/dl/). Make sure `$GOPATH/bin` is on your `PATH`.
-
-```bash
+# Go (1.25+)
 go install github.com/oobagi/notebook-cli/cmd/notebook@latest
+
+# Or download a binary from the releases page
 ```
 
-#### Download binary
-
-Download the latest binary from the [releases page](https://github.com/oobagi/notebook-cli/releases/latest):
-
-```bash
-# macOS (Apple Silicon)
-curl -Lo notebook.tar.gz https://github.com/oobagi/notebook-cli/releases/latest/download/notebook-cli_$(curl -s https://api.github.com/repos/oobagi/notebook-cli/releases/latest | grep tag_name | cut -d'"' -f4 | tr -d v)_darwin_arm64.tar.gz
-tar xzf notebook.tar.gz
-sudo mv notebook /usr/local/bin/
-```
+Prebuilt binaries for macOS and Linux are available on the [releases page](https://github.com/oobagi/notebook-cli/releases/latest).
 
 ## Quick Start
 
