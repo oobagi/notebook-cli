@@ -852,6 +852,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyPressMsg:
+		// Any keypress clears the manual scroll flag so auto-scroll
+		// to cursor resumes.
+		m.viewport.UserScrolled = false
+
 		// When help overlay is showing, Ctrl+G/Esc close it, Ctrl+C quits.
 		if m.showHelp {
 			switch msg.String() {
@@ -1276,6 +1280,12 @@ func (m *Model) updateViewport() {
 	// and skip auto-scroll to cursor — the user scrolls manually.
 	if m.viewMode {
 		m.computeBlockLineOffsets()
+		return
+	}
+
+	// Skip auto-scroll if the user manually scrolled with the mouse.
+	// The flag is cleared on the next cursor movement (see below).
+	if m.viewport.UserScrolled {
 		return
 	}
 
