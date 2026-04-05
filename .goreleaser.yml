@@ -38,7 +38,7 @@ brews:
   - repository:
       owner: oobagi
       name: notebook-cli
-      directory: Formula
+    directory: Formula
     name: notebook
     homepage: https://github.com/oobagi/notebook-cli
     description: A terminal-native note editor with a block-based editing experience
