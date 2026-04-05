@@ -12,3 +12,4 @@ Planned work tracked via [open issues](https://github.com/oobagi/notebook-cli/is
 - [ ] [#188 feat: definition list block type](https://github.com/oobagi/notebook-cli/issues/188)
 - [ ] [#189 feat: link bookmark block type](https://github.com/oobagi/notebook-cli/issues/189)
 - [ ] [#190 feat: embed block type (reference another note inline)](https://github.com/oobagi/notebook-cli/issues/190)
+- [ ] [#195 feat: directory browser mode — browse filesystem with split-pane file preview](https://github.com/oobagi/notebook-cli/issues/195)

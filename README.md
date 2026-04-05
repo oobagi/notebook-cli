@@ -69,10 +69,6 @@ The editor works with structured blocks instead of a single text buffer. Each bl
 
 Press **/** on an empty block to open the command palette and switch its type. Press **Enter** to create a new block below.
 
-<p align="center">
-  <img src="assets/editor.gif" alt="Block editor demo" width="720">
-</p>
-
 **10 block types:** Paragraph, Heading 1/2/3, Bullet List, Numbered List, Checklist, Code Block (with syntax highlighting), Quote, Divider.
 
 **Coming soon:** Table, Collapsible Group, Callout, Definition List, Link Bookmark, Embed.
@@ -142,17 +138,9 @@ Press **Ctrl+R** in the editor to switch to a clean, read-only view. Content is 
 
 In view mode you can **click checklists** to toggle them without entering edit mode — hover highlights the checkbox, click to check/uncheck. Press **Ctrl+R** again to return to editing where you left off.
 
-<p align="center">
-  <img src="assets/view.gif" alt="View mode demo" width="720">
-</p>
-
 ### Themes
 
 17 built-in themes with per-block customization (markers, heading styles, code block layouts, colors). Press **t** in the browser to open the theme picker and preview them live.
-
-<p align="center">
-  <img src="assets/themes.gif" alt="Theme picker demo" width="720">
-</p>
 
 Themes: Dark, Light, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
 
