@@ -845,17 +845,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.MouseWheelMsg:
-		// Let wheel scroll pass through to the viewport.
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-
 	case tea.KeyPressMsg:
-		// Any keypress clears the manual scroll flag so auto-scroll
-		// to cursor resumes.
-		m.viewport.UserScrolled = false
-
 		// When help overlay is showing, Ctrl+G/Esc close it, Ctrl+C quits.
 		if m.showHelp {
 			switch msg.String() {
@@ -1283,12 +1273,6 @@ func (m *Model) updateViewport() {
 		return
 	}
 
-	// Skip auto-scroll if the user manually scrolled with the mouse.
-	// The flag is cleared on the next cursor movement (see below).
-	if m.viewport.UserScrolled {
-		return
-	}
-
 	// Auto-scroll: calculate the cursor's actual line in the rendered output
 	// and ensure the viewport shows it. We compute the offset from scratch
 	// because SetContent may reset the viewport's internal scroll state.
@@ -1583,7 +1567,11 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(content)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeAllMotion
+	if m.viewMode {
+		// AllMotion enables hover tracking for checklist highlight.
+		v.MouseMode = tea.MouseModeAllMotion
+	}
+	// Edit mode: no mouse capture — terminal-native text selection works.
 	return v
 }
 

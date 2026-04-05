@@ -68,10 +68,6 @@ type Model struct {
 	// The number of lines the mouse wheel will scroll. By default, this is 3.
 	MouseWheelDelta int
 
-	// UserScrolled is set when the user scrolls with the mouse wheel.
-	// Consumers can check this to skip auto-scroll-to-cursor logic.
-	UserScrolled bool
-
 	// yOffset is the vertical scroll position.
 	yOffset int
 
@@ -701,7 +697,6 @@ func (m Model) updateAsModel(msg tea.Msg) Model {
 		if !m.MouseWheelEnabled {
 			break
 		}
-		m.UserScrolled = true
 		switch msg.Button {
 		case tea.MouseWheelDown:
 			// NOTE: some terminal emulators don't send the shift event for
