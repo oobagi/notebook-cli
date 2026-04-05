@@ -34,6 +34,17 @@ changelog:
       - "^ci:"
       - "^test:"
 
+brews:
+  - repository:
+      owner: oobagi
+      name: homebrew-tap
+    name: notebook
+    homepage: https://github.com/oobagi/notebook-cli
+    description: A terminal-native note editor with a block-based editing experience
+    license: MIT
+    install: |
+      bin.install "notebook"
+
 release:
   github:
     owner: oobagi

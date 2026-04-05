@@ -2,7 +2,7 @@
   <img src="assets/notebook-icon.png" width="128" height="128" alt="notebook icon">
 </p>
 
-<h1 align="center">notebook-cli</h1>
+<h1 align="center">notebook</h1>
 
 <p align="center">
   <strong>A terminal-native note editor with a block-based editing experience.</strong>
@@ -36,13 +36,34 @@ Notebook is a TUI note manager that organizes markdown notes into notebooks. It 
 Everything runs in your terminal. No account, no sync, no config required. A welcome note walks you through the basics on first launch.
 
 <p align="center">
-  <img src="assets/hero.gif" alt="notebook-cli demo" width="1010">
+  <img src="assets/hero.gif" alt="notebook demo" width="1010">
 </p>
 
 ## Install
 
+#### Homebrew
+
+```bash
+brew install oobagi/tap/notebook
+```
+
+#### Go
+
+Requires [Go 1.25+](https://go.dev/dl/). Make sure `$GOPATH/bin` is on your `PATH`.
+
 ```bash
 go install github.com/oobagi/notebook-cli/cmd/notebook@latest
+```
+
+#### Download binary
+
+Download the latest binary from the [releases page](https://github.com/oobagi/notebook-cli/releases/latest):
+
+```bash
+# macOS (Apple Silicon)
+curl -Lo notebook.tar.gz https://github.com/oobagi/notebook-cli/releases/latest/download/notebook-cli_$(curl -s https://api.github.com/repos/oobagi/notebook-cli/releases/latest | grep tag_name | cut -d'"' -f4 | tr -d v)_darwin_arm64.tar.gz
+tar xzf notebook.tar.gz
+sudo mv notebook /usr/local/bin/
 ```
 
 ## Quick Start
