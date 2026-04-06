@@ -423,7 +423,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "p" {
 			m.showPreview = !m.showPreview
-			return m, nil
+			if m.showPreview {
+				m.statusText = "Preview on"
+			} else {
+				m.statusText = "Preview off"
+			}
+			return m, m.scheduleStatusDismiss()
 		}
 		return m, nil
 	}
