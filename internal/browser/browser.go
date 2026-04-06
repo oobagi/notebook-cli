@@ -997,15 +997,11 @@ func (m Model) renderThemeOverlay() string {
 
 	presets := theme.Presets()
 	for i, p := range presets {
-		bgHint := ""
-		if p.Background != "" {
-			bgHint = " " + dim.Render("("+p.Background+" bg)")
-		}
 		if i == m.uiThemeCursor {
 			sel := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent))
-			left.WriteString(fmt.Sprintf("  %s %s%s\n", sel.Render("\u25cf"), sel.Render(p.Name), bgHint))
+			left.WriteString(fmt.Sprintf("  %s %s\n", sel.Render("\u25cf"), sel.Render(p.Name)))
 		} else {
-			left.WriteString(fmt.Sprintf("    %s%s\n", p.Name, bgHint))
+			left.WriteString(fmt.Sprintf("    %s\n", p.Name))
 		}
 	}
 

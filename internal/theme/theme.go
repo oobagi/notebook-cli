@@ -1,7 +1,6 @@
 package theme
 
 import (
-	"os"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -607,23 +606,9 @@ func SetTheme(t Theme) {
 	current = t
 }
 
-// Detect uses lipgloss to query the terminal background color and returns
-// the appropriate theme. When detection is not possible (e.g. piped output),
-// it defaults to Dark.
-func Detect() Theme {
-	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
-		return Dark
-	}
-	return Light
-}
-
-// FromName returns a theme by name. Accepted values include "dark", "light",
-// "auto", and any preset name (case-insensitive). Unknown values fall back to
-// Dark.
+// FromName returns a theme by name (case-insensitive). Unknown values fall
+// back to Dark.
 func FromName(name string) Theme {
-	if strings.EqualFold(name, "auto") {
-		return Detect()
-	}
 	if t, ok := PresetByName(name); ok {
 		return t
 	}
@@ -650,7 +635,6 @@ func PresetByName(name string) (Theme, bool) {
 func init() {
 	allPresets = []Theme{
 		Dark,
-		Light,
 		Ocean,
 		Forest,
 		Sunset,

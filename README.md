@@ -75,7 +75,7 @@ notebook path/to/file.md
 - **View mode** — Ctrl+R for a clean, read-only view. Click checklists to toggle them without editing.
 - **Search** — Press **/** in the browser to search across all notebooks by title.
 - **Preview pane** — Press **p** to see note content while browsing.
-- **17 themes** — Dark, Light, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
+- **16 themes** — Dark, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
 - **Undo/redo** — 100 levels, tracks content changes only.
 - **Mouse support** — Click checklists in view mode, native text selection in the editor.
 
@@ -147,7 +147,7 @@ Config lives at `~/.config/notebook/config.toml`. Set values with `notebook conf
 |---|---|---|
 | `storage_dir` | `~/.notebook` | Where notebooks are stored |
 | `editor` | built-in | External editor command (leave empty for built-in) |
-| `theme` | `auto` | Theme name or `auto` for terminal detection |
+| `theme` | `dark` | Theme name (see `notebook theme` for options) |
 | `date_format` | `relative` | How dates are displayed |
 
 ## License

@@ -15,8 +15,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Editor != "" {
 		t.Errorf("Editor = %q, want %q", cfg.Editor, "")
 	}
-	if cfg.Theme != "auto" {
-		t.Errorf("Theme = %q, want %q", cfg.Theme, "auto")
+	if cfg.Theme != "dark" {
+		t.Errorf("Theme = %q, want %q", cfg.Theme, "dark")
 	}
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want %q", cfg.DateFormat, "relative")
@@ -223,8 +223,8 @@ func TestLoadPartialConfig(t *testing.T) {
 	if cfg.StorageDir != "~/.notebook" {
 		t.Errorf("StorageDir = %q, want default %q", cfg.StorageDir, "~/.notebook")
 	}
-	if cfg.Theme != "auto" {
-		t.Errorf("Theme = %q, want default %q", cfg.Theme, "auto")
+	if cfg.Theme != "dark" {
+		t.Errorf("Theme = %q, want default %q", cfg.Theme, "dark")
 	}
 	if cfg.DateFormat != "relative" {
 		t.Errorf("DateFormat = %q, want default %q", cfg.DateFormat, "relative")
@@ -236,7 +236,7 @@ func TestLegacyUIThemeMigration(t *testing.T) {
 	path := filepath.Join(dir, "config.toml")
 
 	// Simulate a legacy config file with ui_theme set and theme at default.
-	content := `theme = "auto"
+	content := `theme = "dark"
 ui_theme = "ocean"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

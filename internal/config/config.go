@@ -13,7 +13,7 @@ import (
 type Config struct {
 	StorageDir string `toml:"storage_dir"`
 	Editor     string `toml:"editor"`
-	Theme      string `toml:"theme"`       // "auto" or any preset name
+	Theme      string `toml:"theme"`       // any preset name
 	DateFormat string `toml:"date_format"` // "relative" or Go time format
 }
 
@@ -22,7 +22,7 @@ func DefaultConfig() Config {
 	return Config{
 		StorageDir: "~/.notebook",
 		Editor:     "",
-		Theme:      "auto",
+		Theme:      "dark",
 		DateFormat: "relative",
 	}
 }
@@ -76,7 +76,7 @@ func LoadFrom(path string) (Config, error) {
 		UITheme string `toml:"ui_theme"`
 	}
 	_ = toml.Unmarshal(data, &legacy)
-	if legacy.UITheme != "" && legacy.UITheme != "auto" && (cfg.Theme == "" || cfg.Theme == "auto") {
+	if legacy.UITheme != "" && legacy.UITheme != "auto" && (cfg.Theme == "" || cfg.Theme == "auto" || cfg.Theme == "dark") {
 		cfg.Theme = legacy.UITheme
 	}
 

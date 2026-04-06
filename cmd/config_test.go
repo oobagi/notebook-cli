@@ -21,7 +21,7 @@ func TestConfigShowsDefaults(t *testing.T) {
 	if !strings.Contains(out, "~/.notebook") {
 		t.Errorf("expected default storage_dir in output, got %q", out)
 	}
-	if !strings.Contains(out, "auto") {
+	if !strings.Contains(out, "dark") {
 		t.Errorf("expected default theme in output, got %q", out)
 	}
 	if !strings.Contains(out, "relative") {
@@ -100,7 +100,7 @@ func TestCLIFlagOverridesConfig(t *testing.T) {
 	cfg := config.Config{
 		StorageDir: "/config/notes",
 		Editor:     "",
-		Theme:      "auto",
+		Theme:      "dark",
 		DateFormat: "relative",
 	}
 	if err := config.SaveTo(cfg, configPath); err != nil {

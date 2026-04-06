@@ -5,31 +5,10 @@ import (
 	"testing"
 )
 
-func TestDetectReturnsTheme(t *testing.T) {
-	got := Detect()
-	if got.Name != "dark" && got.Name != "light" {
-		t.Errorf("Detect() returned theme with Name=%q, want \"dark\" or \"light\"", got.Name)
-	}
-}
-
 func TestFromNameDark(t *testing.T) {
 	got := FromName("dark")
 	if got.Name != "dark" {
 		t.Errorf("FromName(\"dark\") returned Name=%q, want \"dark\"", got.Name)
-	}
-}
-
-func TestFromNameLight(t *testing.T) {
-	got := FromName("light")
-	if got.Name != "light" {
-		t.Errorf("FromName(\"light\") returned Name=%q, want \"light\"", got.Name)
-	}
-}
-
-func TestFromNameAuto(t *testing.T) {
-	got := FromName("auto")
-	if got.Name != "dark" && got.Name != "light" {
-		t.Errorf("FromName(\"auto\") returned Name=%q, want \"dark\" or \"light\"", got.Name)
 	}
 }
 
@@ -104,8 +83,8 @@ func TestPresetsOrder(t *testing.T) {
 	if presets[0].Name != "dark" {
 		t.Errorf("Presets()[0].Name = %q, want \"dark\"", presets[0].Name)
 	}
-	if presets[1].Name != "light" {
-		t.Errorf("Presets()[1].Name = %q, want \"light\"", presets[1].Name)
+	if presets[1].Name != "ocean" {
+		t.Errorf("Presets()[1].Name = %q, want \"ocean\"", presets[1].Name)
 	}
 }
 

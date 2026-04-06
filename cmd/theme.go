@@ -31,15 +31,13 @@ var themeCmd = &cobra.Command{
 		}
 
 		name := args[0]
-		if name != "auto" {
-			if _, ok := theme.PresetByName(name); !ok {
-				presets := theme.Presets()
-				var names []string
-				for _, p := range presets {
-					names = append(names, p.Name)
-				}
-				return fmt.Errorf("unknown theme %q (choose: auto, %s)", name, strings.Join(names, ", "))
+		if _, ok := theme.PresetByName(name); !ok {
+			presets := theme.Presets()
+			var names []string
+			for _, p := range presets {
+				names = append(names, p.Name)
 			}
+			return fmt.Errorf("unknown theme %q (choose: %s)", name, strings.Join(names, ", "))
 		}
 
 		current, err := config.Load()
