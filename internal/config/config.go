@@ -71,15 +71,6 @@ func LoadFrom(path string) (Config, error) {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Migrate deprecated ui_theme → theme.
-	var legacy struct {
-		UITheme string `toml:"ui_theme"`
-	}
-	_ = toml.Unmarshal(data, &legacy)
-	if legacy.UITheme != "" && legacy.UITheme != "auto" && (cfg.Theme == "" || cfg.Theme == "auto" || cfg.Theme == "dark") {
-		cfg.Theme = legacy.UITheme
-	}
-
 	return cfg, nil
 }
 
