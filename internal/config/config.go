@@ -9,31 +9,55 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// HideChecked controls visibility of checked checklist items.
+type HideChecked string
+
+const (
+	HideCheckedOff      HideChecked = "off"       // show all items (default)
+	HideCheckedViewOnly HideChecked = "view-only"  // hide in view mode only
+	HideCheckedOn       HideChecked = "on"         // hide in both modes
+)
+
+// CycleHideChecked returns the next value in the off -> view-only -> on cycle.
+func CycleHideChecked(current HideChecked) HideChecked {
+	switch current {
+	case HideCheckedOff:
+		return HideCheckedViewOnly
+	case HideCheckedViewOnly:
+		return HideCheckedOn
+	default:
+		return HideCheckedOff
+	}
+}
+
 // Config holds all user-configurable settings.
 type Config struct {
-	StorageDir string `toml:"storage_dir"`
-	Editor     string `toml:"editor"`
-	Theme      string `toml:"theme"`       // any preset name
-	DateFormat string `toml:"date_format"` // "relative" or Go time format
+	StorageDir   string      `toml:"storage_dir"`
+	Editor       string      `toml:"editor"`
+	Theme        string      `toml:"theme"`         // any preset name
+	DateFormat   string      `toml:"date_format"`   // "relative" or Go time format
+	HideChecked  HideChecked `toml:"hide_checked"`  // "off", "view-only", or "on"
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		StorageDir: "~/.notebook",
-		Editor:     "",
-		Theme:      "dark",
-		DateFormat: "relative",
+		StorageDir:  "~/.notebook",
+		Editor:      "",
+		Theme:       "dark",
+		DateFormat:  "relative",
+		HideChecked: HideCheckedOff,
 	}
 }
 
 // ValidKeys returns the set of keys that can be set via "config set".
 var ValidKeys = map[string]bool{
-	"storage_dir": true,
-	"editor":      true,
-	"theme":       true,
-	"date_format": true,
-	"show_hints":  true,
+	"storage_dir":   true,
+	"editor":        true,
+	"theme":         true,
+	"date_format":   true,
+	"show_hints":    true,
+	"hide_checked":  true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -110,6 +134,13 @@ func Set(cfg *Config, key, value string) error {
 		cfg.Theme = value
 	case "date_format":
 		cfg.DateFormat = value
+	case "hide_checked":
+		switch HideChecked(value) {
+		case HideCheckedOff, HideCheckedViewOnly, HideCheckedOn:
+			cfg.HideChecked = HideChecked(value)
+		default:
+			return fmt.Errorf("hide_checked must be \"off\", \"view-only\", or \"on\"")
+		}
 	case "show_hints":
 		if value != "true" {
 			return fmt.Errorf("show_hints only supports \"true\" to re-enable hints")
@@ -133,6 +164,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.Theme, nil
 	case "date_format":
 		return cfg.DateFormat, nil
+	case "hide_checked":
+		return string(cfg.HideChecked), nil
 	case "show_hints":
 		dismissed := LoadDismissedHints()
 		if len(dismissed) == 0 {
