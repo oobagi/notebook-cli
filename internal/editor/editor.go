@@ -31,6 +31,8 @@ type Config struct {
 	Save func(string) error
 	// DismissedHints tracks which onboarding hints have been dismissed.
 	DismissedHints map[string]bool
+	// HideChecked controls visibility of checked checklist items.
+	HideChecked config.HideChecked
 }
 
 // savedMsg is sent after a successful save.
@@ -76,9 +78,10 @@ type Model struct {
 	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
 	blockLineCounts  []int           // per-block rendered line counts from renderAllBlocks
 	dismissedHints   map[string]bool // tracks which onboarding hints the user has dismissed
-	undo      undoStack // undo history
-	redo      undoStack // redo history
-	undoDirty bool      // true when textarea content changed since last snapshot
+	undo        undoStack       // undo history
+	redo        undoStack       // redo history
+	undoDirty   bool            // true when textarea content changed since last snapshot
+	hideChecked config.HideChecked // hide checked checklist items setting
 }
 
 type statusKind int
@@ -165,6 +168,11 @@ func New(cfg Config) Model {
 		dismissed = make(map[string]bool)
 	}
 
+	hideChecked := cfg.HideChecked
+	if hideChecked == "" {
+		hideChecked = config.HideCheckedOff
+	}
+
 	return Model{
 		blocks:         blocks,
 		textareas:      textareas,
@@ -178,6 +186,7 @@ func New(cfg Config) Model {
 		wordWrap:       true,
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
+		hideChecked:    hideChecked,
 	}
 }
 
@@ -236,6 +245,68 @@ func (m Model) syncBlocks() []block.Block {
 // BlockCount returns the number of blocks in the editor.
 func (m Model) BlockCount() int {
 	return len(m.blocks)
+}
+
+// isBlockHidden returns true if the block at the given index should be hidden
+// based on the current hideChecked setting and mode.
+func (m Model) isBlockHidden(idx int) bool {
+	if idx < 0 || idx >= len(m.blocks) {
+		return false
+	}
+	b := m.blocks[idx]
+	if b.Type != block.Checklist || !b.Checked {
+		return false
+	}
+	switch m.hideChecked {
+	case config.HideCheckedOn:
+		return true
+	case config.HideCheckedViewOnly:
+		return m.viewMode
+	default:
+		return false
+	}
+}
+
+// hiddenCheckedCount returns the number of checked checklist items currently
+// hidden by the hideChecked setting.
+func (m Model) hiddenCheckedCount() int {
+	count := 0
+	for i := range m.blocks {
+		if m.isBlockHidden(i) {
+			count++
+		}
+	}
+	return count
+}
+
+// persistHideChecked saves the current hideChecked setting to the global config.
+func (m *Model) persistHideChecked() {
+	if globalCfg, err := config.Load(); err == nil {
+		globalCfg.HideChecked = m.hideChecked
+		_ = config.Save(globalCfg)
+	}
+}
+
+// moveToVisibleBlock moves focus to the nearest visible (non-hidden) block.
+// Searches forward first, then backward. No-op if the current block is visible.
+func (m *Model) moveToVisibleBlock() {
+	if !m.isBlockHidden(m.active) {
+		return
+	}
+	// Search forward.
+	for i := m.active + 1; i < len(m.blocks); i++ {
+		if !m.isBlockHidden(i) {
+			m.focusBlock(i)
+			return
+		}
+	}
+	// Search backward.
+	for i := m.active - 1; i >= 0; i-- {
+		if !m.isBlockHidden(i) {
+			m.focusBlock(i)
+			return
+		}
+	}
 }
 
 // statusBarHeight returns the number of terminal lines the rendered status
@@ -305,14 +376,22 @@ func (m *Model) focusBlock(idx int) {
 	m.cursorCmd = m.textareas[idx].Focus()
 }
 
-// navigateUp moves focus to the previous block, preserving horizontal position.
+// navigateUp moves focus to the previous visible block, preserving horizontal position.
 func (m *Model) navigateUp() {
 	if m.active <= 0 {
 		return
 	}
+	// Find the previous visible block.
+	target := m.active - 1
+	for target >= 0 && m.isBlockHidden(target) {
+		target--
+	}
+	if target < 0 {
+		return
+	}
 	// Capture horizontal position before leaving.
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
-	m.focusBlock(m.active - 1)
+	m.focusBlock(target)
 	// Move to the last visual line and restore horizontal offset.
 	ta := &m.textareas[m.active]
 	ta.MoveToEnd()
@@ -320,14 +399,22 @@ func (m *Model) navigateUp() {
 	ta.SetCursorColumn(li.StartColumn + charOffset)
 }
 
-// navigateDown moves focus to the next block, preserving horizontal position.
+// navigateDown moves focus to the next visible block, preserving horizontal position.
 func (m *Model) navigateDown() {
 	if m.active >= len(m.textareas)-1 {
 		return
 	}
+	// Find the next visible block.
+	target := m.active + 1
+	for target < len(m.textareas) && m.isBlockHidden(target) {
+		target++
+	}
+	if target >= len(m.textareas) {
+		return
+	}
 	// Capture horizontal position before leaving.
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
-	m.focusBlock(m.active + 1)
+	m.focusBlock(target)
 	// Move to the first visual line and restore horizontal offset.
 	ta := &m.textareas[m.active]
 	ta.MoveToBegin()
@@ -958,6 +1045,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// View mode: intercept keys early.
 		if m.viewMode {
 			switch msg.String() {
+			case "ctrl+h":
+				m.hideChecked = config.CycleHideChecked(m.hideChecked)
+				m.status = fmt.Sprintf("Hide checked: %s", m.hideChecked)
+				m.statusStyle = statusSuccess
+				m.persistHideChecked()
+				m.updateViewport()
+				return m, m.scheduleStatusDismiss()
 			case "ctrl+r":
 				m.viewMode = false
 				m.hoverBlock = -1
@@ -1118,6 +1212,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateViewport()
 			return m, nil
 
+		case "ctrl+h":
+			m.hideChecked = config.CycleHideChecked(m.hideChecked)
+			m.status = fmt.Sprintf("Hide checked: %s", m.hideChecked)
+			m.statusStyle = statusSuccess
+			m.persistHideChecked()
+			// If the active block just became hidden, move focus to a visible block.
+			if m.isBlockHidden(m.active) {
+				m.moveToVisibleBlock()
+			}
+			m.updateViewport()
+			return m, m.scheduleStatusDismiss()
+
 		case "ctrl+u":
 			ta := &m.textareas[m.active]
 			info := ta.LineInfo()
@@ -1144,6 +1250,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
 				m.pushUndo()
 				m.blocks[m.active].Checked = !m.blocks[m.active].Checked
+				// If the block just became hidden, move focus to a visible block.
+				if m.isBlockHidden(m.active) {
+					m.moveToVisibleBlock()
+				}
 				m.updateViewport()
 				return m, nil
 			}
@@ -1395,15 +1505,21 @@ func (m *Model) computeBlockLineOffsets() {
 	}
 
 	offsets := make([]int, len(m.blocks))
+	prevVisibleIdx := -1
 	for i, b := range m.blocks {
+		if m.isBlockHidden(i) {
+			offsets[i] = -1 // hidden block, no line offset
+			continue
+		}
+
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
 		}
 
 		// Spacing lines before this block (mirrors renderViewContent exactly).
-		if i > 0 {
-			prev := m.blocks[i-1]
+		if prevVisibleIdx >= 0 {
+			prev := m.blocks[prevVisibleIdx]
 			switch {
 			case b.Type == block.Heading1:
 				advance("") // 2 blank lines before H1
@@ -1429,6 +1545,7 @@ func (m *Model) computeBlockLineOffsets() {
 		// Render the block and advance past its lines.
 		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false)
 		advance(rendered)
+		prevVisibleIdx = i
 	}
 
 	m.blockLineOffsets = offsets
@@ -1440,9 +1557,12 @@ func (m Model) blockIndexAtLine(line int) int {
 	if len(m.blockLineOffsets) == 0 {
 		return -1
 	}
-	// Find the last block whose starting offset is <= line.
+	// Find the last visible block whose starting offset is <= line.
 	result := -1
 	for i, offset := range m.blockLineOffsets {
+		if offset < 0 {
+			continue // hidden block
+		}
 		if offset <= line {
 			result = i
 		} else {
@@ -1463,6 +1583,10 @@ func (m *Model) renderAllBlocks() string {
 	m.blockLineCounts = make([]int, len(m.blocks))
 	var parts []string
 	for i := range m.blocks {
+		if m.isBlockHidden(i) {
+			m.blockLineCounts[i] = 0
+			continue
+		}
 		rendered := m.renderBlock(i)
 		lineCount := strings.Count(rendered, "\n") + 1
 		parts = append(parts, rendered)
@@ -1474,6 +1598,14 @@ func (m *Model) renderAllBlocks() string {
 		}
 		m.blockLineCounts[i] = lineCount
 	}
+
+	// Append hidden-count indicator if any checked items are hidden.
+	if n := m.hiddenCheckedCount(); n > 0 {
+		mutedStyle := lipgloss.NewStyle().Faint(true)
+		indicator := mutedStyle.Render(fmt.Sprintf("     [%d checked hidden]", n))
+		parts = append(parts, indicator)
+	}
+
 	return strings.Join(parts, "\n")
 }
 
@@ -1512,7 +1644,12 @@ func (m Model) renderViewContent() string {
 		parts = append(parts, "")
 	}
 
+	prevVisibleIdx := -1
 	for i, b := range m.blocks {
+		if m.isBlockHidden(i) {
+			continue
+		}
+
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
@@ -1522,8 +1659,8 @@ func (m Model) renderViewContent() string {
 		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered)
 
 		// Add vertical spacing before certain block types.
-		if i > 0 {
-			prev := m.blocks[i-1]
+		if prevVisibleIdx >= 0 {
+			prev := m.blocks[prevVisibleIdx]
 			switch {
 			case b.Type == block.Heading1:
 				parts = append(parts, "", "") // extra blank before H1
@@ -1548,6 +1685,15 @@ func (m Model) renderViewContent() string {
 			lines[j] = padStr + l
 		}
 		parts = append(parts, strings.Join(lines, "\n"))
+		prevVisibleIdx = i
+	}
+
+	// Hidden-count indicator in view mode.
+	if n := m.hiddenCheckedCount(); n > 0 {
+		th := theme.Current()
+		mutedStyle := lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(th.Muted))
+		indicator := padStr + mutedStyle.Render(fmt.Sprintf("[%d checked hidden]", n))
+		parts = append(parts, "", indicator)
 	}
 
 	// Bottom padding so content doesn't end right at the status bar.
@@ -1614,6 +1760,7 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("\n")
 	help.WriteString("  ⌃R           View mode\n")
 	help.WriteString("  ⌃X           Checkbox\n")
+	help.WriteString("  ⌃H           Hide checked\n")
 	help.WriteString("  ⌃W           Word wrap\n")
 	help.WriteString("\n")
 	help.WriteString("  ⌃S           Save\n")
@@ -1645,6 +1792,9 @@ func (m Model) renderStatusBar() string {
 	left := " "
 	if !m.wordWrap {
 		left += " [no-wrap]"
+	}
+	if m.hideChecked != config.HideCheckedOff {
+		left += fmt.Sprintf(" [hide-checked: %s]", m.hideChecked)
 	}
 	if m.modified() {
 		left += " [modified]"

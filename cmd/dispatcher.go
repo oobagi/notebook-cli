@@ -203,7 +203,7 @@ func editNote(w io.Writer, book, note string) error {
 		fileSize = fi.Size()
 	}
 
-	cfg := editor.Config{
+	editorCfg := editor.Config{
 		Title:    book + " \u203A " + note,
 		FilePath: notePath,
 		FileSize: fileSize,
@@ -216,9 +216,10 @@ func editNote(w io.Writer, book, note string) error {
 			return nil
 		},
 		DismissedHints: config.LoadDismissedHints(),
+		HideChecked:    cfg.HideChecked,
 	}
 
-	m := editor.New(cfg)
+	m := editor.New(editorCfg)
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run editor: %w", err)

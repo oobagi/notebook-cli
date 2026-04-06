@@ -52,11 +52,11 @@ func openFile(path string) error {
 	}
 	originalMode := info.Mode().Perm()
 
-	cfg := editor.Config{
-		Title:    filepath.Base(absPath),
-		FilePath: absPath,
-		FileSize: info.Size(),
-		Content:  string(data),
+	editorCfg := editor.Config{
+		Title:       filepath.Base(absPath),
+		FilePath:    absPath,
+		FileSize:    info.Size(),
+		Content:     string(data),
 		Save: func(content string) error {
 			if err := os.WriteFile(absPath, []byte(content), originalMode); err != nil {
 				return err
@@ -64,9 +64,10 @@ func openFile(path string) error {
 			recents.RecordExternal(absPath)
 			return nil
 		},
+		HideChecked: cfg.HideChecked,
 	}
 
-	m := editor.New(cfg)
+	m := editor.New(editorCfg)
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run editor: %w", err)
