@@ -33,6 +33,8 @@ type Config struct {
 	DismissedHints map[string]bool
 	// HideChecked controls visibility of checked checklist items.
 	HideChecked config.HideChecked
+	// WordWrap from config; nil = default (true).
+	WordWrap *bool
 }
 
 // savedMsg is sent after a successful save.
@@ -183,7 +185,7 @@ func New(cfg Config) Model {
 		width:          defaultWidth,
 		height:         defaultHeight,
 		palette:        newPalette(),
-		wordWrap:       true,
+		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
 		hideChecked:    hideChecked,
@@ -1208,6 +1210,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+w", "alt+z":
 			m.wordWrap = !m.wordWrap
+			if globalCfg, err := config.Load(); err == nil {
+				globalCfg.WordWrap = config.BoolPtr(m.wordWrap)
+				_ = config.Save(globalCfg)
+			}
 			m.resizeTextareas()
 			m.updateViewport()
 			return m, nil

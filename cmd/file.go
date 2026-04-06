@@ -65,6 +65,7 @@ func openFile(path string) error {
 			return nil
 		},
 		HideChecked: cfg.HideChecked,
+		WordWrap:    cfg.WordWrap,
 	}
 
 	m := editor.New(editorCfg)

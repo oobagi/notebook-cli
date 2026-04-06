@@ -25,6 +25,7 @@ type Config struct {
 	InitialBook    string     // if set, start at L1 in this notebook
 	RestoreSel     *Selection // if set, reposition cursor to this item after load
 	DismissedHints map[string]bool
+	ShowPreview    *bool      // from config; nil = default (true)
 }
 
 // Selection represents a note the user chose to open.
@@ -105,7 +106,7 @@ type notebookItem struct {
 func New(cfg Config) Model {
 	m := Model{
 		store:       cfg.Store,
-		showPreview: true,
+		showPreview: config.BoolVal(cfg.ShowPreview, true),
 	}
 	if cfg.InitialBook != "" {
 		m.level = 1
@@ -427,6 +428,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.statusText = "Preview on"
 			} else {
 				m.statusText = "Preview off"
+			}
+			if globalCfg, err := config.Load(); err == nil {
+				globalCfg.ShowPreview = config.BoolPtr(m.showPreview)
+				_ = config.Save(globalCfg)
 			}
 			return m, m.scheduleStatusDismiss()
 		}

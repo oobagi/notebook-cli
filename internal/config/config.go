@@ -37,6 +37,8 @@ type Config struct {
 	Theme        string      `toml:"theme"`         // any preset name
 	DateFormat   string      `toml:"date_format"`   // "relative" or Go time format
 	HideChecked  HideChecked `toml:"hide_checked"`  // "off", "view-only", or "on"
+	ShowPreview  *bool       `toml:"show_preview,omitempty"`  // browser preview pane
+	WordWrap     *bool       `toml:"word_wrap,omitempty"`     // editor word wrap
 }
 
 // DefaultConfig returns the default configuration.
@@ -50,14 +52,27 @@ func DefaultConfig() Config {
 	}
 }
 
+// BoolPtr returns a pointer to a bool value.
+func BoolPtr(v bool) *bool { return &v }
+
+// BoolVal returns the value of a *bool, or the fallback if nil.
+func BoolVal(p *bool, fallback bool) bool {
+	if p != nil {
+		return *p
+	}
+	return fallback
+}
+
 // ValidKeys returns the set of keys that can be set via "config set".
 var ValidKeys = map[string]bool{
-	"storage_dir":   true,
-	"editor":        true,
-	"theme":         true,
-	"date_format":   true,
-	"show_hints":    true,
-	"hide_checked":  true,
+	"storage_dir":    true,
+	"editor":         true,
+	"theme":          true,
+	"date_format":    true,
+	"show_hints":     true,
+	"hide_checked":   true,
+	"show_preview":   true,
+	"word_wrap":      true,
 }
 
 // Path returns the path to the config file: ~/.config/notebook/config.toml.
@@ -141,6 +156,24 @@ func Set(cfg *Config, key, value string) error {
 		default:
 			return fmt.Errorf("hide_checked must be \"off\", \"view-only\", or \"on\"")
 		}
+	case "show_preview":
+		switch value {
+		case "true":
+			cfg.ShowPreview = BoolPtr(true)
+		case "false":
+			cfg.ShowPreview = BoolPtr(false)
+		default:
+			return fmt.Errorf("show_preview must be \"true\" or \"false\"")
+		}
+	case "word_wrap":
+		switch value {
+		case "true":
+			cfg.WordWrap = BoolPtr(true)
+		case "false":
+			cfg.WordWrap = BoolPtr(false)
+		default:
+			return fmt.Errorf("word_wrap must be \"true\" or \"false\"")
+		}
 	case "show_hints":
 		if value != "true" {
 			return fmt.Errorf("show_hints only supports \"true\" to re-enable hints")
@@ -166,6 +199,10 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.DateFormat, nil
 	case "hide_checked":
 		return string(cfg.HideChecked), nil
+	case "show_preview":
+		return fmt.Sprintf("%t", BoolVal(cfg.ShowPreview, true)), nil
+	case "word_wrap":
+		return fmt.Sprintf("%t", BoolVal(cfg.WordWrap, true)), nil
 	case "show_hints":
 		dismissed := LoadDismissedHints()
 		if len(dismissed) == 0 {

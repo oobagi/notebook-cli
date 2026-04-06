@@ -20,12 +20,14 @@ func runBrowser() error {
 
 	var lastBook string
 	var lastSel *browser.Selection
+	cfg, _ := config.Load()
 	for {
 		m := browser.New(browser.Config{
 			Store:          store,
 			InitialBook:    lastBook,
 			RestoreSel:     lastSel,
 			DismissedHints: config.LoadDismissedHints(),
+			ShowPreview:    cfg.ShowPreview,
 		})
 
 		p := tea.NewProgram(m)
@@ -60,6 +62,10 @@ func runBrowser() error {
 				return fmt.Errorf("edit note: %w", err)
 			}
 		}
+
+		// Reload config so any settings changed during the editor session
+		// (e.g. word_wrap, show_preview) are picked up on re-entry.
+		cfg, _ = config.Load()
 
 		// Loop back to re-enter the browser.
 	}
