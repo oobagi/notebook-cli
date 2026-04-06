@@ -36,10 +36,9 @@ internal/
   model/       Core types: Note, Notebook
   recents/     Recently edited notes tracking (~/.config/notebook/recent.json)
   storage/     Filesystem CRUD, search, welcome note seeding, slug/display name conversion
-  theme/       17 themes, auto light/dark detection, per-block styling
+  theme/       16 themes, per-block styling
 fork/
   bubbles/     Forked Bubbles components (textarea, viewport) with project-specific patches
-docs/          Design system documentation
 assets/        Icons and media for README
 ```
 
@@ -50,7 +49,7 @@ assets/        Icons and media for README
 - **Plain markdown**: notes are `.md` files, no proprietary format, readable outside the app
 - **Block editor**: 10 block types (paragraph, h1-h3, bullet, numbered, checklist, code, quote, divider). `/` on empty block opens command palette
 - **Search**: `/` in browser searches notebook names (L0) and note titles (L0 Notes section, L1). Title-only, synchronous, lazy-loaded note name cache
-- **Themes**: 17 built-in, selectable via `t` in browser or `notebook theme <name>` CLI
+- **Themes**: 16 built-in, selectable via `t` in browser or `notebook theme <name>` CLI
 - **View mode**: `Ctrl+R` toggles read-only rendered view with clickable checklists
 - **Storage names**: filesystem uses slugs (`my-note.md`), display uses spaces (`My Note`). See `storage.Slugify()` and `storage.DisplayName()`
 - **Error messages**: concise and actionable — always suggest a next action

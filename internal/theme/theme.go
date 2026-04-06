@@ -165,30 +165,6 @@ var Dark = Theme{
 	}(),
 }
 
-// Light is the color scheme for terminals with a light background.
-var Light = Theme{
-	Name:         "light",
-	Primary:      "#0057B7", // blue
-	Success:      "#2E7D32", // green
-	Error:        "#C62828", // red
-	Warning:      "#F57F17", // yellow/amber
-	Muted:        "#999999", // mid gray
-	Border:       "#CCCCCC",
-	Accent:       "#0057B7",
-	StatusBg:     "#E0E0E0",
-	StatusFg:     "#333333",
-	Background: "light",
-	Blocks: func() BlockStyles {
-		bs := DefaultBlockStyles()
-		bs.Bullet.Marker = "  \u25B8  " // ▸
-		bs.Checklist.Checked = " [\u2713] "
-		bs.Checklist.Unchecked = " [\u2219] " // ∙
-		bs.Quote.Bar = "\u258F " // ▏
-		bs.Divider.Char = "\u2508" // ┈
-		return bs
-	}(),
-}
-
 // Ocean uses deep blue tones on a dark background.
 var Ocean = Theme{
 	Name:         "ocean",
