@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -273,13 +274,17 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 
 		faintStyle := lipgloss.NewStyle().Faint(true)
 		label := ""
-		if ta.Line() == 0 {
+		cursorOnTitle := ta.Line() == 0
+		if cursorOnTitle {
 			// Cursor is on the title — render with visible cursor.
+			// Use explicit fg+bg so Reverse(true) doesn't leak bare
+			// ANSI escapes ([7m / [40m) on themes with unusual palette.
+			cursorFg := lipgloss.Color(th.Accent)
 			if titleText == "" {
-				cursor := lipgloss.NewStyle().Reverse(true)
+				cursor := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
 				label = cursor.Render(" ") + faintStyle.Render("language")
 			} else {
-				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle)
+				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle, cursorFg)
 			}
 		} else if titleText != "" {
 			label = faintStyle.Render(titleText)
@@ -339,7 +344,13 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		// Cursor column accounts for gutter + left box border (│ + space).
 		cursorCol := gutterWidth + 2 + cursorColInWrap
 		// cursorVisIdx is relative to content lines; +1 for top border.
+		// Exception: when the cursor is on the title (raw row 0), the
+		// label lives in the top border line itself (line 0), so the
+		// adjusted index should be 0, not 1.
 		adjustedCursor := cursorVisIdx + 1
+		if cursorRawRow == 0 {
+			adjustedCursor = 0
+		}
 		for i, l := range lines {
 			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == adjustedCursor)
 		}
@@ -414,9 +425,11 @@ func renderCodeBox(code, label, borderColor, labelAlign string, padWidth int) st
 
 // renderLabelCursor renders a label string with a reverse-video cursor at
 // the given column position. Text outside the cursor is styled with base.
-func renderLabelCursor(text string, col int, base lipgloss.Style) string {
+// cursorFg sets the cursor's foreground color (which becomes the background
+// after Reverse) so bare ANSI escapes don't leak on certain themes.
+func renderLabelCursor(text string, col int, base lipgloss.Style, cursorFg color.Color) string {
 	runes := []rune(text)
-	cursor := lipgloss.NewStyle().Reverse(true)
+	cursor := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
 	if col >= len(runes) {
 		return base.Render(text) + cursor.Render(" ")
 	}
