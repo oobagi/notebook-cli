@@ -53,7 +53,7 @@ type HeadingStyle struct {
 
 // ListStyle controls bullet list rendering.
 type ListStyle struct {
-	Marker      string // e.g. "  •  ", "  ‣  ", "  →  "
+	Marker      string // top-level marker, e.g. "  •  "
 	MarkerColor string // hex; "" means theme.Muted
 }
 
@@ -111,7 +111,9 @@ func DefaultBlockStyles() BlockStyles {
 		Heading1: HeadingStyle{Text: TextStyle{Bold: true}},             // Color "" = Accent
 		Heading2: HeadingStyle{Text: TextStyle{Bold: true, Color: "-"}}, // "-" = no color
 		Heading3: HeadingStyle{Text: TextStyle{Bold: true, Faint: true, Color: "-"}},
-		Bullet:   ListStyle{Marker: "  \u2022  "},
+		Bullet: ListStyle{
+			Marker: "  \u2022  ",
+		},
 		Numbered: NumberedStyle{Format: "  %d. "},
 		Checklist: ChecklistStyle{
 			Checked:          " [x] ",

@@ -31,8 +31,10 @@ type Config struct {
 	Save func(string) error
 	// DismissedHints tracks which onboarding hints have been dismissed.
 	DismissedHints map[string]bool
-	// HideChecked controls visibility of checked checklist items.
+	// HideChecked enables sort-checked-to-bottom for checklists.
 	HideChecked config.HideChecked
+	// CascadeChecks: checking a parent also checks/unchecks children.
+	CascadeChecks *bool
 	// WordWrap from config; nil = default (true).
 	WordWrap *bool
 }
@@ -83,7 +85,8 @@ type Model struct {
 	undo        undoStack       // undo history
 	redo        undoStack       // redo history
 	undoDirty   bool            // true when textarea content changed since last snapshot
-	hideChecked config.HideChecked // hide checked checklist items setting
+	sortChecked   bool // sort checked checklist items to bottom of each group
+	cascadeChecks bool // checking parent also checks/unchecks children
 }
 
 type statusKind int
@@ -114,32 +117,32 @@ const noWrapWidth = 1000
 // (e.g. bullet markers, numbered list prefixes, checkbox markers).
 const gutterWidth = 5
 
-func blockPrefixWidth(bt block.BlockType) int {
+func blockPrefixWidth(bt block.BlockType, indent int) int {
 	th := theme.Current()
+	base := 0
 	switch bt {
 	case block.BulletList:
-		return lipgloss.Width(th.Blocks.Bullet.Marker)
+		base = lipgloss.Width(th.Blocks.Bullet.Marker)
 	case block.NumberedList:
-		return lipgloss.Width(fmt.Sprintf(th.Blocks.Numbered.Format, 1))
+		base = lipgloss.Width(fmt.Sprintf(th.Blocks.Numbered.Format, 1))
 	case block.Checklist:
-		return lipgloss.Width(th.Blocks.Checklist.Unchecked)
+		base = lipgloss.Width(th.Blocks.Checklist.Unchecked)
 	case block.Quote:
-		return lipgloss.Width(th.Blocks.Quote.Bar)
+		base = lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
-		return 4
-	default:
-		return 0
+		base = 4
 	}
+	return indent*4 + base
 }
 
 // contentWidth returns the effective textarea width for a block, accounting
-// for the gutter, block prefix, and word-wrap setting.
-func (m Model) contentWidth(bt block.BlockType) int {
+// for the gutter, block prefix, indent, and word-wrap setting.
+func (m Model) contentWidth(b block.Block) int {
 	mw := m.width
 	if mw <= 0 {
 		mw = defaultWidth
 	}
-	w := mw - gutterWidth - blockPrefixWidth(bt)
+	w := mw - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
 	if w < 1 {
 		w = 1
 	}
@@ -170,11 +173,6 @@ func New(cfg Config) Model {
 		dismissed = make(map[string]bool)
 	}
 
-	hideChecked := cfg.HideChecked
-	if hideChecked == "" {
-		hideChecked = config.HideCheckedOff
-	}
-
 	return Model{
 		blocks:         blocks,
 		textareas:      textareas,
@@ -188,7 +186,8 @@ func New(cfg Config) Model {
 		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
-		hideChecked:    hideChecked,
+		sortChecked:   cfg.HideChecked != config.HideCheckedOff,
+		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
 	}
 }
 
@@ -199,7 +198,7 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 	ta.ShowLineNumbers = false
 	// Set width BEFORE value so the textarea's internal state (viewport
 	// scroll, wrap cache) is initialized with the correct dimensions.
-	taWidth := width - gutterWidth - blockPrefixWidth(b.Type)
+	taWidth := width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
 	if taWidth < 1 {
 		taWidth = 1
 	}
@@ -249,64 +248,142 @@ func (m Model) BlockCount() int {
 	return len(m.blocks)
 }
 
-// isBlockHidden returns true if the block at the given index should be hidden
-// based on the current hideChecked setting and mode.
-func (m Model) isBlockHidden(idx int) bool {
-	if idx < 0 || idx >= len(m.blocks) {
-		return false
-	}
-	b := m.blocks[idx]
-	if b.Type != block.Checklist || !b.Checked {
-		return false
-	}
-	switch m.hideChecked {
-	case config.HideCheckedOn:
-		return true
-	case config.HideCheckedViewOnly:
-		return m.viewMode
-	default:
-		return false
+// sortCheckedToBottom reorders each contiguous group of checklist blocks
+// so that unchecked bundles come first and checked bundles come last
+// (stable partition). A bundle is a parent item plus all consecutive
+// items with deeper indent. Children within each bundle are also sorted
+// by checked state at their indent level. Updates m.active to follow
+// the focused block.
+func (m *Model) sortCheckedToBottom() {
+	i := 0
+	for i < len(m.blocks) {
+		if m.blocks[i].Type != block.Checklist {
+			i++
+			continue
+		}
+		start := i
+		// Include all consecutive list items (any type) in the group,
+		// so mixed-type children stay bundled with checklist parents.
+		for i < len(m.blocks) && m.blocks[i].Type.IsListItem() {
+			i++
+		}
+		end := i
+		if end-start < 2 {
+			continue
+		}
+		m.sortChecklistGroup(start, end)
 	}
 }
 
-// hiddenCheckedCount returns the number of checked checklist items currently
-// hidden by the hideChecked setting.
-func (m Model) hiddenCheckedCount() int {
-	count := 0
-	for i := range m.blocks {
-		if m.isBlockHidden(i) {
-			count++
+// sortChecklistGroup sorts a contiguous checklist group [start, end).
+// Bundles at the base indent are sorted by parent checked state.
+// Children within each bundle are also sorted by checked state.
+func (m *Model) sortChecklistGroup(start, end int) {
+	baseIndent := m.blocks[start].Indent
+	origActive := m.active
+
+	// A bundle is a sequence of original indices: parent + children.
+	type bundle struct {
+		indices []int
+		checked bool
+	}
+
+	var bundles []bundle
+	j := start
+	for j < end {
+		if m.blocks[j].Indent < baseIndent {
+			j++
+			continue
+		}
+		parentIdx := j
+		idxs := []int{j}
+		j++
+		for j < end && m.blocks[j].Indent > baseIndent {
+			idxs = append(idxs, j)
+			j++
+		}
+		bundles = append(bundles, bundle{
+			indices: idxs,
+			checked: m.blocks[parentIdx].Checked,
+		})
+	}
+
+	// Sort children within each bundle (indices[1:]) by checked state.
+	for bi := range bundles {
+		children := bundles[bi].indices[1:]
+		if len(children) < 2 {
+			continue
+		}
+		sorted := make([]int, 0, len(children))
+		for _, idx := range children {
+			if !m.blocks[idx].Checked {
+				sorted = append(sorted, idx)
+			}
+		}
+		for _, idx := range children {
+			if m.blocks[idx].Checked {
+				sorted = append(sorted, idx)
+			}
+		}
+		copy(bundles[bi].indices[1:], sorted)
+	}
+
+	var unchecked, checked []bundle
+	for _, b := range bundles {
+		if b.checked {
+			checked = append(checked, b)
+		} else {
+			unchecked = append(unchecked, b)
 		}
 	}
-	return count
+	order := append(unchecked, checked...)
+
+	// Apply reordering.
+	n := end - start
+	tmpB := make([]block.Block, n)
+	tmpT := make([]textarea.Model, n)
+	pos := 0
+	for _, b := range order {
+		for _, idx := range b.indices {
+			tmpB[pos] = m.blocks[idx]
+			tmpT[pos] = m.textareas[idx]
+			if idx == origActive {
+				m.active = start + pos
+			}
+			pos++
+		}
+	}
+	copy(m.blocks[start:end], tmpB)
+	copy(m.textareas[start:end], tmpT)
 }
 
-// persistHideChecked saves the current hideChecked setting to the global config.
-func (m *Model) persistHideChecked() {
+// persistSortChecked saves the current sort-checked setting to the global config.
+func (m *Model) persistSortChecked() {
 	if globalCfg, err := config.Load(); err == nil {
-		globalCfg.HideChecked = m.hideChecked
+		if m.sortChecked {
+			globalCfg.HideChecked = config.HideCheckedOn
+		} else {
+			globalCfg.HideChecked = config.HideCheckedOff
+		}
 		_ = config.Save(globalCfg)
 	}
 }
 
-// moveToVisibleBlock moves focus to the nearest visible (non-hidden) block.
-// Searches forward first, then backward. No-op if the current block is visible.
-func (m *Model) moveToVisibleBlock() {
-	if !m.isBlockHidden(m.active) {
+
+// toggleChecklist toggles the checked state of the block at idx. When
+// cascadeChecks is enabled, indented checklist children are also toggled.
+func (m *Model) toggleChecklist(idx int) {
+	if idx < 0 || idx >= len(m.blocks) || m.blocks[idx].Type != block.Checklist {
 		return
 	}
-	// Search forward.
-	for i := m.active + 1; i < len(m.blocks); i++ {
-		if !m.isBlockHidden(i) {
-			m.focusBlock(i)
-			return
-		}
-	}
-	// Search backward.
-	for i := m.active - 1; i >= 0; i-- {
-		if !m.isBlockHidden(i) {
-			m.focusBlock(i)
-			return
+	newState := !m.blocks[idx].Checked
+	m.blocks[idx].Checked = newState
+	if m.cascadeChecks {
+		parentIndent := m.blocks[idx].Indent
+		for j := idx + 1; j < len(m.blocks) && m.blocks[j].Type.IsListItem() && m.blocks[j].Indent > parentIndent; j++ {
+			if m.blocks[j].Type == block.Checklist {
+				m.blocks[j].Checked = newState
+			}
 		}
 	}
 }
@@ -337,7 +414,7 @@ func (m *Model) resizeTextareas() {
 		w = defaultWidth
 	}
 	for i, b := range m.blocks {
-		m.textareas[i].SetWidth(m.contentWidth(b.Type))
+		m.textareas[i].SetWidth(m.contentWidth(b))
 		m.textareas[i].SetHeight(m.textareas[i].VisualLineCount())
 	}
 	// Update viewport dimensions, reserving space for the header and status bar
@@ -378,46 +455,26 @@ func (m *Model) focusBlock(idx int) {
 	m.cursorCmd = m.textareas[idx].Focus()
 }
 
-// navigateUp moves focus to the previous visible block, preserving horizontal position.
+// navigateUp moves focus to the previous block, preserving horizontal position.
 func (m *Model) navigateUp() {
 	if m.active <= 0 {
 		return
 	}
-	// Find the previous visible block.
-	target := m.active - 1
-	for target >= 0 && m.isBlockHidden(target) {
-		target--
-	}
-	if target < 0 {
-		return
-	}
-	// Capture horizontal position before leaving.
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
-	m.focusBlock(target)
-	// Move to the last visual line and restore horizontal offset.
+	m.focusBlock(m.active - 1)
 	ta := &m.textareas[m.active]
 	ta.MoveToEnd()
 	li := ta.LineInfo()
 	ta.SetCursorColumn(li.StartColumn + charOffset)
 }
 
-// navigateDown moves focus to the next visible block, preserving horizontal position.
+// navigateDown moves focus to the next block, preserving horizontal position.
 func (m *Model) navigateDown() {
 	if m.active >= len(m.textareas)-1 {
 		return
 	}
-	// Find the next visible block.
-	target := m.active + 1
-	for target < len(m.textareas) && m.isBlockHidden(target) {
-		target++
-	}
-	if target >= len(m.textareas) {
-		return
-	}
-	// Capture horizontal position before leaving.
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
-	m.focusBlock(target)
-	// Move to the first visual line and restore horizontal offset.
+	m.focusBlock(m.active + 1)
 	ta := &m.textareas[m.active]
 	ta.MoveToBegin()
 	ta.SetCursorColumn(charOffset)
@@ -457,21 +514,23 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	if idx < 0 || idx >= len(m.blocks) {
 		return
 	}
+	insertAt := idx
+
 	ta := newTextareaForBlock(b, m.width)
 
 	newBlocks := make([]block.Block, 0, len(m.blocks)+1)
-	newBlocks = append(newBlocks, m.blocks[:idx+1]...)
+	newBlocks = append(newBlocks, m.blocks[:insertAt+1]...)
 	newBlocks = append(newBlocks, b)
-	newBlocks = append(newBlocks, m.blocks[idx+1:]...)
+	newBlocks = append(newBlocks, m.blocks[insertAt+1:]...)
 	m.blocks = newBlocks
 
 	newTAs := make([]textarea.Model, 0, len(m.textareas)+1)
-	newTAs = append(newTAs, m.textareas[:idx+1]...)
+	newTAs = append(newTAs, m.textareas[:insertAt+1]...)
 	newTAs = append(newTAs, ta)
-	newTAs = append(newTAs, m.textareas[idx+1:]...)
+	newTAs = append(newTAs, m.textareas[insertAt+1:]...)
 	m.textareas = newTAs
 
-	m.focusBlock(idx + 1)
+	m.focusBlock(insertAt + 1)
 }
 
 // deleteBlock removes the block at the given index. If it is the last block,
@@ -526,7 +585,7 @@ func (m *Model) mergeBlockUp(idx int) {
 	}
 
 	// Reconfigure textarea for the (possibly changed) block type.
-	m.textareas[idx-1].SetWidth(m.contentWidth(m.blocks[idx-1].Type))
+	m.textareas[idx-1].SetWidth(m.contentWidth(m.blocks[idx-1]))
 	m.textareas[idx-1].SetHeight(m.textareas[idx-1].VisualLineCount())
 
 	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
@@ -549,27 +608,106 @@ func (m *Model) mergeBlockUp(idx int) {
 	m.textareas[m.active].SetCursorColumn(len([]rune(prevLines[mergeRow])))
 }
 
-// swapBlocks swaps the block at idx with the block at idx+delta (delta is
-// -1 for up, +1 for down). No-op at boundaries.
+
+// blockBundle returns the range [start, end) of the bundle rooted at idx.
+// For list items, this includes all consecutive deeper-indented children.
+// For non-list items, returns just [idx, idx+1).
+func (m *Model) blockBundle(idx int) (int, int) {
+	end := idx + 1
+	if m.blocks[idx].Type.IsListItem() {
+		parentIndent := m.blocks[idx].Indent
+		for end < len(m.blocks) && m.blocks[end].Type.IsListItem() && m.blocks[end].Indent > parentIndent {
+			end++
+		}
+	}
+	return idx, end
+}
+
+// blockBundleUp returns the range [start, end) of the bundle that sits
+// immediately above idx. For list items, it walks backwards past any
+// deeper-indented children to find the sibling root at the same indent
+// level as idx, then returns that root's full bundle.
+func (m *Model) blockBundleUp(idx int) (int, int) {
+	if idx <= 0 {
+		return 0, 0
+	}
+	above := idx - 1
+	if !m.blocks[above].Type.IsListItem() {
+		return above, above + 1
+	}
+	// Walk backwards past items deeper than our indent level to find
+	// the sibling root.
+	activeIndent := m.blocks[idx].Indent
+	root := above
+	for root > 0 && m.blocks[root].Indent > activeIndent && m.blocks[root-1].Type.IsListItem() {
+		root--
+	}
+	if m.blocks[root].Indent == activeIndent {
+		return m.blockBundle(root)
+	}
+	// No sibling at our level — swap with the single block above.
+	return above, above + 1
+}
+
+// rotateBlocks swaps two adjacent segments [aStart, aEnd) and [aEnd, bEnd)
+// in both m.blocks and m.textareas so that segment B comes first.
+func (m *Model) rotateBlocks(aStart, aEnd, bEnd int) {
+	aLen := aEnd - aStart
+	bLen := bEnd - aEnd
+	total := aLen + bLen
+	secB := make([]block.Block, total)
+	secT := make([]textarea.Model, total)
+	copy(secB, m.blocks[aStart:bEnd])
+	copy(secT, m.textareas[aStart:bEnd])
+	for i := 0; i < bLen; i++ {
+		m.blocks[aStart+i] = secB[aLen+i]
+		m.textareas[aStart+i] = secT[aLen+i]
+	}
+	for i := 0; i < aLen; i++ {
+		m.blocks[aStart+bLen+i] = secB[i]
+		m.textareas[aStart+bLen+i] = secT[i]
+	}
+}
+
+// swapBlocks moves the active block's bundle up or down past the adjacent
+// bundle. delta is -1 for up, +1 for down.
 func (m *Model) swapBlocks(delta int) {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
-	target := m.active + delta
-	if target < 0 || target >= len(m.blocks) {
-		return
+
+	bStart, bEnd := m.blockBundle(m.active)
+
+	// Sync textarea content in the active bundle.
+	for i := bStart; i < bEnd; i++ {
+		m.blocks[i].Content = m.textareas[i].Value()
 	}
 
-	// Sync current textarea content before swap.
-	m.blocks[m.active].Content = m.textareas[m.active].Value()
-	m.blocks[target].Content = m.textareas[target].Value()
-
-	m.blocks[m.active], m.blocks[target] = m.blocks[target], m.blocks[m.active]
-	m.textareas[m.active], m.textareas[target] = m.textareas[target], m.textareas[m.active]
-
-	m.textareas[m.active].Blur()
-	m.active = target
-	m.cursorCmd = m.textareas[m.active].Focus()
+	if delta < 0 {
+		if bStart <= 0 {
+			return
+		}
+		aboveStart, aboveEnd := m.blockBundleUp(bStart)
+		for i := aboveStart; i < aboveEnd; i++ {
+			m.blocks[i].Content = m.textareas[i].Value()
+		}
+		m.textareas[m.active].Blur()
+		m.rotateBlocks(aboveStart, aboveEnd, bEnd)
+		m.active -= aboveEnd - aboveStart
+		m.cursorCmd = m.textareas[m.active].Focus()
+	} else {
+		if bEnd >= len(m.blocks) {
+			return
+		}
+		_, belowEnd := m.blockBundle(bEnd)
+		for i := bEnd; i < belowEnd; i++ {
+			m.blocks[i].Content = m.textareas[i].Value()
+		}
+		m.textareas[m.active].Blur()
+		m.rotateBlocks(bStart, bEnd, belowEnd)
+		m.active += belowEnd - bEnd
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
 }
 
 // handleEnter processes the Enter key for block splitting/creation.
@@ -614,10 +752,17 @@ func (m *Model) handleEnter() {
 		return
 	}
 
-	// Empty list item: exit list by converting to paragraph.
-	if content == "" && (bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist) {
+	// Empty list item: outdent if indented, otherwise convert to paragraph.
+	if content == "" && bt.IsListItem() {
+		if m.blocks[m.active].Indent > 0 {
+			m.blocks[m.active].Indent--
+			m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
+			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+			return
+		}
 		m.blocks[m.active].Type = block.Paragraph
 		m.blocks[m.active].Checked = false
+		m.blocks[m.active].Indent = 0
 		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
 		m.cursorCmd = newTA.Focus()
 		m.textareas[m.active] = newTA
@@ -699,8 +844,11 @@ func (m *Model) handleEnter() {
 	// Reconfigure current block textarea height.
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 
-	// Create new block with text after cursor.
+	// Create new block with text after cursor, inheriting indent for lists.
 	newBlock := block.Block{Type: newType, Content: after}
+	if newType.IsListItem() {
+		newBlock.Indent = m.blocks[m.active].Indent
+	}
 	if newType == block.Checklist {
 		newBlock.Checked = false
 	}
@@ -739,6 +887,26 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
+	// List item at position 0: outdent if indented, otherwise convert to paragraph.
+	if bt.IsListItem() {
+		m.pushUndo()
+		if m.blocks[m.active].Indent > 0 {
+			m.blocks[m.active].Indent--
+			m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
+			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+			return true
+		}
+		m.blocks[m.active].Type = block.Paragraph
+		m.blocks[m.active].Checked = false
+		m.blocks[m.active].Indent = 0
+		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+		newTA.SetValue(content)
+		m.cursorCmd = newTA.Focus()
+		newTA.SetCursorColumn(0)
+		m.textareas[m.active] = newTA
+		return true
+	}
+
 	if content == "" {
 		// Empty block: delete it, focus previous.
 		if m.active == 0 {
@@ -751,19 +919,6 @@ func (m *Model) handleBackspace() bool {
 		m.pushUndo()
 		m.deleteBlock(m.active)
 		m.textareas[m.active].MoveToEnd()
-		return true
-	}
-
-	// List item at position 0: convert to paragraph, keeping text.
-	if bt == block.BulletList || bt == block.NumberedList || bt == block.Checklist {
-		m.pushUndo()
-		m.blocks[m.active].Type = block.Paragraph
-		m.blocks[m.active].Checked = false
-		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-		newTA.SetValue(content)
-		m.cursorCmd = newTA.Focus()
-		newTA.SetCursorColumn(0)
-		m.textareas[m.active] = newTA
 		return true
 	}
 
@@ -827,7 +982,10 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		return
 	}
 	m.blocks[m.active].Type = bt
-	m.textareas[m.active].SetWidth(m.contentWidth(bt))
+	if !bt.IsListItem() {
+		m.blocks[m.active].Indent = 0
+	}
+	m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
 
 	if bt == block.Divider {
 		m.blocks[m.active].Content = ""
@@ -921,9 +1079,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Button == tea.MouseLeft {
 				if idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist {
 					m.pushUndo()
-					m.blocks[idx].Checked = !m.blocks[idx].Checked
 					if idx < len(m.textareas) {
 						m.blocks[idx].Content = m.textareas[idx].Value()
+					}
+					m.toggleChecklist(idx)
+					if m.sortChecked {
+						m.sortCheckedToBottom()
 					}
 					m.updateViewport()
 					return m, nil
@@ -1048,10 +1209,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewMode {
 			switch msg.String() {
 			case "ctrl+h":
-				m.hideChecked = config.CycleHideChecked(m.hideChecked)
-				m.status = fmt.Sprintf("Hide checked: %s", m.hideChecked)
+				m.sortChecked = !m.sortChecked
+				if m.sortChecked {
+					m.sortCheckedToBottom()
+					m.status = "Sort checked: on"
+				} else {
+					m.status = "Sort checked: off"
+				}
 				m.statusStyle = statusSuccess
-				m.persistHideChecked()
+				m.persistSortChecked()
 				m.updateViewport()
 				return m, m.scheduleStatusDismiss()
 			case "ctrl+r":
@@ -1210,23 +1376,30 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+w", "alt+z":
 			m.wordWrap = !m.wordWrap
+			if m.wordWrap {
+				m.status = "Word wrap on"
+			} else {
+				m.status = "Word wrap off"
+			}
+			m.statusStyle = statusSuccess
 			if globalCfg, err := config.Load(); err == nil {
 				globalCfg.WordWrap = config.BoolPtr(m.wordWrap)
 				_ = config.Save(globalCfg)
 			}
 			m.resizeTextareas()
 			m.updateViewport()
-			return m, nil
+			return m, m.scheduleStatusDismiss()
 
 		case "ctrl+h":
-			m.hideChecked = config.CycleHideChecked(m.hideChecked)
-			m.status = fmt.Sprintf("Hide checked: %s", m.hideChecked)
-			m.statusStyle = statusSuccess
-			m.persistHideChecked()
-			// If the active block just became hidden, move focus to a visible block.
-			if m.isBlockHidden(m.active) {
-				m.moveToVisibleBlock()
+			m.sortChecked = !m.sortChecked
+			if m.sortChecked {
+				m.sortCheckedToBottom()
+				m.status = "Sort checked: on"
+			} else {
+				m.status = "Sort checked: off"
 			}
+			m.statusStyle = statusSuccess
+			m.persistSortChecked()
 			m.updateViewport()
 			return m, m.scheduleStatusDismiss()
 
@@ -1255,10 +1428,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle checklist checked state.
 			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
 				m.pushUndo()
-				m.blocks[m.active].Checked = !m.blocks[m.active].Checked
-				// If the block just became hidden, move focus to a visible block.
-				if m.isBlockHidden(m.active) {
-					m.moveToVisibleBlock()
+				m.toggleChecklist(m.active)
+				if m.sortChecked {
+					m.sortCheckedToBottom()
 				}
 				m.updateViewport()
 				return m, nil
@@ -1334,12 +1506,62 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Tab inserts 4 spaces.
+			// Shift+Tab: outdent list items, or remove leading spaces.
+			if keyMsg.Code == tea.KeyTab && keyMsg.Mod.Contains(tea.ModShift) {
+				ta := &m.textareas[m.active]
+				bt := m.blocks[m.active].Type
+				col := ta.LineInfo().CharOffset
+				if bt.IsListItem() && m.blocks[m.active].Indent > 0 {
+					m.pushUndo()
+					m.blocks[m.active].Indent--
+					ta.SetWidth(m.contentWidth(m.blocks[m.active]))
+					ta.SetHeight(ta.VisualLineCount())
+					ta.SetCursorColumn(col)
+				} else {
+					// Snap back to previous tab stop, removing only spaces.
+					li := ta.LineInfo()
+					actualCol := li.StartColumn + li.ColumnOffset
+					target := li.ColumnOffset % 4
+					if target == 0 {
+						target = 4
+					}
+					val := ta.Value()
+					runes := []rune(val)
+					spaces := 0
+					for spaces < target && actualCol-spaces-1 >= 0 && runes[actualCol-spaces-1] == ' ' {
+						spaces++
+					}
+					if spaces > 0 {
+						m.pushUndo()
+						for i := 0; i < spaces; i++ {
+							*ta, _ = ta.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+						}
+						ta.SetHeight(ta.VisualLineCount())
+					}
+				}
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
+			}
+
+			// Tab: indent list items, or snap to next tab stop.
 			if keyMsg.Code == tea.KeyTab {
 				ta := &m.textareas[m.active]
-				for _, r := range "    " {
-					*ta, _ = ta.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+				bt := m.blocks[m.active].Type
+				if bt.IsListItem() {
+					m.pushUndo()
+					col := ta.LineInfo().CharOffset
+					m.blocks[m.active].Indent++
+					ta.SetWidth(m.contentWidth(m.blocks[m.active]))
+					ta.SetHeight(ta.VisualLineCount())
+					ta.SetCursorColumn(col)
+				} else {
+					m.pushUndo()
+					col := ta.LineInfo().ColumnOffset
+					spaces := 4 - (col % 4)
+					ta.InsertString(strings.Repeat(" ", spaces))
 				}
+				m.cursorCmd = ta.Focus()
 				m.updateViewport()
 				return m, nil
 			}
@@ -1366,7 +1588,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
 		// (e.g. deleting a newline inserted via Ctrl+J).
-		m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active].Type))
+		m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 
 		m.updateViewport()
@@ -1429,7 +1651,7 @@ func (m *Model) updateViewport() {
 		cursorRawLine := ta.Line()
 		visualLine := cursorRawLine
 		if m.wordWrap {
-			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active].Type)
+			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active].Type, m.blocks[m.active].Indent)
 			if contentWidth < 1 {
 				contentWidth = 1
 			}
@@ -1511,27 +1733,22 @@ func (m *Model) computeBlockLineOffsets() {
 	}
 
 	offsets := make([]int, len(m.blocks))
-	prevVisibleIdx := -1
+	prevIdx := -1
 	for i, b := range m.blocks {
-		if m.isBlockHidden(i) {
-			offsets[i] = -1 // hidden block, no line offset
-			continue
-		}
-
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
 		}
 
 		// Spacing lines before this block (mirrors renderViewContent exactly).
-		if prevVisibleIdx >= 0 {
-			prev := m.blocks[prevVisibleIdx]
+		if prevIdx >= 0 {
+			prev := m.blocks[prevIdx]
 			switch {
 			case b.Type == block.Heading1:
-				advance("") // 2 blank lines before H1
+				advance("")
 				advance("")
 			case b.Type == block.Heading2 || b.Type == block.Heading3:
-				advance("") // 1 blank line before H2/H3
+				advance("")
 			case b.Type == block.CodeBlock || b.Type == block.Quote:
 				if prev.Type != b.Type {
 					advance("")
@@ -1545,13 +1762,10 @@ func (m *Model) computeBlockLineOffsets() {
 			}
 		}
 
-		// Record where this block starts.
 		offsets[i] = nextLine
-
-		// Render the block and advance past its lines.
 		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false)
 		advance(rendered)
-		prevVisibleIdx = i
+		prevIdx = i
 	}
 
 	m.blockLineOffsets = offsets
@@ -1563,12 +1777,8 @@ func (m Model) blockIndexAtLine(line int) int {
 	if len(m.blockLineOffsets) == 0 {
 		return -1
 	}
-	// Find the last visible block whose starting offset is <= line.
 	result := -1
 	for i, offset := range m.blockLineOffsets {
-		if offset < 0 {
-			continue // hidden block
-		}
 		if offset <= line {
 			result = i
 		} else {
@@ -1589,10 +1799,6 @@ func (m *Model) renderAllBlocks() string {
 	m.blockLineCounts = make([]int, len(m.blocks))
 	var parts []string
 	for i := range m.blocks {
-		if m.isBlockHidden(i) {
-			m.blockLineCounts[i] = 0
-			continue
-		}
 		rendered := m.renderBlock(i)
 		lineCount := strings.Count(rendered, "\n") + 1
 		parts = append(parts, rendered)
@@ -1604,14 +1810,6 @@ func (m *Model) renderAllBlocks() string {
 		}
 		m.blockLineCounts[i] = lineCount
 	}
-
-	// Append hidden-count indicator if any checked items are hidden.
-	if n := m.hiddenCheckedCount(); n > 0 {
-		mutedStyle := lipgloss.NewStyle().Faint(true)
-		indicator := mutedStyle.Render(fmt.Sprintf("     [%d checked hidden]", n))
-		parts = append(parts, indicator)
-	}
-
 	return strings.Join(parts, "\n")
 }
 
@@ -1650,12 +1848,8 @@ func (m Model) renderViewContent() string {
 		parts = append(parts, "")
 	}
 
-	prevVisibleIdx := -1
+	prevIdx := -1
 	for i, b := range m.blocks {
-		if m.isBlockHidden(i) {
-			continue
-		}
-
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
@@ -1665,8 +1859,8 @@ func (m Model) renderViewContent() string {
 		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered)
 
 		// Add vertical spacing before certain block types.
-		if prevVisibleIdx >= 0 {
-			prev := m.blocks[prevVisibleIdx]
+		if prevIdx >= 0 {
+			prev := m.blocks[prevIdx]
 			switch {
 			case b.Type == block.Heading1:
 				parts = append(parts, "", "") // extra blank before H1
@@ -1691,15 +1885,7 @@ func (m Model) renderViewContent() string {
 			lines[j] = padStr + l
 		}
 		parts = append(parts, strings.Join(lines, "\n"))
-		prevVisibleIdx = i
-	}
-
-	// Hidden-count indicator in view mode.
-	if n := m.hiddenCheckedCount(); n > 0 {
-		th := theme.Current()
-		mutedStyle := lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(th.Muted))
-		indicator := padStr + mutedStyle.Render(fmt.Sprintf("[%d checked hidden]", n))
-		parts = append(parts, "", indicator)
+		prevIdx = i
 	}
 
 	// Bottom padding so content doesn't end right at the status bar.
@@ -1766,7 +1952,7 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("\n")
 	help.WriteString("  ⌃R           View mode\n")
 	help.WriteString("  ⌃X           Checkbox\n")
-	help.WriteString("  ⌃H           Hide checked\n")
+	help.WriteString("  ⌃H           Sort checked\n")
 	help.WriteString("  ⌃W           Word wrap\n")
 	help.WriteString("\n")
 	help.WriteString("  ⌃S           Save\n")
@@ -1796,12 +1982,6 @@ func (m Model) renderStatusBar() string {
 	}
 
 	left := " "
-	if !m.wordWrap {
-		left += " [no-wrap]"
-	}
-	if m.hideChecked != config.HideCheckedOff {
-		left += fmt.Sprintf(" [hide-checked: %s]", m.hideChecked)
-	}
 	if m.modified() {
 		left += " [modified]"
 	}

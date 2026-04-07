@@ -216,7 +216,8 @@ func editNote(w io.Writer, book, note string) error {
 			return nil
 		},
 		DismissedHints: config.LoadDismissedHints(),
-		HideChecked:    cfg.HideChecked,
+		HideChecked:   cfg.HideChecked,
+		CascadeChecks: cfg.CascadeChecks,
 		WordWrap:       cfg.WordWrap,
 	}
 

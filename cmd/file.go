@@ -64,8 +64,9 @@ func openFile(path string) error {
 			recents.RecordExternal(absPath)
 			return nil
 		},
-		HideChecked: cfg.HideChecked,
-		WordWrap:    cfg.WordWrap,
+		HideChecked:   cfg.HideChecked,
+		CascadeChecks: cfg.CascadeChecks,
+		WordWrap:       cfg.WordWrap,
 	}
 
 	m := editor.New(editorCfg)

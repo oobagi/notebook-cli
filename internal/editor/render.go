@@ -18,18 +18,13 @@ import (
 	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
-// countNumberedPosition returns the 1-based position of a numbered list block
-// by counting consecutive NumberedList blocks preceding it.
-func countNumberedPosition(blocks []block.Block, idx int) int {
-	num := 1
-	for i := idx - 1; i >= 0; i-- {
-		if blocks[i].Type == block.NumberedList {
-			num++
-		} else {
-			break
-		}
+
+// listIndent returns the whitespace prefix for a list item's indent level.
+func listIndent(b block.Block) string {
+	if b.Indent == 0 {
+		return ""
 	}
-	return num
+	return strings.Repeat("    ", b.Indent)
 }
 
 // resolveColor returns color if non-empty, otherwise returns fallback.
@@ -119,7 +114,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	th := theme.Current()
 
 	// Content width for this block type.
-	contentWidth := m.width - gutterWidth - blockPrefixWidth(b.Type)
+	contentWidth := m.width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -161,6 +156,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	rawLines := strings.Split(content, "\n")
 	var visualLines []string
 	cursorVisIdx := 0
+	cursorByteOffset := -1
 
 	for rawIdx, raw := range rawLines {
 		segs := textarea.Wrap([]rune(raw), contentWidth)
@@ -168,12 +164,11 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			segs = [][]rune{{}}
 		}
 		for wIdx, seg := range segs {
-			line := string(seg)
+			line := strings.TrimSuffix(string(seg), " ")
 			visIdx := len(visualLines)
 
 			if rawIdx == cursorRawRow && wIdx == cursorWrapRow {
 				cursorVisIdx = visIdx
-				// Insert cursor character.
 				runes := []rune(line)
 				col := cursorColInWrap
 				if col > len(runes) {
@@ -187,12 +182,13 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 					after = string(runes[col+1:])
 				}
 				ta.CursorSetChar(curChar)
+				cursorByteOffset = len(before)
 				line = before + ta.CursorView() + after
 			}
 
-			// Pad to contentWidth (only in wrap mode — in no-wrap mode,
-			// padding to 1000 causes false truncation indicators).
-			if m.wordWrap {
+			// Pad to contentWidth so all lines share the same width.
+			// Skip headings — padding spaces would get underlined/styled.
+			if m.wordWrap && !b.Type.IsHeading() {
 				if pad := contentWidth - lipgloss.Width(line); pad > 0 {
 					line += strings.Repeat(" ", pad)
 				}
@@ -202,53 +198,56 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	taView := strings.Join(visualLines, "\n")
-	cursorANSI := ta.CursorView()
+	cursorLen := len(ta.CursorView())
 
 	var rendered string
 
 	switch b.Type {
 	case block.Heading1:
 		style := th.Blocks.Heading1.Text.ToLipgloss(th.Accent)
-		rendered = styleAroundCursor(taView, style, cursorANSI)
+		rendered = styleAroundCursor(taView, style, cursorByteOffset, cursorLen, cursorVisIdx)
 
 	case block.Heading2:
 		style := th.Blocks.Heading2.Text.ToLipgloss("")
-		rendered = styleAroundCursor(taView, style, cursorANSI)
+		rendered = styleAroundCursor(taView, style, cursorByteOffset, cursorLen, cursorVisIdx)
 
 	case block.Heading3:
 		style := th.Blocks.Heading3.Text.ToLipgloss("")
-		rendered = styleAroundCursor(taView, style, cursorANSI)
+		rendered = styleAroundCursor(taView, style, cursorByteOffset, cursorLen, cursorVisIdx)
 
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.NumberedList:
 		bs := th.Blocks.Numbered
-		num := countNumberedPosition(m.blocks, idx)
+		num := block.CountNumberedPosition(m.blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked)
 			text := taView
 			if bs.CheckedTextFaint {
-				text = styleAroundCursor(taView, lipgloss.NewStyle().Faint(true), cursorANSI)
+				text = styleAroundCursor(taView, lipgloss.NewStyle().Faint(true), cursorByteOffset, cursorLen, cursorVisIdx)
 			}
 			rendered = prefixFirstLine(prefix, text)
 		} else {
 			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
-			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
@@ -258,7 +257,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		if !m.wordWrap {
 			// In no-wrap mode contentWidth is 1000; size the box border to
 			// the terminal instead so it doesn't overflow every line.
-			boxWidth = m.width - gutterWidth - blockPrefixWidth(b.Type)
+			boxWidth = m.width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
 			if boxWidth < 10 {
 				boxWidth = 10
 			}
@@ -355,7 +354,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == adjustedCursor)
 		}
 	} else {
-		cursorCol := gutterWidth + blockPrefixWidth(b.Type) + cursorColInWrap
+		cursorCol := gutterWidth + blockPrefixWidth(b.Type, b.Indent) + cursorColInWrap
 		for i, l := range lines {
 			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
 		}
@@ -466,16 +465,16 @@ func scrollOrTruncate(line string, availWidth, cursorCol int, isCursorLine bool)
 }
 
 // styleAroundCursor applies a lipgloss style to text while preserving cursor
-// ANSI codes. The cursor's reset escape would otherwise leak and break the
-// surrounding style on every blink cycle. This splits each line around the
-// cursor view and styles the segments independently.
-func styleAroundCursor(text string, style lipgloss.Style, cursorView string) string {
+// ANSI codes. Uses explicit byte offsets to locate the cursor, avoiding false
+// matches when the cursor's blink-off view is a plain space.
+func styleAroundCursor(text string, style lipgloss.Style, cursorOffset, cursorLen, cursorLine int) string {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
-		if idx := strings.Index(l, cursorView); idx >= 0 {
-			before := l[:idx]
-			after := l[idx+len(cursorView):]
-			lines[i] = style.Render(before) + style.Render(cursorView) + style.Render(after)
+		if i == cursorLine && cursorOffset >= 0 && cursorOffset+cursorLen <= len(l) {
+			before := l[:cursorOffset]
+			cursor := l[cursorOffset : cursorOffset+cursorLen]
+			after := l[cursorOffset+cursorLen:]
+			lines[i] = style.Render(before) + cursor + style.Render(after)
 		} else {
 			lines[i] = style.Render(l)
 		}
@@ -514,7 +513,7 @@ func wrapText(content string, width int) string {
 			continue
 		}
 		for _, seg := range wrapped {
-			out = append(out, string(seg))
+			out = append(out, strings.TrimSuffix(string(seg), " "))
 		}
 	}
 	return strings.Join(out, "\n")
@@ -558,7 +557,7 @@ func highlightCode(code, language string) string {
 // renderInactiveBlock renders a block as styled static text (no cursor).
 func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int) string {
 	// Compute the available content width, matching the active block's calculation.
-	contentWidth := width - gutterWidth - blockPrefixWidth(b.Type)
+	contentWidth := width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -595,25 +594,28 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
 		bs := th.Blocks.Numbered
-		num := countNumberedPosition(blocks, idx)
+		num := block.CountNumberedPosition(blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked)
 			text := wrapped
 			if bs.CheckedTextFaint {
 				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
@@ -621,7 +623,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 			rendered = prefixFirstLine(prefix, text)
 		} else {
 			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
-			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
@@ -704,7 +706,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 // the gutter, centered in a constrained content column for clean reading.
 func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool) string {
 	// Width here is the content column width (already constrained to viewMaxWidth).
-	contentWidth := width - blockPrefixWidth(b.Type)
+	contentWidth := width - blockPrefixWidth(b.Type, b.Indent)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -738,25 +740,28 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.NumberedList:
 		bs := th.Blocks.Numbered
-		num := countNumberedPosition(blocks, idx)
+		num := block.CountNumberedPosition(blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
+		indent := listIndent(b)
+		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked)
 			text := wrapped
 			if bs.CheckedTextFaint {
 				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
@@ -764,11 +769,10 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			rendered = prefixFirstLine(prefix, text)
 		} else {
 			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
-			// On hover, light up the checkbox marker with the accent color.
 			if hovered {
 				uncheckedColor = th.Accent
 			}
-			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 

@@ -18,23 +18,15 @@ func Serialize(blocks []Block) string {
 	}
 
 	var lines []string
-	numberedSeq := 0
 
-	for _, b := range blocks {
-		// Track numbered list sequencing.
-		if b.Type == NumberedList {
-			numberedSeq++
-		} else {
-			numberedSeq = 0
-		}
+	for i, b := range blocks {
+		pad := strings.Repeat("    ", b.Indent)
 
 		switch b.Type {
 		case Paragraph:
 			if b.Content == "" {
-				// Empty paragraph = blank line.
 				lines = append(lines, "")
 			} else {
-				// Paragraph content may contain newlines (merged lines).
 				lines = append(lines, strings.Split(b.Content, "\n")...)
 			}
 
@@ -48,16 +40,17 @@ func Serialize(blocks []Block) string {
 			lines = append(lines, "### "+b.Content)
 
 		case BulletList:
-			lines = append(lines, "- "+b.Content)
+			lines = append(lines, pad+"- "+b.Content)
 
 		case NumberedList:
-			lines = append(lines, fmt.Sprintf("%d. %s", numberedSeq, b.Content))
+			seq := CountNumberedPosition(blocks, i)
+			lines = append(lines, pad+fmt.Sprintf("%d. %s", seq, b.Content))
 
 		case Checklist:
 			if b.Checked {
-				lines = append(lines, "- [x] "+b.Content)
+				lines = append(lines, pad+"- [x] "+b.Content)
 			} else {
-				lines = append(lines, "- [ ] "+b.Content)
+				lines = append(lines, pad+"- [ ] "+b.Content)
 			}
 
 		case CodeBlock:
