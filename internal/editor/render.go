@@ -19,6 +19,14 @@ import (
 )
 
 
+// listIndent returns the whitespace prefix for a list item's indent level.
+func listIndent(b block.Block) string {
+	if b.Indent == 0 {
+		return ""
+	}
+	return strings.Repeat("    ", b.Indent)
+}
+
 // resolveColor returns color if non-empty, otherwise returns fallback.
 func resolveColor(color, fallback string) string {
 	if color == "" {
@@ -210,7 +218,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, taView)
 
@@ -218,13 +226,13 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		bs := th.Blocks.Numbered
 		num := block.CountNumberedPosition(m.blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, taView)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
@@ -586,7 +594,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
@@ -594,13 +602,13 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		bs := th.Blocks.Numbered
 		num := block.CountNumberedPosition(blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
@@ -732,7 +740,7 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 	case block.BulletList:
 		bs := th.Blocks.Bullet
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		rendered = prefixFirstLine(prefix, wrapped)
 
@@ -740,13 +748,13 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		bs := th.Blocks.Numbered
 		num := block.CountNumberedPosition(blocks, idx)
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(fmt.Sprintf(bs.Format, num))
 		rendered = prefixFirstLine(prefix, wrapped)
 
 	case block.Checklist:
 		bs := th.Blocks.Checklist
-		indent := strings.Repeat("    ", b.Indent)
+		indent := listIndent(b)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))

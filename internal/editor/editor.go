@@ -33,6 +33,8 @@ type Config struct {
 	DismissedHints map[string]bool
 	// HideChecked enables sort-checked-to-bottom for checklists.
 	HideChecked config.HideChecked
+	// CascadeChecks: checking a parent also checks/unchecks children.
+	CascadeChecks *bool
 	// WordWrap from config; nil = default (true).
 	WordWrap *bool
 }
@@ -83,7 +85,8 @@ type Model struct {
 	undo        undoStack       // undo history
 	redo        undoStack       // redo history
 	undoDirty   bool            // true when textarea content changed since last snapshot
-	sortChecked bool // sort checked checklist items to bottom of each group
+	sortChecked   bool // sort checked checklist items to bottom of each group
+	cascadeChecks bool // checking parent also checks/unchecks children
 }
 
 type statusKind int
@@ -183,7 +186,8 @@ func New(cfg Config) Model {
 		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
-		sortChecked:    cfg.HideChecked != config.HideCheckedOff,
+		sortChecked:   cfg.HideChecked != config.HideCheckedOff,
+		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
 	}
 }
 
@@ -245,8 +249,11 @@ func (m Model) BlockCount() int {
 }
 
 // sortCheckedToBottom reorders each contiguous group of checklist blocks
-// so that unchecked items come first and checked items come last (stable
-// partition). Updates m.active to follow the focused block.
+// so that unchecked bundles come first and checked bundles come last
+// (stable partition). A bundle is a parent item plus all consecutive
+// items with deeper indent. Children within each bundle are also sorted
+// by checked state at their indent level. Updates m.active to follow
+// the focused block.
 func (m *Model) sortCheckedToBottom() {
 	i := 0
 	for i < len(m.blocks) {
@@ -255,37 +262,99 @@ func (m *Model) sortCheckedToBottom() {
 			continue
 		}
 		start := i
-		for i < len(m.blocks) && m.blocks[i].Type == block.Checklist {
+		// Include all consecutive list items (any type) in the group,
+		// so mixed-type children stay bundled with checklist parents.
+		for i < len(m.blocks) && m.blocks[i].Type.IsListItem() {
 			i++
 		}
 		end := i
 		if end-start < 2 {
 			continue
 		}
-		// Simple flat partition: unchecked first, checked last.
-		order := make([]int, 0, end-start)
-		for j := start; j < end; j++ {
-			if !m.blocks[j].Checked {
-				order = append(order, j)
-			}
-		}
-		for j := start; j < end; j++ {
-			if m.blocks[j].Checked {
-				order = append(order, j)
-			}
-		}
-		tmpB := make([]block.Block, end-start)
-		tmpT := make([]textarea.Model, end-start)
-		for newPos, oldIdx := range order {
-			tmpB[newPos] = m.blocks[oldIdx]
-			tmpT[newPos] = m.textareas[oldIdx]
-			if oldIdx == m.active {
-				m.active = start + newPos
-			}
-		}
-		copy(m.blocks[start:end], tmpB)
-		copy(m.textareas[start:end], tmpT)
+		m.sortChecklistGroup(start, end)
 	}
+}
+
+// sortChecklistGroup sorts a contiguous checklist group [start, end).
+// Bundles at the base indent are sorted by parent checked state.
+// Children within each bundle are also sorted by checked state.
+func (m *Model) sortChecklistGroup(start, end int) {
+	baseIndent := m.blocks[start].Indent
+	origActive := m.active
+
+	// A bundle is a sequence of original indices: parent + children.
+	type bundle struct {
+		indices []int
+		checked bool
+	}
+
+	var bundles []bundle
+	j := start
+	for j < end {
+		if m.blocks[j].Indent < baseIndent {
+			j++
+			continue
+		}
+		parentIdx := j
+		idxs := []int{j}
+		j++
+		for j < end && m.blocks[j].Indent > baseIndent {
+			idxs = append(idxs, j)
+			j++
+		}
+		bundles = append(bundles, bundle{
+			indices: idxs,
+			checked: m.blocks[parentIdx].Checked,
+		})
+	}
+
+	// Sort children within each bundle (indices[1:]) by checked state.
+	for bi := range bundles {
+		children := bundles[bi].indices[1:]
+		if len(children) < 2 {
+			continue
+		}
+		sorted := make([]int, 0, len(children))
+		for _, idx := range children {
+			if !m.blocks[idx].Checked {
+				sorted = append(sorted, idx)
+			}
+		}
+		for _, idx := range children {
+			if m.blocks[idx].Checked {
+				sorted = append(sorted, idx)
+			}
+		}
+		copy(bundles[bi].indices[1:], sorted)
+	}
+
+	var unchecked, checked []bundle
+	for _, b := range bundles {
+		if b.checked {
+			checked = append(checked, b)
+		} else {
+			unchecked = append(unchecked, b)
+		}
+	}
+	order := append(unchecked, checked...)
+
+	// Apply reordering.
+	n := end - start
+	tmpB := make([]block.Block, n)
+	tmpT := make([]textarea.Model, n)
+	pos := 0
+	for _, b := range order {
+		for _, idx := range b.indices {
+			tmpB[pos] = m.blocks[idx]
+			tmpT[pos] = m.textareas[idx]
+			if idx == origActive {
+				m.active = start + pos
+			}
+			pos++
+		}
+	}
+	copy(m.blocks[start:end], tmpB)
+	copy(m.textareas[start:end], tmpT)
 }
 
 // persistSortChecked saves the current sort-checked setting to the global config.
@@ -297,6 +366,25 @@ func (m *Model) persistSortChecked() {
 			globalCfg.HideChecked = config.HideCheckedOff
 		}
 		_ = config.Save(globalCfg)
+	}
+}
+
+
+// toggleChecklist toggles the checked state of the block at idx. When
+// cascadeChecks is enabled, indented checklist children are also toggled.
+func (m *Model) toggleChecklist(idx int) {
+	if idx < 0 || idx >= len(m.blocks) || m.blocks[idx].Type != block.Checklist {
+		return
+	}
+	newState := !m.blocks[idx].Checked
+	m.blocks[idx].Checked = newState
+	if m.cascadeChecks {
+		parentIndent := m.blocks[idx].Indent
+		for j := idx + 1; j < len(m.blocks) && m.blocks[j].Type.IsListItem() && m.blocks[j].Indent > parentIndent; j++ {
+			if m.blocks[j].Type == block.Checklist {
+				m.blocks[j].Checked = newState
+			}
+		}
 	}
 }
 
@@ -520,27 +608,106 @@ func (m *Model) mergeBlockUp(idx int) {
 	m.textareas[m.active].SetCursorColumn(len([]rune(prevLines[mergeRow])))
 }
 
-// swapBlocks swaps the block at idx with the block at idx+delta (delta is
-// -1 for up, +1 for down). No-op at boundaries.
+
+// blockBundle returns the range [start, end) of the bundle rooted at idx.
+// For list items, this includes all consecutive deeper-indented children.
+// For non-list items, returns just [idx, idx+1).
+func (m *Model) blockBundle(idx int) (int, int) {
+	end := idx + 1
+	if m.blocks[idx].Type.IsListItem() {
+		parentIndent := m.blocks[idx].Indent
+		for end < len(m.blocks) && m.blocks[end].Type.IsListItem() && m.blocks[end].Indent > parentIndent {
+			end++
+		}
+	}
+	return idx, end
+}
+
+// blockBundleUp returns the range [start, end) of the bundle that sits
+// immediately above idx. For list items, it walks backwards past any
+// deeper-indented children to find the sibling root at the same indent
+// level as idx, then returns that root's full bundle.
+func (m *Model) blockBundleUp(idx int) (int, int) {
+	if idx <= 0 {
+		return 0, 0
+	}
+	above := idx - 1
+	if !m.blocks[above].Type.IsListItem() {
+		return above, above + 1
+	}
+	// Walk backwards past items deeper than our indent level to find
+	// the sibling root.
+	activeIndent := m.blocks[idx].Indent
+	root := above
+	for root > 0 && m.blocks[root].Indent > activeIndent && m.blocks[root-1].Type.IsListItem() {
+		root--
+	}
+	if m.blocks[root].Indent == activeIndent {
+		return m.blockBundle(root)
+	}
+	// No sibling at our level — swap with the single block above.
+	return above, above + 1
+}
+
+// rotateBlocks swaps two adjacent segments [aStart, aEnd) and [aEnd, bEnd)
+// in both m.blocks and m.textareas so that segment B comes first.
+func (m *Model) rotateBlocks(aStart, aEnd, bEnd int) {
+	aLen := aEnd - aStart
+	bLen := bEnd - aEnd
+	total := aLen + bLen
+	secB := make([]block.Block, total)
+	secT := make([]textarea.Model, total)
+	copy(secB, m.blocks[aStart:bEnd])
+	copy(secT, m.textareas[aStart:bEnd])
+	for i := 0; i < bLen; i++ {
+		m.blocks[aStart+i] = secB[aLen+i]
+		m.textareas[aStart+i] = secT[aLen+i]
+	}
+	for i := 0; i < aLen; i++ {
+		m.blocks[aStart+bLen+i] = secB[i]
+		m.textareas[aStart+bLen+i] = secT[i]
+	}
+}
+
+// swapBlocks moves the active block's bundle up or down past the adjacent
+// bundle. delta is -1 for up, +1 for down.
 func (m *Model) swapBlocks(delta int) {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
-	target := m.active + delta
-	if target < 0 || target >= len(m.blocks) {
-		return
+
+	bStart, bEnd := m.blockBundle(m.active)
+
+	// Sync textarea content in the active bundle.
+	for i := bStart; i < bEnd; i++ {
+		m.blocks[i].Content = m.textareas[i].Value()
 	}
 
-	// Sync current textarea content before swap.
-	m.blocks[m.active].Content = m.textareas[m.active].Value()
-	m.blocks[target].Content = m.textareas[target].Value()
-
-	m.blocks[m.active], m.blocks[target] = m.blocks[target], m.blocks[m.active]
-	m.textareas[m.active], m.textareas[target] = m.textareas[target], m.textareas[m.active]
-
-	m.textareas[m.active].Blur()
-	m.active = target
-	m.cursorCmd = m.textareas[m.active].Focus()
+	if delta < 0 {
+		if bStart <= 0 {
+			return
+		}
+		aboveStart, aboveEnd := m.blockBundleUp(bStart)
+		for i := aboveStart; i < aboveEnd; i++ {
+			m.blocks[i].Content = m.textareas[i].Value()
+		}
+		m.textareas[m.active].Blur()
+		m.rotateBlocks(aboveStart, aboveEnd, bEnd)
+		m.active -= aboveEnd - aboveStart
+		m.cursorCmd = m.textareas[m.active].Focus()
+	} else {
+		if bEnd >= len(m.blocks) {
+			return
+		}
+		_, belowEnd := m.blockBundle(bEnd)
+		for i := bEnd; i < belowEnd; i++ {
+			m.blocks[i].Content = m.textareas[i].Value()
+		}
+		m.textareas[m.active].Blur()
+		m.rotateBlocks(bStart, bEnd, belowEnd)
+		m.active += belowEnd - bEnd
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
 }
 
 // handleEnter processes the Enter key for block splitting/creation.
@@ -912,10 +1079,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Button == tea.MouseLeft {
 				if idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist {
 					m.pushUndo()
-					m.blocks[idx].Checked = !m.blocks[idx].Checked
 					if idx < len(m.textareas) {
 						m.blocks[idx].Content = m.textareas[idx].Value()
 					}
+					m.toggleChecklist(idx)
 					if m.sortChecked {
 						m.sortCheckedToBottom()
 					}
@@ -1261,7 +1428,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle checklist checked state.
 			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
 				m.pushUndo()
-				m.blocks[m.active].Checked = !m.blocks[m.active].Checked
+				m.toggleChecklist(m.active)
 				if m.sortChecked {
 					m.sortCheckedToBottom()
 				}
