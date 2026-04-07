@@ -9,25 +9,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// HideChecked controls visibility of checked checklist items.
+// HideChecked controls checked-item sorting behavior in checklists.
+// When enabled, checked items are sorted to the bottom of each checklist group.
 type HideChecked string
 
 const (
-	HideCheckedOff      HideChecked = "off"       // show all items (default)
-	HideCheckedViewOnly HideChecked = "view-only"  // hide in view mode only
-	HideCheckedOn       HideChecked = "on"         // hide in both modes
+	HideCheckedOff HideChecked = "off" // normal document order (default)
+	HideCheckedOn  HideChecked = "on"  // sort checked to bottom
 )
 
-// CycleHideChecked returns the next value in the off -> view-only -> on cycle.
-func CycleHideChecked(current HideChecked) HideChecked {
-	switch current {
-	case HideCheckedOff:
-		return HideCheckedViewOnly
-	case HideCheckedViewOnly:
-		return HideCheckedOn
-	default:
+// ToggleHideChecked flips between off and on.
+func ToggleHideChecked(current HideChecked) HideChecked {
+	if current == HideCheckedOn {
 		return HideCheckedOff
 	}
+	return HideCheckedOn
 }
 
 // Config holds all user-configurable settings.
@@ -36,7 +32,7 @@ type Config struct {
 	Editor       string      `toml:"editor"`
 	Theme        string      `toml:"theme"`         // any preset name
 	DateFormat   string      `toml:"date_format"`   // "relative" or Go time format
-	HideChecked  HideChecked `toml:"hide_checked"`  // "off", "view-only", or "on"
+	HideChecked  HideChecked `toml:"hide_checked"`  // "off" or "on"
 	ShowPreview  *bool       `toml:"show_preview,omitempty"`  // browser preview pane
 	WordWrap     *bool       `toml:"word_wrap,omitempty"`     // editor word wrap
 }
@@ -48,7 +44,7 @@ func DefaultConfig() Config {
 		Editor:      "",
 		Theme:       "dark",
 		DateFormat:  "relative",
-		HideChecked: HideCheckedOff,
+		HideChecked: HideCheckedOn,
 	}
 }
 
@@ -151,10 +147,10 @@ func Set(cfg *Config, key, value string) error {
 		cfg.DateFormat = value
 	case "hide_checked":
 		switch HideChecked(value) {
-		case HideCheckedOff, HideCheckedViewOnly, HideCheckedOn:
+		case HideCheckedOff, HideCheckedOn:
 			cfg.HideChecked = HideChecked(value)
 		default:
-			return fmt.Errorf("hide_checked must be \"off\", \"view-only\", or \"on\"")
+			return fmt.Errorf("hide_checked must be \"off\" or \"on\"")
 		}
 	case "show_preview":
 		switch value {

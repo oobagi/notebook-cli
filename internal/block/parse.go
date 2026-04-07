@@ -2,6 +2,16 @@ package block
 
 import "strings"
 
+// stripListIndent counts leading 4-space groups on a line.
+func stripListIndent(line string) (indent int, stripped string) {
+	i := 0
+	for i+3 < len(line) && line[i] == ' ' && line[i+1] == ' ' && line[i+2] == ' ' && line[i+3] == ' ' {
+		indent++
+		i += 4
+	}
+	return indent, line[indent*4:]
+}
+
 // Parse splits a markdown document into a sequence of Blocks. It walks the
 // input line by line, recognising headings, lists, checklists, code fences,
 // block quotes, dividers, and paragraphs. Consecutive paragraph lines and
@@ -95,42 +105,26 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
-		// --- Checklist items ---
-		if strings.HasPrefix(line, "- [x] ") || strings.HasPrefix(line, "- [X] ") {
-			blocks = append(blocks, Block{
-				Type:    Checklist,
-				Content: line[6:],
-				Checked: true,
-			})
-			i++
-			continue
-		}
-		if strings.HasPrefix(line, "- [ ] ") {
-			blocks = append(blocks, Block{
-				Type:    Checklist,
-				Content: line[6:],
-				Checked: false,
-			})
-			i++
-			continue
-		}
+		// --- List items (with optional indent) ---
+		indent, stripped := stripListIndent(line)
 
-		// --- Bullet list items ---
-		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
-			blocks = append(blocks, Block{
-				Type:    BulletList,
-				Content: line[2:],
-			})
+		if strings.HasPrefix(stripped, "- [x] ") || strings.HasPrefix(stripped, "- [X] ") {
+			blocks = append(blocks, Block{Type: Checklist, Content: stripped[6:], Checked: true, Indent: indent})
 			i++
 			continue
 		}
-
-		// --- Numbered list items ---
-		if _, content, ok := parseNumberedItem(line); ok {
-			blocks = append(blocks, Block{
-				Type:    NumberedList,
-				Content: content,
-			})
+		if strings.HasPrefix(stripped, "- [ ] ") {
+			blocks = append(blocks, Block{Type: Checklist, Content: stripped[6:], Checked: false, Indent: indent})
+			i++
+			continue
+		}
+		if strings.HasPrefix(stripped, "- ") || strings.HasPrefix(stripped, "* ") {
+			blocks = append(blocks, Block{Type: BulletList, Content: stripped[2:], Indent: indent})
+			i++
+			continue
+		}
+		if _, content, ok := parseNumberedItem(stripped); ok {
+			blocks = append(blocks, Block{Type: NumberedList, Content: content, Indent: indent})
 			i++
 			continue
 		}
@@ -183,12 +177,16 @@ func isBlockStart(line string) bool {
 		strings.HasPrefix(line, "# ") ||
 		strings.HasPrefix(line, "## ") ||
 		strings.HasPrefix(line, "### ") ||
-		strings.HasPrefix(line, "- ") ||
-		strings.HasPrefix(line, "* ") ||
 		strings.HasPrefix(line, "> ") {
 		return true
 	}
-	if _, _, ok := parseNumberedItem(line); ok {
+	_, stripped := stripListIndent(line)
+	if strings.HasPrefix(stripped, "- ") ||
+		strings.HasPrefix(stripped, "* ") ||
+		strings.HasPrefix(stripped, "- [") {
+		return true
+	}
+	if _, _, ok := parseNumberedItem(stripped); ok {
 		return true
 	}
 	return isDivider(line)

@@ -7,7 +7,6 @@ package block
 
 import "strings"
 
-
 // BlockType enumerates the kinds of content blocks that a markdown document
 // can contain.
 type BlockType int
@@ -53,6 +52,16 @@ func (bt BlockType) String() string {
 	}
 }
 
+// IsHeading returns true for Heading1, Heading2, and Heading3.
+func (bt BlockType) IsHeading() bool {
+	return bt == Heading1 || bt == Heading2 || bt == Heading3
+}
+
+// IsListItem returns true for BulletList, NumberedList, and Checklist.
+func (bt BlockType) IsListItem() bool {
+	return bt == BulletList || bt == NumberedList || bt == Checklist
+}
+
 // Short returns a compact abbreviation of a BlockType for gutter labels.
 func (bt BlockType) Short() string {
 	switch bt {
@@ -86,6 +95,27 @@ type Block struct {
 	Type    BlockType // kind of block
 	Content string    // text content without markdown prefix
 	Checked bool      // whether checklist item is checked (Checklist only)
+	Indent  int       // nesting level for list items (0 = top level)
+}
+
+// CountNumberedPosition returns the 1-based position of a numbered list block
+// among consecutive NumberedList blocks at the same indent level.
+func CountNumberedPosition(blocks []Block, idx int) int {
+	if idx < 0 || idx >= len(blocks) || blocks[idx].Type != NumberedList {
+		return 1
+	}
+	targetIndent := blocks[idx].Indent
+	num := 1
+	for i := idx - 1; i >= 0; i-- {
+		if blocks[i].Type == NumberedList && blocks[i].Indent == targetIndent {
+			num++
+		} else if blocks[i].Indent > targetIndent {
+			continue
+		} else {
+			break
+		}
+	}
+	return num
 }
 
 // ExtractCodeLanguage splits a code block's content into its title line
