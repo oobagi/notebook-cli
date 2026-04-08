@@ -1633,3 +1633,90 @@ func TestSearchL0CacheInvalidatedOnReload(t *testing.T) {
 		t.Error("expected allNoteNames cache to be invalidated on reload")
 	}
 }
+
+func TestBrowserImportFile(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	// Create a temporary file to import.
+	tmpFile := filepath.Join(t.TempDir(), "test-import.txt")
+	if err := os.WriteFile(tmpFile, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := initModel(t, s)
+
+	// Should be at L0.
+	if m.level != 0 {
+		t.Fatalf("expected level 0, got %d", m.level)
+	}
+
+	// Press 'i' to start import.
+	m = sendRune(t, m, 'i')
+
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'i'")
+	}
+	if m.inputPrompt != "Open file:" {
+		t.Errorf("expected prompt 'Open file:', got %q", m.inputPrompt)
+	}
+
+	// Type the file path and confirm.
+	m = sendString(t, m, tmpFile)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = processAllCmds(t, updated.(Model), cmd)
+
+	sel := m.Selected()
+	if sel == nil {
+		t.Fatal("expected a selection after import")
+	}
+	if sel.FilePath != tmpFile {
+		t.Errorf("expected FilePath %q, got %q", tmpFile, sel.FilePath)
+	}
+	if !sel.FromRecent {
+		t.Error("expected FromRecent to be true")
+	}
+}
+
+func TestBrowserImportCancel(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+
+	m := initModel(t, s)
+
+	// Press 'i' then Esc.
+	m = sendRune(t, m, 'i')
+	if !m.inputMode {
+		t.Fatal("expected inputMode to be true after pressing 'i'")
+	}
+
+	m = sendKey(t, m, tea.KeyEsc)
+
+	if m.inputMode {
+		t.Error("expected inputMode to be false after Esc")
+	}
+	if m.Selected() != nil {
+		t.Error("expected no selection after cancel")
+	}
+}
+
+func TestBrowserImportNotAtL1(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+	})
+
+	m := initModel(t, s)
+
+	// Enter the notebook (L1).
+	m = sendKey(t, m, tea.KeyEnter)
+	if m.level != 1 {
+		t.Fatalf("expected level 1, got %d", m.level)
+	}
+
+	// Press 'i' — should do nothing at L1.
+	m = sendRune(t, m, 'i')
+
+	if m.inputMode {
+		t.Error("expected 'i' to be ignored at level 1")
+	}
+}
