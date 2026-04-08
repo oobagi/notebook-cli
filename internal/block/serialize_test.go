@@ -153,6 +153,18 @@ func TestSerializeRoundTrip(t *testing.T) {
 			name: "embed between paragraphs",
 			md:   "text\n\n![[ref]]\n\nmore text",
 		},
+		{
+			name: "simple table",
+			md:   "| A   | B   |\n| --- | --- |\n| 1   | 2   |",
+		},
+		{
+			name: "table with alignment markers",
+			md:   "| Left | Center | Right |\n| :--- | :----: | ----: |\n| a    | b      | c     |",
+		},
+		{
+			name: "table with no body rows",
+			md:   "| Name | Age |\n| ---- | --- |",
+		},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +195,8 @@ func TestSerializeIdempotent(t *testing.T) {
 		"API\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
 		"![[notebook/note]]",
 		"text\n\n![[ref]]\n\nmore text",
+		"| A   | B   |\n| --- | --- |\n| 1   | 2   |",
+		"| Left | Center | Right |\n| :--- | :----: | ----: |\n| a    | b      | c     |",
 	}
 
 	for _, md := range inputs {
@@ -220,6 +234,29 @@ func TestSerializeNumberedListSequencing(t *testing.T) {
 	want := "1. alpha\n2. beta\n3. gamma"
 	if got != want {
 		t.Errorf("numbered sequencing:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestSerializeTablePadding(t *testing.T) {
+	// Uneven column widths should get padded.
+	blocks := []Block{
+		{Type: Table, Content: "| A | LongHeader |\n| --- | --- |\n| short | x |"},
+	}
+	got := Serialize(blocks)
+	want := "| A     | LongHeader |\n| ----- | ---------- |\n| short | x          |"
+	if got != want {
+		t.Errorf("table padding:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestSerializeTableAlignmentPreserved(t *testing.T) {
+	blocks := []Block{
+		{Type: Table, Content: "| L | C | R |\n| :--- | :---: | ---: |\n| a | b | c |"},
+	}
+	got := Serialize(blocks)
+	want := "| L   | C   | R   |\n| :-- | :-: | --: |\n| a   | b   | c   |"
+	if got != want {
+		t.Errorf("table alignment:\n  got:  %q\n  want: %q", got, want)
 	}
 }
 

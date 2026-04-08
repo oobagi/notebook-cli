@@ -65,6 +65,20 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
+		// --- Table (pipe-delimited) ---
+		if strings.HasPrefix(line, "|") {
+			var tableLines []string
+			for i < len(lines) && strings.HasPrefix(lines[i], "|") {
+				tableLines = append(tableLines, lines[i])
+				i++
+			}
+			blocks = append(blocks, Block{
+				Type:    Table,
+				Content: strings.Join(tableLines, "\n"),
+			})
+			continue
+		}
+
 		// --- Blank line ---
 		if line == "" {
 			blocks = append(blocks, Block{Type: Paragraph, Content: ""})
@@ -226,7 +240,8 @@ func isBlockStart(line string) bool {
 		strings.HasPrefix(line, "## ") ||
 		strings.HasPrefix(line, "### ") ||
 		strings.HasPrefix(line, "> ") ||
-		strings.HasPrefix(line, ": ") {
+		strings.HasPrefix(line, ": ") ||
+		strings.HasPrefix(line, "|") {
 		return true
 	}
 	_, stripped := stripListIndent(line)
