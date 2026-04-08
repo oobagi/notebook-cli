@@ -1491,8 +1491,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle "/" at position 0 to open the command palette.
 			if keyMsg.Code == '/' && len(keyMsg.Text) > 0 {
 				ta := &m.textareas[m.active]
-				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
-					m.palette.open(m.active)
+				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+					m.palette.openForBlock(m.active, m.blocks[m.active].Type, ta.Value() != "")
 					m.updateViewport()
 					return m, nil
 				}
