@@ -985,6 +985,12 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.blocks[m.active].Content = ""
 		m.textareas[m.active].SetValue("")
 	}
+	// Ensure new code blocks have a body line so the user can arrow down
+	// from the title into the code area immediately.
+	if bt == block.CodeBlock && !strings.Contains(m.textareas[m.active].Value(), "\n") {
+		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
 
@@ -1121,6 +1127,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// When quit prompt is showing, handle the 3-option response.
 		if m.quitPrompt {
 			switch msg.String() {
+			case "ctrl+s":
+				m.quitPrompt = false
+				m.status = ""
+				m.statusStyle = statusNone
+				if m.config.Save != nil {
+					content := m.Content()
+					return m, func() tea.Msg {
+						if err := m.config.Save(content); err != nil {
+							return saveErrMsg{err: err}
+						}
+						return savedMsg{content: content}
+					}
+				}
+				return m, nil
 			case "y", "Y", "enter":
 				m.quitPrompt = false
 				if m.config.Save != nil {
