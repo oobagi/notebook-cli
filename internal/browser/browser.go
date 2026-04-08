@@ -81,6 +81,12 @@ type Model struct {
 	uiThemeCursor  int    // cursor in UI theme preset list
 	uiThemePreview string // preview for highlighted UI preset
 
+	// Settings overlay fields.
+	showSettings    bool
+	settingsCursor  int
+	settingsEditing bool          // true when inline-editing a string setting value
+	settingsCfg     config.Config // cached config, loaded on entry, refreshed on change
+
 	// Onboarding hints.
 	dismissedHints map[string]bool
 
@@ -100,6 +106,50 @@ type notebookItem struct {
 	name      string
 	noteCount int
 	modTime   string
+}
+
+// settingKind describes how a setting is edited in the settings overlay.
+type settingKind int
+
+const (
+	settingBool  settingKind = iota // Enter toggles true/false
+	settingCycle                    // Enter cycles through options
+	settingText                     // Enter opens inline text input
+)
+
+type settingDef struct {
+	key     string
+	label   string
+	desc    string
+	kind    settingKind
+	options []string // for cycle kind
+}
+
+func settingDefs() []settingDef {
+	return []settingDef{
+		{"date_format", "Date format", "How dates are displayed in the browser", settingCycle,
+			[]string{"relative", "2006-01-02", "Jan 2, 2006", "01/02/2006", "02 Jan 2006"}},
+		{"editor", "External editor", "Command used when opening notes externally", settingCycle,
+			[]string{"", "vim", "nvim", "nano", "code", "subl", "emacs", "micro", "helix"}},
+		{"storage_dir", "Storage directory", "Where notebooks and notes are stored on disk", settingText, nil},
+		{"hide_checked", "Sort checked", "Sort checked items to the bottom of checklists", settingBool, nil},
+		{"cascade_checks", "Cascade checks", "Checking a parent also checks its children", settingBool, nil},
+		{"show_preview", "Show preview", "Show the note preview pane in the browser", settingBool, nil},
+		{"word_wrap", "Word wrap", "Wrap long lines in the editor", settingBool, nil},
+	}
+}
+
+func settingDisplayValue(def settingDef, val string) string {
+	if def.key == "date_format" && val != "relative" && val != "" {
+		return time.Now().Format(val)
+	}
+	if def.key == "editor" && val == "" {
+		return "(default)"
+	}
+	if val == "" {
+		return "(default)"
+	}
+	return val
 }
 
 // New creates a new browser model.
@@ -284,6 +334,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusText = msg.text
 		return m, m.scheduleStatusDismiss()
 
+	case settingsEditDoneMsg:
+		m.settingsEditing = false
+		m.inputMode = false
+		_ = config.Set(&m.settingsCfg, msg.key, msg.value)
+		m.saveSettingsCfg()
+		return m, nil
+
 	case statusTimeoutMsg:
 		if msg.generation == m.statusGen {
 			m.statusText = ""
@@ -342,6 +399,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// When theme picker is showing, handle navigation/selection.
 	if m.themeMode {
 		return m.handleThemeKey(msg)
+	}
+
+	// When settings overlay is showing.
+	if m.showSettings {
+		if m.settingsEditing {
+			return m.handleSettingsInputKey(msg)
+		}
+		return m.handleSettingsKey(msg)
 	}
 
 	// When in input mode, delegate to input handler.
@@ -421,6 +486,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "t" {
 			return m.startThemePicker()
+		}
+		if s == "," {
+			m.showSettings = true
+			m.settingsCursor = 0
+			m.settingsCfg, _ = config.Load()
+			return m, nil
 		}
 		if s == "p" {
 			m.showPreview = !m.showPreview
@@ -577,6 +648,164 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) handleSettingsInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.inputCur.IsBlinked = false
+	switch msg.String() {
+	case "esc":
+		m.settingsEditing = false
+		m.inputMode = false
+		m.inputValue = ""
+		m.inputCursor = 0
+		m.inputAction = nil
+		m.inputCur.Blur()
+		return m, nil
+	case "enter":
+		action := m.inputAction
+		value := m.inputValue
+		m.settingsEditing = false
+		m.inputMode = false
+		m.inputValue = ""
+		m.inputCursor = 0
+		m.inputAction = nil
+		m.inputCur.Blur()
+		if action != nil {
+			return m, action(value)
+		}
+		return m, nil
+	case "left":
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+		return m, nil
+	case "right":
+		if m.inputCursor < len(m.inputValue) {
+			m.inputCursor++
+		}
+		return m, nil
+	case "backspace":
+		m.inputValue, m.inputCursor = backspaceAtCursor(m.inputValue, m.inputCursor)
+		return m, nil
+	case "space":
+		m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, " ")
+		return m, nil
+	default:
+		if len(msg.Text) > 0 {
+			m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, msg.Text)
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	defs := settingDefs()
+	switch msg.String() {
+	case "esc":
+		m.showSettings = false
+		return m, nil
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "up":
+		if m.settingsCursor > 0 {
+			m.settingsCursor--
+		}
+		return m, nil
+	case "down":
+		if m.settingsCursor < len(defs)-1 {
+			m.settingsCursor++
+		}
+		return m, nil
+	case "enter", "space", "right":
+		if m.settingsCursor < len(defs) {
+			return m.applySettingChange(defs[m.settingsCursor])
+		}
+		return m, nil
+	case "left":
+		if m.settingsCursor < len(defs) {
+			return m.applySettingChangeReverse(defs[m.settingsCursor])
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) saveSettingsCfg() {
+	_ = config.Save(m.settingsCfg)
+}
+
+func (m Model) applySettingChange(def settingDef) (tea.Model, tea.Cmd) {
+	current, _ := config.Get(m.settingsCfg, def.key)
+
+	switch def.kind {
+	case settingBool:
+		newVal := "true"
+		if current == "true" {
+			newVal = "false"
+		}
+		_ = config.Set(&m.settingsCfg, def.key, newVal)
+		m.saveSettingsCfg()
+		if def.key == "show_preview" {
+			m.showPreview = newVal == "true"
+		}
+
+	case settingCycle:
+		idx := 0
+		for i, opt := range def.options {
+			if opt == current {
+				idx = i
+				break
+			}
+		}
+		next := def.options[(idx+1)%len(def.options)]
+		_ = config.Set(&m.settingsCfg, def.key, next)
+		m.saveSettingsCfg()
+
+	case settingText:
+		m.settingsEditing = true
+		m.inputMode = true
+		m.inputPrompt = def.label
+		m.inputValue = current
+		m.inputCursor = len(current)
+		m.inputAction = func(typed string) tea.Cmd {
+			return func() tea.Msg {
+				return settingsEditDoneMsg{key: def.key, value: typed}
+			}
+		}
+		return m, m.inputCur.Focus()
+	}
+
+	return m, nil
+}
+
+func (m Model) applySettingChangeReverse(def settingDef) (tea.Model, tea.Cmd) {
+	current, _ := config.Get(m.settingsCfg, def.key)
+
+	switch def.kind {
+	case settingBool:
+		return m.applySettingChange(def)
+	case settingCycle:
+		idx := 0
+		for i, opt := range def.options {
+			if opt == current {
+				idx = i
+				break
+			}
+		}
+		prev := def.options[(idx-1+len(def.options))%len(def.options)]
+		_ = config.Set(&m.settingsCfg, def.key, prev)
+		m.saveSettingsCfg()
+	case settingText:
+		return m.applySettingChange(def) // text editing is the same
+	}
+	return m, nil
+}
+
+type settingsEditDoneMsg struct {
+	key   string
+	value string
 }
 
 func (m Model) startDelete() (tea.Model, tea.Cmd) {
@@ -1399,6 +1628,81 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
+// renderSettingsView builds the full-screen settings view matching the
+// browser's list layout with section header, bullet selection, and status bar.
+func (m Model) renderSettingsView() string {
+	th := theme.Current()
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
+	dim := lipgloss.NewStyle().Faint(true)
+
+	cfg := m.settingsCfg
+	defs := settingDefs()
+
+	var b strings.Builder
+
+	// Section header — same style as browser's "Notebooks" / "Recent" headers.
+	headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	b.WriteString(" " + headerStyle.Render("Settings") + "\n")
+
+	contentHeight := m.height - 2 - m.statusBarHeight()
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	maxLabel := 0
+	for _, d := range defs {
+		if len(d.label) > maxLabel {
+			maxLabel = len(d.label)
+		}
+	}
+
+	lines := 1 // header
+	for i, d := range defs {
+		val, _ := config.Get(cfg, d.key)
+		displayVal := settingDisplayValue(d, val)
+
+		// Cycle settings show arrows.
+		if d.kind == settingCycle && len(d.options) > 1 {
+			displayVal = "◂ " + displayVal + " ▸"
+		}
+
+		label := d.label
+		pad := strings.Repeat(" ", maxLabel-len(label)+4)
+
+		if i == m.settingsCursor {
+			bullet := accentStyle.Render("\u25CF") + " "
+			line := bullet + accentStyle.Render(label) + pad + accentStyle.Render(displayVal)
+			b.WriteString(line + "\n")
+		} else {
+			line := "  " + label + pad + dim.Render(displayVal)
+			b.WriteString(line + "\n")
+		}
+		lines++
+	}
+
+	// Description for selected setting.
+	if m.settingsCursor < len(defs) {
+		desc := defs[m.settingsCursor].desc
+		if desc != "" {
+			b.WriteString("\n")
+			b.WriteString("  " + dim.Render(desc) + "\n")
+			lines += 2
+		}
+	}
+
+	// Pad to push status bar to bottom.
+	for lines < contentHeight {
+		b.WriteString("\n")
+		lines++
+	}
+
+	// Status bar.
+	b.WriteString("\n")
+	b.WriteString(m.renderStatusBar())
+
+	return b.String()
+}
+
 // renderHelpOverlay builds the centered help panel.
 func (m Model) renderHelpOverlay() string {
 	w := m.width
@@ -1431,7 +1735,8 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("  r           Rename\n")
 	help.WriteString("  c           Copy (notes)\n")
 	help.WriteString("  t           Theme\n")
-	help.WriteString("  p           Preview")
+	help.WriteString("  p           Preview\n")
+	help.WriteString("  ,           Settings")
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1480,6 +1785,8 @@ func (m Model) View() tea.View {
 		content = m.renderHelpOverlay()
 	} else if m.themeMode {
 		content = m.renderThemeOverlay()
+	} else if m.showSettings {
+		content = m.renderSettingsView()
 	} else if m.err != nil {
 		content = fmt.Sprintf("\n  Error: %v\n", m.err)
 	} else {

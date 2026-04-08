@@ -9,43 +9,38 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// HideChecked controls checked-item sorting behavior in checklists.
-// When enabled, checked items are sorted to the bottom of each checklist group.
-type HideChecked string
-
-const (
-	HideCheckedOff HideChecked = "off" // normal document order (default)
-	HideCheckedOn  HideChecked = "on"  // sort checked to bottom
-)
-
-// ToggleHideChecked flips between off and on.
-func ToggleHideChecked(current HideChecked) HideChecked {
-	if current == HideCheckedOn {
-		return HideCheckedOff
-	}
-	return HideCheckedOn
-}
-
 // Config holds all user-configurable settings.
 type Config struct {
-	StorageDir      string      `toml:"storage_dir"`
-	Editor          string      `toml:"editor"`
-	Theme           string      `toml:"theme"`              // any preset name
-	DateFormat      string      `toml:"date_format"`        // "relative" or Go time format
-	HideChecked     HideChecked `toml:"hide_checked"`              // "off" or "on"
-	CascadeChecks   *bool       `toml:"cascade_checks,omitempty"` // check parent → check children
-	ShowPreview     *bool       `toml:"show_preview,omitempty"`   // browser preview pane
-	WordWrap        *bool       `toml:"word_wrap,omitempty"`      // editor word wrap
+	StorageDir    string `toml:"storage_dir"`
+	Editor        string `toml:"editor"`
+	Theme         string `toml:"theme"`                          // any preset name
+	DateFormat    string `toml:"date_format"`                    // "relative" or Go time format
+	HideChecked   *bool  `toml:"hide_checked,omitempty"`         // sort checked to bottom
+	CascadeChecks *bool  `toml:"cascade_checks,omitempty"`       // check parent → check children
+	ShowPreview   *bool  `toml:"show_preview,omitempty"`         // browser preview pane
+	WordWrap      *bool  `toml:"word_wrap,omitempty"`            // editor word wrap
+}
+
+// rawConfig mirrors Config but uses any for hide_checked to handle
+// legacy string values ("on"/"off") during migration.
+type rawConfig struct {
+	StorageDir    string `toml:"storage_dir"`
+	Editor        string `toml:"editor"`
+	Theme         string `toml:"theme"`
+	DateFormat    string `toml:"date_format"`
+	HideChecked   any    `toml:"hide_checked,omitempty"`
+	CascadeChecks *bool  `toml:"cascade_checks,omitempty"`
+	ShowPreview   *bool  `toml:"show_preview,omitempty"`
+	WordWrap      *bool  `toml:"word_wrap,omitempty"`
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		StorageDir:  "~/.notebook",
-		Editor:      "",
-		Theme:       "dark",
-		DateFormat:  "relative",
-		HideChecked: HideCheckedOn,
+		StorageDir: "~/.notebook",
+		Editor:     "",
+		Theme:      "dark",
+		DateFormat: "relative",
 	}
 }
 
@@ -104,8 +99,34 @@ func LoadFrom(path string) (Config, error) {
 		return cfg, fmt.Errorf("read config: %w", err)
 	}
 
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	// Use rawConfig to handle legacy string values for hide_checked.
+	var raw rawConfig
+	if err := toml.Unmarshal(data, &raw); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
+	}
+
+	if raw.StorageDir != "" {
+		cfg.StorageDir = raw.StorageDir
+	}
+	cfg.Editor = raw.Editor
+	if raw.Theme != "" {
+		cfg.Theme = raw.Theme
+	}
+	if raw.DateFormat != "" {
+		cfg.DateFormat = raw.DateFormat
+	}
+	cfg.CascadeChecks = raw.CascadeChecks
+	cfg.ShowPreview = raw.ShowPreview
+	cfg.WordWrap = raw.WordWrap
+
+	// Convert hide_checked: legacy "on"/"off" strings → bool.
+	switch v := raw.HideChecked.(type) {
+	case bool:
+		cfg.HideChecked = BoolPtr(v)
+	case string:
+		cfg.HideChecked = BoolPtr(v == "on" || v == "true")
+	case int64:
+		cfg.HideChecked = BoolPtr(v != 0)
 	}
 
 	return cfg, nil
@@ -148,11 +169,13 @@ func Set(cfg *Config, key, value string) error {
 	case "date_format":
 		cfg.DateFormat = value
 	case "hide_checked":
-		switch HideChecked(value) {
-		case HideCheckedOff, HideCheckedOn:
-			cfg.HideChecked = HideChecked(value)
+		switch value {
+		case "true":
+			cfg.HideChecked = BoolPtr(true)
+		case "false":
+			cfg.HideChecked = BoolPtr(false)
 		default:
-			return fmt.Errorf("hide_checked must be \"off\" or \"on\"")
+			return fmt.Errorf("hide_checked must be \"true\" or \"false\"")
 		}
 	case "cascade_checks":
 		switch value {
@@ -205,7 +228,7 @@ func Get(cfg Config, key string) (string, error) {
 	case "date_format":
 		return cfg.DateFormat, nil
 	case "hide_checked":
-		return string(cfg.HideChecked), nil
+		return fmt.Sprintf("%t", BoolVal(cfg.HideChecked, true)), nil
 	case "cascade_checks":
 		return fmt.Sprintf("%t", BoolVal(cfg.CascadeChecks, true)), nil
 	case "show_preview":

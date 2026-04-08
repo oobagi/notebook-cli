@@ -32,7 +32,7 @@ type Config struct {
 	// DismissedHints tracks which onboarding hints have been dismissed.
 	DismissedHints map[string]bool
 	// HideChecked enables sort-checked-to-bottom for checklists.
-	HideChecked config.HideChecked
+	HideChecked *bool
 	// CascadeChecks: checking a parent also checks/unchecks children.
 	CascadeChecks *bool
 	// WordWrap from config; nil = default (true).
@@ -186,7 +186,7 @@ func New(cfg Config) Model {
 		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
-		sortChecked:   cfg.HideChecked != config.HideCheckedOff,
+		sortChecked:   config.BoolVal(cfg.HideChecked, true),
 		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
 	}
 }
@@ -279,7 +279,6 @@ func (m *Model) sortCheckedToBottom() {
 // Bundles at the base indent are sorted by parent checked state.
 // Children within each bundle are also sorted by checked state.
 func (m *Model) sortChecklistGroup(start, end int) {
-	baseIndent := m.blocks[start].Indent
 	origActive := m.active
 
 	// A bundle is a sequence of original indices: parent + children.
@@ -291,14 +290,10 @@ func (m *Model) sortChecklistGroup(start, end int) {
 	var bundles []bundle
 	j := start
 	for j < end {
-		if m.blocks[j].Indent < baseIndent {
-			j++
-			continue
-		}
 		parentIdx := j
 		idxs := []int{j}
 		j++
-		for j < end && m.blocks[j].Indent > baseIndent {
+		for j < end && m.blocks[j].Indent > m.blocks[parentIdx].Indent {
 			idxs = append(idxs, j)
 			j++
 		}
@@ -353,6 +348,9 @@ func (m *Model) sortChecklistGroup(start, end int) {
 			pos++
 		}
 	}
+	if pos != n {
+		return // bail out rather than corrupt data
+	}
 	copy(m.blocks[start:end], tmpB)
 	copy(m.textareas[start:end], tmpT)
 }
@@ -360,11 +358,7 @@ func (m *Model) sortChecklistGroup(start, end int) {
 // persistSortChecked saves the current sort-checked setting to the global config.
 func (m *Model) persistSortChecked() {
 	if globalCfg, err := config.Load(); err == nil {
-		if m.sortChecked {
-			globalCfg.HideChecked = config.HideCheckedOn
-		} else {
-			globalCfg.HideChecked = config.HideCheckedOff
-		}
+		globalCfg.HideChecked = config.BoolPtr(m.sortChecked)
 		_ = config.Save(globalCfg)
 	}
 }
