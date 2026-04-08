@@ -4,6 +4,7 @@ package browser
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -280,6 +281,9 @@ type reloadMsg struct{}
 // reloadAndSelectMsg triggers a reload and repositions the cursor on the named item.
 type reloadAndSelectMsg struct{ name string }
 
+// importFileMsg signals the user confirmed an external file path to open.
+type importFileMsg struct{ path string }
+
 // statusMsg carries a temporary status message for the status bar.
 type statusMsg struct{ text string }
 
@@ -329,6 +333,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadNotebooks()
 		}
 		return m, m.loadNotes(m.currentBook)
+
+	case importFileMsg:
+		m.selected = &Selection{
+			FilePath:   msg.path,
+			FromRecent: true,
+		}
+		return m, tea.Quit
 
 	case statusMsg:
 		m.statusText = msg.text
@@ -480,6 +491,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if s == "n" {
 			return m.startCreate()
+		}
+		if s == "i" && m.level == 0 {
+			return m.startImport()
 		}
 		if s == "c" && m.level == 1 {
 			return m.copyNote()
@@ -956,6 +970,50 @@ func (m Model) startCreate() (tea.Model, tea.Cmd) {
 				}
 				return reloadAndSelectMsg{slug}
 			}
+		}
+	}
+	return m, m.inputCur.Focus()
+}
+
+func (m Model) startImport() (tea.Model, tea.Cmd) {
+	m.inputMode = true
+	m.inputPrompt = "Open file:"
+	m.inputValue = ""
+	m.inputAction = func(typed string) tea.Cmd {
+		path := strings.TrimSpace(typed)
+		if path == "" {
+			return func() tea.Msg {
+				return statusMsg{"Path must not be empty"}
+			}
+		}
+		// Expand ~ to home directory.
+		if strings.HasPrefix(path, "~/") || path == "~" {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				path = filepath.Join(home, path[1:])
+			}
+		}
+		// Resolve to absolute path.
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return func() tea.Msg {
+				return statusMsg{fmt.Sprintf("Invalid path: %s", err)}
+			}
+		}
+		// Validate file exists and is readable.
+		info, err := os.Stat(abs)
+		if err != nil {
+			return func() tea.Msg {
+				return statusMsg{fmt.Sprintf("Cannot open: %s", err)}
+			}
+		}
+		if info.IsDir() {
+			return func() tea.Msg {
+				return statusMsg{"Cannot open a directory"}
+			}
+		}
+		return func() tea.Msg {
+			return importFileMsg{path: abs}
 		}
 	}
 	return m, m.inputCur.Focus()
@@ -1731,6 +1789,7 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("  " + accent.Render("Actions") + "\n")
 	help.WriteString("  " + sep + "\n")
 	help.WriteString("  n           New\n")
+	help.WriteString("  i           Open file\n")
 	help.WriteString("  d           Delete " + s + " remove\n")
 	help.WriteString("  r           Rename\n")
 	help.WriteString("  c           Copy (notes)\n")

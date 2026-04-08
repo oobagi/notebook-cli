@@ -4,11 +4,8 @@ Planned work tracked via [open issues](https://github.com/oobagi/notebook-cli/is
 
 ## Up Next
 
-- [ ] [#193 enhance: show status toast when toggling note preview](https://github.com/oobagi/notebook-cli/issues/193)
 - [ ] [#186 feat: allow block type transformation via palette on non-empty blocks](https://github.com/oobagi/notebook-cli/issues/186)
-- [ ] [#200 feat: toggle to hide checked-off checklist items](https://github.com/oobagi/notebook-cli/issues/200)
 - [ ] [#196 feat: block text alignment (left, center, right)](https://github.com/oobagi/notebook-cli/issues/196)
-- [ ] [#178 feat: open external files from browser via "i" key](https://github.com/oobagi/notebook-cli/issues/178)
 - [ ] [#187 feat: callout/admonition block type](https://github.com/oobagi/notebook-cli/issues/187)
 - [ ] [#184 feat: table block type](https://github.com/oobagi/notebook-cli/issues/184)
 - [ ] [#188 feat: definition list block type](https://github.com/oobagi/notebook-cli/issues/188)
