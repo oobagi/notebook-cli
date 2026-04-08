@@ -98,6 +98,7 @@ type Model struct {
 	cascadeChecks bool // checking parent also checks/unchecks children
 	embedModal    embedModalState // overlay for viewing embedded note references
 	embedPicker   embedPicker     // note picker for embed block insertion
+	table         *tableState // active table cell state (non-nil when editing a Table block)
 }
 
 type statusKind int
@@ -204,6 +205,8 @@ func blockPrefixWidth(bt block.BlockType, indent int) int {
 			icon = "\u2197 "
 		}
 		base = lipgloss.Width(icon)
+	case block.Table:
+		base = 0
 	}
 	return indent*4 + base
 }
@@ -246,7 +249,7 @@ func New(cfg Config) Model {
 		dismissed = make(map[string]bool)
 	}
 
-	return Model{
+	m := Model{
 		blocks:         blocks,
 		textareas:      textareas,
 		active:         0,
@@ -262,6 +265,16 @@ func New(cfg Config) Model {
 		sortChecked:   config.BoolVal(cfg.HideChecked, true),
 		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
 	}
+
+	// If first block is a Table, init table state.
+	if len(m.blocks) > 0 && m.blocks[0].Type == block.Table {
+		m.table = initTable(m.blocks[0].Content)
+		cw := tableCellWidth(defaultWidth-gutterWidth, m.table.numCols())
+		m.table.loadCell(&m.textareas[0], cw)
+		m.cursorCmd = m.textareas[0].Focus()
+	}
+
+	return m
 }
 
 // newTextareaForBlock creates a textarea configured for the given block type.
@@ -310,7 +323,14 @@ func (m Model) syncBlocks() []block.Block {
 	copy(result, m.blocks)
 	for i := range result {
 		if i < len(m.textareas) {
-			result[i].Content = m.textareas[i].Value()
+			if m.table != nil && i == m.active && m.blocks[i].Type == block.Table {
+				// For the active table, sync the current cell and serialize.
+				ts := *m.table // copy to avoid mutating receiver
+				ts.syncCell(m.textareas[i])
+				result[i].Content = ts.serialize()
+			} else {
+				result[i].Content = m.textareas[i].Value()
+			}
 		}
 	}
 	return result
@@ -481,7 +501,13 @@ func (m *Model) resizeTextareas() {
 		w = defaultWidth
 	}
 	for i, b := range m.blocks {
-		m.textareas[i].SetWidth(m.contentWidth(b))
+		if m.table != nil && i == m.active && b.Type == block.Table {
+			// Active table textarea shows a cell; size to cell width.
+			cw := tableCellWidth(w-gutterWidth, m.table.numCols())
+			m.textareas[i].SetWidth(cw)
+		} else {
+			m.textareas[i].SetWidth(m.contentWidth(b))
+		}
 		m.textareas[i].SetHeight(m.textareas[i].VisualLineCount())
 	}
 	// Update viewport dimensions, reserving space for the header and status bar
@@ -514,12 +540,30 @@ func (m *Model) focusBlock(idx int) {
 	if m.undoDirty {
 		m.pushUndo()
 	}
+
+	// Leaving a table: sync cell and serialize back to block content.
+	if m.table != nil && m.active >= 0 && m.active < len(m.textareas) {
+		m.table.syncCell(m.textareas[m.active])
+		serialized := m.table.serialize()
+		m.blocks[m.active].Content = serialized
+		m.textareas[m.active].SetValue(serialized)
+		m.table = nil
+	}
+
 	if m.active >= 0 && m.active < len(m.textareas) {
 		m.blocks[m.active].Content = m.textareas[m.active].Value()
 		m.textareas[m.active].Blur()
 	}
 	m.active = idx
 	m.cursorCmd = m.textareas[idx].Focus()
+
+	// Entering a table: init table state and load first cell.
+	if m.blocks[idx].Type == block.Table {
+		m.table = initTable(m.blocks[idx].Content)
+		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+		m.table.loadCell(&m.textareas[idx], cw)
+		m.cursorCmd = m.textareas[idx].Focus()
+	}
 }
 
 // navigateUp moves focus to the previous block, preserving horizontal position.
@@ -745,8 +789,18 @@ func (m *Model) swapBlocks(delta int) {
 
 	bStart, bEnd := m.blockBundle(m.active)
 
+	// Sync table cell before swapping.
+	if m.table != nil && m.blocks[m.active].Type == block.Table {
+		m.table.syncCell(m.textareas[m.active])
+		m.blocks[m.active].Content = m.table.serialize()
+		m.textareas[m.active].SetValue(m.blocks[m.active].Content)
+	}
+
 	// Sync textarea content in the active bundle.
 	for i := bStart; i < bEnd; i++ {
+		if m.table != nil && i == m.active && m.blocks[i].Type == block.Table {
+			continue // Already synced above.
+		}
 		m.blocks[i].Content = m.textareas[i].Value()
 	}
 
@@ -1051,8 +1105,8 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// Don't merge content into code blocks, quote blocks, definition lists, or callout blocks.
-	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList || m.blocks[m.active-1].Type == block.Callout {
+	// Don't merge content into code blocks, quote blocks, definition lists, callouts, or tables.
+	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList || m.blocks[m.active-1].Type == block.Callout || m.blocks[m.active-1].Type == block.Table {
 		return false
 	}
 
@@ -1063,10 +1117,19 @@ func (m *Model) handleBackspace() bool {
 
 // cutBlock removes the active block and stores it in the block clipboard.
 func (m *Model) cutBlock() {
+	// Sync table cell before cutting.
+	if m.table != nil && m.blocks[m.active].Type == block.Table {
+		m.table.syncCell(m.textareas[m.active])
+		m.blocks[m.active].Content = m.table.serialize()
+		m.table = nil
+	}
+
 	if len(m.blocks) <= 1 {
 		// Don't remove the last block; store it and clear it instead.
 		b := m.blocks[m.active]
-		b.Content = m.textareas[m.active].Value()
+		if b.Type != block.Table {
+			b.Content = m.textareas[m.active].Value()
+		}
 		m.blockClip = &b
 		m.blocks[m.active] = block.Block{Type: block.Paragraph, Content: ""}
 		m.textareas[m.active].SetValue("")
@@ -1074,7 +1137,9 @@ func (m *Model) cutBlock() {
 	}
 
 	b := m.blocks[m.active]
-	b.Content = m.textareas[m.active].Value()
+	if b.Type != block.Table {
+		b.Content = m.textareas[m.active].Value()
+	}
 	m.blockClip = &b
 
 	idx := m.active
@@ -1127,6 +1192,20 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		if len(targets) > 0 {
 			m.embedPicker.open(targets)
 		}
+	}
+	// Table: set default template and init table state.
+	if bt == block.Table {
+		content := m.textareas[m.active].Value()
+		if content == "" || !strings.Contains(content, "|") {
+			// Set a default 2x2 table template.
+			content = "| Header 1 | Header 2 |\n| --- | --- |\n|  |  |"
+		}
+		m.blocks[m.active].Content = content
+		m.textareas[m.active].SetValue(content)
+		m.table = initTable(content)
+		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+		m.table.loadCell(&m.textareas[m.active], cw)
+		m.cursorCmd = m.textareas[m.active].Focus()
 	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
@@ -1583,6 +1662,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Re-focus the previously active block to restore cursor.
 				if m.active >= 0 && m.active < len(m.textareas) {
 					m.cursorCmd = m.textareas[m.active].Focus()
+					// Re-init table state if returning to a table block.
+					if m.blocks[m.active].Type == block.Table {
+						m.table = initTable(m.blocks[m.active].Content)
+						cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+						m.table.loadCell(&m.textareas[m.active], cw)
+						m.cursorCmd = m.textareas[m.active].Focus()
+					}
 				}
 				m.updateViewport()
 				return m, nil
@@ -1644,7 +1730,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.hoverBlock = -1
 			// Blur the active textarea but preserve m.active.
 			if m.active >= 0 && m.active < len(m.textareas) {
-				m.blocks[m.active].Content = m.textareas[m.active].Value()
+				if m.table != nil && m.blocks[m.active].Type == block.Table {
+					m.table.syncCell(m.textareas[m.active])
+					m.blocks[m.active].Content = m.table.serialize()
+					m.textareas[m.active].SetValue(m.blocks[m.active].Content)
+				} else {
+					m.blocks[m.active].Content = m.textareas[m.active].Value()
+				}
 				m.textareas[m.active].Blur()
 			}
 			m.updateViewport()
@@ -1701,16 +1793,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
-			if m.isAtFirstLine() && m.active == 0 {
-				bt := m.blocks[0].Type
-				if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout || bt == block.DefinitionList || bt == block.Divider {
-					// These types don't split on Enter, so there's no other
-					// way to insert content above them. Create a paragraph.
-					m.pushUndo()
-					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
-					m.updateViewport()
-					return m, nil
-				}
+			// Table blocks handle their own Up navigation.
+			if m.table != nil && m.blocks[m.active].Type == block.Table {
+				break
+			}
+			if m.isAtFirstLine() && m.active == 0 && m.blocks[0].Type != block.Paragraph {
+				m.pushUndo()
+				m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+				m.updateViewport()
+				return m, nil
 			}
 			if m.isAtFirstLine() && m.active > 0 {
 				m.navigateUp()
@@ -1719,6 +1810,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
+			// Table blocks handle their own Down navigation.
+			if m.table != nil && m.blocks[m.active].Type == block.Table {
+				break
+			}
 			if m.isAtLastLine() && m.active < len(m.textareas)-1 {
 				m.navigateDown()
 				m.updateViewport()
@@ -1776,6 +1871,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.scheduleStatusDismiss()
 
 		case "ctrl+u":
+			// Tables handle their own editing; skip block merge logic.
+			if m.table != nil && m.blocks[m.active].Type == block.Table {
+				break
+			}
 			ta := &m.textareas[m.active]
 			info := ta.LineInfo()
 			logicalCol := info.StartColumn + info.ColumnOffset
@@ -1875,6 +1974,117 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 				}
+			}
+
+			// Table-specific key handling.
+			if m.table != nil && m.blocks[m.active].Type == block.Table {
+				ta := &m.textareas[m.active]
+				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+
+				switch {
+				case keyMsg.Code == tea.KeyTab && keyMsg.Mod.Contains(tea.ModShift):
+					// Shift+Tab: previous cell.
+					m.table.syncCell(*ta)
+					m.table.prevCell()
+					m.table.loadCell(ta, cw)
+					m.cursorCmd = ta.Focus()
+					m.updateViewport()
+					return m, nil
+
+				case keyMsg.Code == tea.KeyTab:
+					// Tab: next cell.
+					m.table.syncCell(*ta)
+					m.table.nextCell()
+					m.table.loadCell(ta, cw)
+					m.cursorCmd = ta.Focus()
+					m.updateViewport()
+					return m, nil
+
+				case keyMsg.Code == tea.KeyEnter:
+					// Enter: move to cell below (same column), add row if needed.
+					m.table.syncCell(*ta)
+					m.table.row++
+					if m.table.row >= len(m.table.cells) {
+						newRow := make([]string, m.table.numCols())
+						m.table.cells = append(m.table.cells, newRow)
+					}
+					m.table.loadCell(ta, cw)
+					m.cursorCmd = ta.Focus()
+					m.updateViewport()
+					return m, nil
+
+				case keyMsg.Code == tea.KeyBackspace:
+					// At position 0 in cell: no-op (don't merge blocks).
+					if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+						m.updateViewport()
+						return m, nil
+					}
+					// Otherwise let the textarea handle it normally below.
+
+				case keyMsg.String() == "up":
+					if m.isAtFirstLine() {
+						if m.table.row > 0 {
+							// Move to cell above.
+							m.table.syncCell(*ta)
+							m.table.row--
+							m.table.loadCell(ta, cw)
+							m.cursorCmd = ta.Focus()
+							m.updateViewport()
+							return m, nil
+						}
+						// At top row: navigate to previous block or insert paragraph.
+						if m.active > 0 {
+							m.navigateUp()
+							m.updateViewport()
+							return m, nil
+						}
+						// At block 0: insert paragraph above.
+						m.pushUndo()
+						m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+						m.updateViewport()
+						return m, nil
+					}
+
+				case keyMsg.String() == "down":
+					if m.isAtLastLine() {
+						if m.table.row < len(m.table.cells)-1 {
+							// Move to cell below.
+							m.table.syncCell(*ta)
+							m.table.row++
+							m.table.loadCell(ta, cw)
+							m.cursorCmd = ta.Focus()
+							m.updateViewport()
+							return m, nil
+						}
+						// At bottom row: navigate to next block.
+						if m.active < len(m.textareas)-1 {
+							m.navigateDown()
+							m.updateViewport()
+							return m, nil
+						}
+					}
+				}
+
+				// For all other keys, fall through to the textarea forwarding below.
+				// But skip Enter/Backspace/Tab/Divider handling that follows.
+				var preState editorState
+				if !m.undoDirty {
+					preState = m.captureState()
+				}
+
+				var cmd tea.Cmd
+				m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
+
+				if !m.undoDirty && m.textareas[m.active].Value() != preState.blocks[preState.active].Content {
+					m.undo.push(preState)
+					m.redo.clear()
+					m.undoDirty = true
+				}
+
+				m.textareas[m.active].SetWidth(cw)
+				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+				m.updateViewport()
+				return m, cmd
 			}
 
 			// Handle Enter key: always split/create via handleEnter.
@@ -2105,6 +2315,9 @@ func (m *Model) updateViewport() {
 		if m.blocks[m.active].Type == block.CodeBlock {
 			chromeLines = 1 // top border
 		}
+		if m.blocks[m.active].Type == block.Table {
+			chromeLines = 1 // top border
+		}
 
 		ta := m.textareas[m.active]
 
@@ -2113,7 +2326,13 @@ func (m *Model) updateViewport() {
 		// cursor occupy more visual lines than raw lines.
 		cursorRawLine := ta.Line()
 		visualLine := cursorRawLine
-		if m.wordWrap {
+
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			// For tables, compute cursor line within the grid.
+			// Each row before the active row contributes: 1 content line + 1 separator.
+			// (Simplified: assume 1 visual line per cell for scroll purposes.)
+			visualLine = m.table.row*2 + cursorRawLine
+		} else if m.wordWrap {
 			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active].Type, m.blocks[m.active].Indent)
 			if contentWidth < 1 {
 				contentWidth = 1
@@ -2212,11 +2431,11 @@ func (m *Model) computeBlockLineOffsets() {
 				advance("")
 			case b.Type == block.Heading2 || b.Type == block.Heading3:
 				advance("")
-			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout:
+			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout || b.Type == block.Table:
 				if prev.Type != b.Type {
 					advance("")
 				}
-			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout:
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout || prev.Type == block.Table:
 				advance("")
 			case b.Type == block.Embed:
 				advance("")
@@ -2339,12 +2558,12 @@ func (m Model) renderViewContent() string {
 				parts = append(parts, "", "") // extra blank before H1
 			case b.Type == block.Heading2 || b.Type == block.Heading3:
 				parts = append(parts, "") // blank before H2/H3
-			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout:
+			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout || b.Type == block.Table:
 				if prev.Type != b.Type {
-					parts = append(parts, "") // blank before code/quote/callout blocks
+					parts = append(parts, "")
 				}
-			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout:
-				parts = append(parts, "") // blank after code/quote/callout blocks
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout || prev.Type == block.Table:
+				parts = append(parts, "")
 			case b.Type == block.Embed:
 				parts = append(parts, "") // blank before embeds
 			case prev.Type == block.Embed:

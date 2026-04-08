@@ -423,6 +423,10 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 		rendered = strings.Join(result, "\n")
 
+	case block.Table:
+		// Table rendering is handled entirely by renderActiveTableFull.
+		return m.renderActiveTableFull(idx, b)
+
 	default:
 		rendered = taView
 	}
@@ -852,6 +856,13 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 			Render(icon + wrapped)
 		rendered = pill
 
+	case block.Table:
+		tableWidth := width - gutterWidth
+		if tableWidth < 10 {
+			tableWidth = 10
+		}
+		rendered = renderTableGrid(content, tableWidth, th.Border, th.Blocks.Table.HeaderBold, wordWrap)
+
 	default:
 		rendered = wrapped
 	}
@@ -1055,6 +1066,9 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			style = style.Underline(true)
 		}
 		rendered = style.Render(icon + wrapped)
+
+	case block.Table:
+		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)
 
 	default:
 		rendered = wrapped

@@ -38,6 +38,7 @@ func defaultPaletteItems() []paletteItem {
 		{Icon: "1.", Label: "Numbered List", Type: block.NumberedList},
 		{Icon: "\u2610", Label: "Checklist", Type: block.Checklist},
 		{Icon: "``", Label: "Code Block", Type: block.CodeBlock},
+		{Icon: "\u229e", Label: "Table", Type: block.Table},
 		{Icon: ">", Label: "Quote", Type: block.Quote},
 		{Icon: ":", Label: "Definition", Type: block.DefinitionList},
 		{Icon: "!", Label: "Callout", Type: block.Callout},

@@ -54,7 +54,13 @@ func (m *Model) captureState() editorState {
 	blocks := make([]block.Block, len(m.blocks))
 	copy(blocks, m.blocks)
 	if m.active >= 0 && m.active < len(m.textareas) {
-		blocks[m.active].Content = m.textareas[m.active].Value()
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			ts := *m.table
+			ts.syncCell(m.textareas[m.active])
+			blocks[m.active].Content = ts.serialize()
+		} else {
+			blocks[m.active].Content = m.textareas[m.active].Value()
+		}
 	}
 	return editorState{
 		blocks: blocks,
@@ -100,7 +106,16 @@ func (m *Model) restoreState(state editorState) {
 	// (resizeTextareas respects wordWrap and sets correct viewport size).
 	m.palette.close()
 	m.undoDirty = false
+	m.table = nil
 	m.resizeTextareas()
+
+	// If active block is a Table, init table state.
+	if active < len(m.blocks) && m.blocks[active].Type == block.Table {
+		m.table = initTable(m.blocks[active].Content)
+		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+		m.table.loadCell(&m.textareas[active], cw)
+		m.cursorCmd = m.textareas[active].Focus()
+	}
 }
 
 // performUndo restores the previous state. Returns true if undo was performed.
@@ -110,7 +125,12 @@ func (m *Model) performUndo() bool {
 	}
 	// Flush any pending dirty content before capturing current state for redo.
 	if m.active >= 0 && m.active < len(m.textareas) {
-		m.blocks[m.active].Content = m.textareas[m.active].Value()
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			m.table.syncCell(m.textareas[m.active])
+			m.blocks[m.active].Content = m.table.serialize()
+		} else {
+			m.blocks[m.active].Content = m.textareas[m.active].Value()
+		}
 	}
 	m.redo.push(m.captureState())
 	state, _ := m.undo.pop()
@@ -124,7 +144,12 @@ func (m *Model) performRedo() bool {
 		return false
 	}
 	if m.active >= 0 && m.active < len(m.textareas) {
-		m.blocks[m.active].Content = m.textareas[m.active].Value()
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			m.table.syncCell(m.textareas[m.active])
+			m.blocks[m.active].Content = m.table.serialize()
+		} else {
+			m.blocks[m.active].Content = m.textareas[m.active].Value()
+		}
 	}
 	m.undo.push(m.captureState())
 	state, _ := m.redo.pop()
