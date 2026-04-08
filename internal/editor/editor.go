@@ -1810,10 +1810,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
-			// Table blocks handle their own Down navigation.
-			if m.table != nil && m.blocks[m.active].Type == block.Table {
-				break
-			}
 			if m.isAtLastLine() && m.active < len(m.textareas)-1 {
 				m.navigateDown()
 				m.updateViewport()
@@ -1871,10 +1867,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.scheduleStatusDismiss()
 
 		case "ctrl+u":
-			// Tables handle their own editing; skip block merge logic.
-			if m.table != nil && m.blocks[m.active].Type == block.Table {
-				break
-			}
 			ta := &m.textareas[m.active]
 			info := ta.LineInfo()
 			logicalCol := info.StartColumn + info.ColumnOffset
@@ -1976,32 +1968,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Table-specific key handling.
+			// Table-specific key handling: only intercept Tab, Enter, and
+			// boundary navigation. Everything else goes to the textarea.
 			if m.table != nil && m.blocks[m.active].Type == block.Table {
 				ta := &m.textareas[m.active]
 				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
 
-				switch {
-				case keyMsg.Code == tea.KeyTab && keyMsg.Mod.Contains(tea.ModShift):
-					// Shift+Tab: previous cell.
+				// Tab / Shift+Tab: cell navigation.
+				if keyMsg.Code == tea.KeyTab {
 					m.table.syncCell(*ta)
-					m.table.prevCell()
+					if keyMsg.Mod.Contains(tea.ModShift) {
+						m.table.prevCell()
+					} else {
+						m.table.nextCell()
+					}
 					m.table.loadCell(ta, cw)
 					m.cursorCmd = ta.Focus()
 					m.updateViewport()
 					return m, nil
+				}
 
-				case keyMsg.Code == tea.KeyTab:
-					// Tab: next cell.
-					m.table.syncCell(*ta)
-					m.table.nextCell()
-					m.table.loadCell(ta, cw)
-					m.cursorCmd = ta.Focus()
-					m.updateViewport()
-					return m, nil
-
-				case keyMsg.Code == tea.KeyEnter:
-					// Enter: move to cell below (same column), add row if needed.
+				// Enter: move to cell below.
+				if keyMsg.Code == tea.KeyEnter {
 					m.table.syncCell(*ta)
 					m.table.row++
 					if m.table.row >= len(m.table.cells) {
@@ -2012,68 +2000,57 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursorCmd = ta.Focus()
 					m.updateViewport()
 					return m, nil
+				}
 
-				case keyMsg.Code == tea.KeyBackspace:
-					// At position 0 in cell: no-op (don't merge blocks).
-					if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+				// Backspace at position 0: no-op (cells don't merge).
+				if keyMsg.Code == tea.KeyBackspace && ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+					return m, nil
+				}
+
+				// Up at first line: move to cell above or leave table.
+				if keyMsg.Code == tea.KeyUp && m.isAtFirstLine() {
+					if m.table.row > 0 {
+						m.table.syncCell(*ta)
+						m.table.row--
+						m.table.loadCell(ta, cw)
+						m.cursorCmd = ta.Focus()
 						m.updateViewport()
 						return m, nil
 					}
-					// Otherwise let the textarea handle it normally below.
-
-				case keyMsg.String() == "up":
-					if m.isAtFirstLine() {
-						if m.table.row > 0 {
-							// Move to cell above.
-							m.table.syncCell(*ta)
-							m.table.row--
-							m.table.loadCell(ta, cw)
-							m.cursorCmd = ta.Focus()
-							m.updateViewport()
-							return m, nil
-						}
-						// At top row: navigate to previous block or insert paragraph.
-						if m.active > 0 {
-							m.navigateUp()
-							m.updateViewport()
-							return m, nil
-						}
-						// At block 0: insert paragraph above.
-						m.pushUndo()
-						m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+					if m.active > 0 {
+						m.navigateUp()
 						m.updateViewport()
 						return m, nil
 					}
+					m.pushUndo()
+					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+					m.updateViewport()
+					return m, nil
+				}
 
-				case keyMsg.String() == "down":
-					if m.isAtLastLine() {
-						if m.table.row < len(m.table.cells)-1 {
-							// Move to cell below.
-							m.table.syncCell(*ta)
-							m.table.row++
-							m.table.loadCell(ta, cw)
-							m.cursorCmd = ta.Focus()
-							m.updateViewport()
-							return m, nil
-						}
-						// At bottom row: navigate to next block.
-						if m.active < len(m.textareas)-1 {
-							m.navigateDown()
-							m.updateViewport()
-							return m, nil
-						}
+				// Down at last line: move to cell below or leave table.
+				if keyMsg.Code == tea.KeyDown && m.isAtLastLine() {
+					if m.table.row < len(m.table.cells)-1 {
+						m.table.syncCell(*ta)
+						m.table.row++
+						m.table.loadCell(ta, cw)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
+					if m.active < len(m.textareas)-1 {
+						m.navigateDown()
+						m.updateViewport()
+						return m, nil
 					}
 				}
 
-				// For all other keys, forward to the textarea.
-				var cmd tea.Cmd
-				m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
-
+				// Everything else: forward to the textarea as-is.
+				m.textareas[m.active], _ = m.textareas[m.active].Update(msg)
 				m.textareas[m.active].SetWidth(cw)
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
-				m.cursorCmd = m.textareas[m.active].Focus()
 				m.updateViewport()
-				return m, cmd
+				return m, nil
 			}
 
 			// Handle Enter key: always split/create via handleEnter.
