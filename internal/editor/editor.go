@@ -593,7 +593,7 @@ func (m *Model) navigateDown() {
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -2065,24 +2065,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				// For all other keys, fall through to the textarea forwarding below.
-				// But skip Enter/Backspace/Tab/Divider handling that follows.
-				var preState editorState
-				if !m.undoDirty {
-					preState = m.captureState()
-				}
-
+				// For all other keys, forward to the textarea.
 				var cmd tea.Cmd
 				m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
 
-				if !m.undoDirty && m.textareas[m.active].Value() != preState.blocks[preState.active].Content {
-					m.undo.push(preState)
-					m.redo.clear()
-					m.undoDirty = true
-				}
-
 				m.textareas[m.active].SetWidth(cw)
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+				m.cursorCmd = m.textareas[m.active].Focus()
 				m.updateViewport()
 				return m, cmd
 			}
