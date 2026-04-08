@@ -1035,6 +1035,11 @@ func (m *Model) handleBackspace() bool {
 	content := ta.Value()
 	bt := m.blocks[m.active].Type
 
+	// Table cell: never merge/delete — just no-op at position 0.
+	if bt == block.Table {
+		return true
+	}
+
 	// Divider: backspace always deletes the divider (selected as a unit).
 	if bt == block.Divider {
 		m.pushUndo()
@@ -1793,9 +1798,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
-			// Table blocks handle their own Up navigation.
-			if m.table != nil && m.blocks[m.active].Type == block.Table {
-				break
+			// Table: move to cell above before block navigation.
+			if m.isAtFirstLine() && m.table != nil && m.table.row > 0 {
+				ta := &m.textareas[m.active]
+				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+				m.table.syncCell(*ta)
+				m.table.row--
+				m.table.loadCell(ta, cw)
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
 			}
 			if m.isAtFirstLine() && m.active == 0 && m.blocks[0].Type != block.Paragraph {
 				m.pushUndo()
@@ -1810,6 +1822,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
+			// Table: move to cell below before block navigation.
+			if m.isAtLastLine() && m.table != nil && m.table.row < len(m.table.cells)-1 {
+				ta := &m.textareas[m.active]
+				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+				m.table.syncCell(*ta)
+				m.table.row++
+				m.table.loadCell(ta, cw)
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
+			}
 			if m.isAtLastLine() && m.active < len(m.textareas)-1 {
 				m.navigateDown()
 				m.updateViewport()
@@ -1974,7 +1997,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ta := &m.textareas[m.active]
 				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
 
-				// Tab / Shift+Tab: cell navigation.
 				if keyMsg.Code == tea.KeyTab {
 					m.table.syncCell(*ta)
 					if keyMsg.Mod.Contains(tea.ModShift) {
@@ -1988,7 +2010,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Enter: move to cell below.
 				if keyMsg.Code == tea.KeyEnter {
 					m.table.syncCell(*ta)
 					m.table.row++
@@ -2002,55 +2023,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Backspace at position 0: no-op (cells don't merge).
-				if keyMsg.Code == tea.KeyBackspace && ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
-					return m, nil
-				}
-
-				// Up at first line: move to cell above or leave table.
-				if keyMsg.Code == tea.KeyUp && m.isAtFirstLine() {
-					if m.table.row > 0 {
-						m.table.syncCell(*ta)
-						m.table.row--
-						m.table.loadCell(ta, cw)
-						m.cursorCmd = ta.Focus()
-						m.updateViewport()
-						return m, nil
-					}
-					if m.active > 0 {
-						m.navigateUp()
-						m.updateViewport()
-						return m, nil
-					}
-					m.pushUndo()
-					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
-					m.updateViewport()
-					return m, nil
-				}
-
-				// Down at last line: move to cell below or leave table.
-				if keyMsg.Code == tea.KeyDown && m.isAtLastLine() {
-					if m.table.row < len(m.table.cells)-1 {
-						m.table.syncCell(*ta)
-						m.table.row++
-						m.table.loadCell(ta, cw)
-						m.cursorCmd = ta.Focus()
-						m.updateViewport()
-						return m, nil
-					}
-					if m.active < len(m.textareas)-1 {
-						m.navigateDown()
-						m.updateViewport()
-						return m, nil
-					}
-				}
-
-				// Everything else: forward to the textarea as-is.
-				m.textareas[m.active], _ = m.textareas[m.active].Update(msg)
-				m.textareas[m.active].SetWidth(cw)
-				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
-				m.updateViewport()
-				return m, nil
+				// Fall through — let normal textarea forwarding handle it.
 			}
 
 			// Handle Enter key: always split/create via handleEnter.
