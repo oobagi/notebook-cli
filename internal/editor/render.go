@@ -312,6 +312,71 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 		rendered = strings.Join(lines, "\n")
 
+	case block.DefinitionList:
+		bs := th.Blocks.Definition
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
+		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
+		faint := lipgloss.NewStyle().Faint(true)
+		rawLines := strings.Split(ta.Value(), "\n")
+		lines := strings.Split(taView, "\n")
+
+		// Build a map: for each raw line, how many visual lines it occupies.
+		// Visual line index → (rawLineIdx, isFirstVisualLine).
+		type visInfo struct {
+			rawIdx  int
+			isFirst bool
+		}
+		visMap := make([]visInfo, len(lines))
+		visIdx := 0
+		for ri, raw := range rawLines {
+			nVis := 1
+			if m.wordWrap {
+				segs := textarea.Wrap([]rune(raw), contentWidth)
+				if len(segs) > 0 {
+					nVis = len(segs)
+				}
+			}
+			for v := 0; v < nVis && visIdx < len(lines); v++ {
+				visMap[visIdx] = visInfo{rawIdx: ri, isFirst: v == 0}
+				visIdx++
+			}
+		}
+
+		cursorFg := lipgloss.Color(th.Accent)
+		cursorStyle := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
+
+		for i, l := range lines {
+			vi := visMap[i]
+			if vi.rawIdx == 0 {
+				// Term line: no prefix, just bold + placeholder.
+				if rawLines[0] == "" && vi.isFirst {
+					if cursorVisIdx == i {
+						lines[i] = cursorStyle.Render(" ") + faint.Render("Term")
+					} else {
+						lines[i] = faint.Render("Term")
+					}
+				} else if bs.TermBold {
+					lines[i] = styleAroundCursor(l, lipgloss.NewStyle().Bold(true), cursorByteOffset, cursorLen, cursorVisIdx-i)
+				}
+			} else if vi.isFirst {
+				// First visual line of a definition: marker prefix.
+				if rawLines[vi.rawIdx] == "" {
+					if cursorVisIdx == i {
+						lines[i] = marker + cursorStyle.Render(" ") + faint.Render("Definition")
+					} else {
+						lines[i] = marker + faint.Render("Definition")
+					}
+				} else {
+					lines[i] = marker + l
+				}
+			} else {
+				// Wrapped continuation: indent to match marker width.
+				lines[i] = markerIndent + l
+			}
+		}
+		rendered = strings.Join(lines, "\n")
+
 	default:
 		rendered = taView
 	}
@@ -672,6 +737,43 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
 
+	case block.DefinitionList:
+		bs := th.Blocks.Definition
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
+		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
+		term, def := block.ExtractDefinition(content)
+		termWrapped := term
+		if wordWrap {
+			// Term has no marker prefix; contentWidth already subtracts
+			// blockPrefixWidth (marker), so term wraps at the same width
+			// as the textarea in active mode.
+			termWrapped = wrapText(term, contentWidth)
+		}
+		termWrapped = format.RenderInlineMarkdown(termWrapped)
+		if bs.TermBold {
+			termWrapped = lipgloss.NewStyle().Bold(true).Render(termWrapped)
+		}
+		// Definition lines wrap at contentWidth — the marker is rendered
+		// within the prefix space already reserved by blockPrefixWidth.
+		// Do NOT subtract marker width again.
+		var defOutput []string
+		for _, rawDef := range strings.Split(def, "\n") {
+			dw := rawDef
+			if wordWrap {
+				dw = wrapText(rawDef, contentWidth)
+			}
+			dw = format.RenderInlineMarkdown(dw)
+			for j, vl := range strings.Split(dw, "\n") {
+				if j == 0 {
+					defOutput = append(defOutput, marker+vl)
+				} else {
+					defOutput = append(defOutput, markerIndent+vl)
+				}
+			}
+		}
+		rendered = termWrapped + "\n" + strings.Join(defOutput, "\n")
+
 	default:
 		rendered = wrapped
 	}
@@ -816,6 +918,32 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			divLine = string(runes[:width])
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
+
+	case block.DefinitionList:
+		bs := th.Blocks.Definition
+		markerColor := resolveColor(bs.MarkerColor, th.Muted)
+		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
+		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
+		term, def := block.ExtractDefinition(content)
+		termWrapped := wrapText(term, contentWidth)
+		termWrapped = format.RenderInlineMarkdown(termWrapped)
+		if bs.TermBold {
+			termWrapped = lipgloss.NewStyle().Bold(true).Render(termWrapped)
+		}
+		// contentWidth already has marker space reserved via blockPrefixWidth.
+		var defOutput []string
+		for _, rawDef := range strings.Split(def, "\n") {
+			dw := wrapText(rawDef, contentWidth)
+			dw = format.RenderInlineMarkdown(dw)
+			for j, vl := range strings.Split(dw, "\n") {
+				if j == 0 {
+					defOutput = append(defOutput, marker+vl)
+				} else {
+					defOutput = append(defOutput, markerIndent+vl)
+				}
+			}
+		}
+		rendered = termWrapped + "\n" + strings.Join(defOutput, "\n")
 
 	default:
 		rendered = wrapped

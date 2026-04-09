@@ -91,17 +91,25 @@ type DividerStyle struct {
 	Color    string // hex; "" means theme.Accent (active) / theme.Muted (inactive)
 }
 
+// DefinitionStyle controls definition list rendering.
+type DefinitionStyle struct {
+	Marker      string // prefix before definition, e.g. "  : "
+	MarkerColor string // hex; "" means theme.Muted
+	TermBold    bool   // whether to bold the term
+}
+
 // BlockStyles groups all per-block-type formatting.
 type BlockStyles struct {
-	Heading1  HeadingStyle
-	Heading2  HeadingStyle
-	Heading3  HeadingStyle
-	Bullet    ListStyle
-	Numbered  NumberedStyle
-	Checklist ChecklistStyle
-	Code      CodeStyle
-	Quote     QuoteStyle
-	Divider   DividerStyle
+	Heading1   HeadingStyle
+	Heading2   HeadingStyle
+	Heading3   HeadingStyle
+	Bullet     ListStyle
+	Numbered   NumberedStyle
+	Checklist  ChecklistStyle
+	Code       CodeStyle
+	Quote      QuoteStyle
+	Divider    DividerStyle
+	Definition DefinitionStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original
@@ -121,9 +129,10 @@ func DefaultBlockStyles() BlockStyles {
 			CheckedBold:      true,
 			CheckedTextFaint: true,
 		},
-		Code:    CodeStyle{LabelAlign: "left"},
-		Quote:   QuoteStyle{Bar: "\u2502 "},
-		Divider: DividerStyle{Char: "\u2500", MaxWidth: 40},
+		Code:       CodeStyle{LabelAlign: "left"},
+		Quote:      QuoteStyle{Bar: "\u2502 "},
+		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
+		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
 	}
 }
 

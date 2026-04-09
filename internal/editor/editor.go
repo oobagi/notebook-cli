@@ -74,7 +74,8 @@ type Model struct {
 	showHelp    bool
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
-	palette     palette // "/" command palette for block type insertion
+	palette     palette    // "/" command palette for block type insertion
+	defLookup   defLookup  // ":" definition lookup palette
 	wordWrap         bool            // when true, text wraps at terminal width
 	viewMode         bool            // when true, read-only rendering with no cursor
 	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
@@ -131,6 +132,8 @@ func blockPrefixWidth(bt block.BlockType, indent int) int {
 		base = lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
 		base = 4
+	case block.DefinitionList:
+		base = lipgloss.Width(th.Blocks.Definition.Marker)
 	}
 	return indent*4 + base
 }
@@ -476,7 +479,7 @@ func (m *Model) navigateDown() {
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -720,6 +723,41 @@ func (m *Model) handleEnter() {
 		return
 	}
 
+	// Definition block: same pattern as code/quote — Enter inserts a
+	// newline via the textarea natively. Empty last line exits to paragraph.
+	// Empty block converts to paragraph.
+	if bt == block.DefinitionList {
+		if content == "" || content == "\n" {
+			m.blocks[m.active].Type = block.Paragraph
+			m.blocks[m.active].Content = ""
+			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+			m.cursorCmd = newTA.Focus()
+			m.textareas[m.active] = newTA
+			return
+		}
+
+		lines := strings.Split(content, "\n")
+		cursorLine := ta.Line()
+		isLastLine := cursorLine >= len(lines)-1
+		currentLineEmpty := cursorLine < len(lines) && lines[cursorLine] == ""
+
+		if isLastLine && currentLineEmpty && len(lines) > 1 {
+			// Empty definition line: trim it and exit to paragraph.
+			trimmed := strings.Join(lines[:len(lines)-1], "\n")
+			ta.SetValue(trimmed)
+			m.blocks[m.active].Content = trimmed
+			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+			m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
+			return
+		}
+
+		// Otherwise insert a newline within the block (term→def, or new def line).
+		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
+		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+		return
+	}
+
 	// Code block / Quote: Enter inserts a newline within the block.
 	// On an empty last line, exit the block by trimming the empty line
 	// and inserting a new paragraph below.
@@ -901,6 +939,21 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
+	// Definition list at position 0: convert to paragraph (keep content).
+	if bt == block.DefinitionList {
+		m.pushUndo()
+		// Take only the term line as paragraph content.
+		term, _ := block.ExtractDefinition(content)
+		m.blocks[m.active].Type = block.Paragraph
+		m.blocks[m.active].Content = term
+		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+		newTA.SetValue(term)
+		m.cursorCmd = newTA.Focus()
+		newTA.SetCursorColumn(0)
+		m.textareas[m.active] = newTA
+		return true
+	}
+
 	if content == "" {
 		// Empty block: delete it, focus previous.
 		if m.active == 0 {
@@ -928,8 +981,8 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// Don't merge content into code blocks or quote blocks.
-	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote {
+	// Don't merge content into code blocks, quote blocks, or definition lists.
+	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList {
 		return false
 	}
 
@@ -989,6 +1042,13 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	// from the title into the code area immediately.
 	if bt == block.CodeBlock && !strings.Contains(m.textareas[m.active].Value(), "\n") {
 		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
+	// Ensure new definition list blocks have term\ndefinition structure.
+	// Place cursor on the term line so the user types the term first.
+	if bt == block.DefinitionList && !strings.Contains(m.textareas[m.active].Value(), "\n") {
+		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
+		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
@@ -1213,6 +1273,59 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When definition lookup is visible, intercept all keys.
+		if m.defLookup.visible {
+			switch msg.String() {
+			case "up":
+				m.defLookup.moveUp()
+				m.updateViewport()
+				return m, nil
+			case "down":
+				m.defLookup.moveDown()
+				m.updateViewport()
+				return m, nil
+			case "enter":
+				if sel := m.defLookup.selected(); sel != nil {
+					if m.viewMode {
+						// Scroll to the block in view mode.
+						m.active = sel.BlockIdx
+						if sel.BlockIdx < len(m.blockLineOffsets) {
+							m.viewport.SetYOffset(m.blockLineOffsets[sel.BlockIdx])
+						}
+					} else {
+						m.focusBlock(sel.BlockIdx)
+					}
+				}
+				m.defLookup.close()
+				m.updateViewport()
+				return m, nil
+			case "esc":
+				m.defLookup.close()
+				m.updateViewport()
+				return m, nil
+			case "backspace":
+				if !m.defLookup.deleteFilterRune() {
+					m.defLookup.close()
+				}
+				m.updateViewport()
+				return m, nil
+			default:
+				if msg.Code == ':' {
+					m.defLookup.close()
+					m.updateViewport()
+					return m, nil
+				}
+				if len(msg.Text) > 0 {
+					for _, r := range msg.Text {
+						m.defLookup.addFilterRune(r)
+					}
+					m.updateViewport()
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		// Clear transient status on any keypress.
 		if m.statusStyle == statusSuccess {
 			m.status = ""
@@ -1284,6 +1397,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "pgdown":
 				m.viewport.HalfPageDown()
 				return m, nil
+			default:
+				if msg.Code == ':' {
+					m.defLookup.open(m.blocks)
+					m.updateViewport()
+					return m, nil
+				}
 			}
 			// Swallow everything else in view mode.
 			return m, nil
@@ -1352,16 +1471,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
-			if m.isAtFirstLine() && m.active == 0 {
-				bt := m.blocks[0].Type
-				if bt == block.CodeBlock || bt == block.Quote || bt == block.Divider {
-					// These types don't split on Enter, so there's no other
-					// way to insert content above them. Create a paragraph.
-					m.pushUndo()
-					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
-					m.updateViewport()
-					return m, nil
-				}
+			if m.isAtFirstLine() && m.active == 0 && m.blocks[0].Type != block.Paragraph {
+				// First block isn't a paragraph — pressing up inserts one
+				// above so there's always a way to add content before it.
+				m.pushUndo()
+				m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+				m.updateViewport()
+				return m, nil
 			}
 			if m.isAtFirstLine() && m.active > 0 {
 				m.navigateUp()
@@ -1422,8 +1538,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			info := ta.LineInfo()
 			logicalCol := info.StartColumn + info.ColumnOffset
 			if logicalCol > 0 {
-				// Let the textarea's built-in DeleteBeforeCursor handle it.
-				// It operates on internal state without resetting cursor position.
+				m.pushUndo()
 				m.textareas[m.active], _ = m.textareas[m.active].Update(msg)
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 				m.updateViewport()
@@ -1498,6 +1613,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Handle ":" at position 0 of an empty block to open definition lookup.
+			if keyMsg.Code == ':' && len(keyMsg.Text) > 0 {
+				ta := &m.textareas[m.active]
+				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
+					m.defLookup.open(m.blocks)
+					m.updateViewport()
+					return m, nil
+				}
+			}
+
 			// Handle Enter key: always split/create via handleEnter.
 			if keyMsg.Code == tea.KeyEnter {
 				m.pushUndo()
@@ -1511,6 +1636,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.handleBackspace() {
 					m.updateViewport()
 					return m, nil
+				}
+				// Definition block: prevent deleting the term/definition
+				// separator newline. Backspace at line 1 col 0 → jump to term.
+				if m.blocks[m.active].Type == block.DefinitionList {
+					ta := &m.textareas[m.active]
+					info := ta.LineInfo()
+					// Only intercept at the true start of raw line 1
+					// (not a wrapped continuation where StartColumn > 0).
+					if ta.Line() == 1 && info.ColumnOffset == 0 && info.StartColumn == 0 {
+						ta.MoveToBegin()
+						ta.CursorEnd()
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
 				}
 			}
 
@@ -1581,6 +1721,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Word/line deletes should get their own undo entry rather than
+		// being silently batched with prior character-level typing.
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok && m.undoDirty {
+			isWordOrLineDelete := false
+			switch {
+			case keyMsg.Code == tea.KeyBackspace && keyMsg.Mod.Contains(tea.ModAlt):
+				isWordOrLineDelete = true
+			case keyMsg.Code == tea.KeyDelete && keyMsg.Mod.Contains(tea.ModAlt):
+				isWordOrLineDelete = true
+			case keyMsg.Code == 'd' && keyMsg.Mod.Contains(tea.ModAlt):
+				isWordOrLineDelete = true
+			}
+			if isWordOrLineDelete {
+				m.pushUndo()
+				// Keep undoDirty true so the generic handler below
+				// doesn't capture a second undo entry for this same action.
+				m.undoDirty = true
+			}
+		}
+
 		// Capture state before the textarea processes the keystroke so we
 		// can detect whether content actually changed (vs. cursor movement).
 		var preState editorState
@@ -1597,6 +1757,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.undo.push(preState)
 			m.redo.clear()
 			m.undoDirty = true
+		}
+
+		// Definition block guard: if a delete operation destroyed the
+		// term/definition newline separator, restore it.
+		if m.blocks[m.active].Type == block.DefinitionList {
+			val := m.textareas[m.active].Value()
+			if !strings.Contains(val, "\n") {
+				m.textareas[m.active].SetValue(val + "\n")
+				m.textareas[m.active].MoveToBegin()
+				m.textareas[m.active].CursorEnd()
+				m.cursorCmd = m.textareas[m.active].Focus()
+			}
 		}
 
 		// Re-enforce width and recalculate height after every keystroke.
@@ -1619,6 +1791,9 @@ func (m *Model) updateViewport() {
 	// wrapping which may change as content is modified (e.g. "[modified]"
 	// indicator).
 	h := m.height - m.headerHeight() - m.statusBarHeight()
+	if m.defLookup.visible {
+		h -= m.defLookup.height()
+	}
 	if h < 1 {
 		h = 1
 	}
@@ -1919,11 +2094,21 @@ func (m Model) View() tea.View {
 		content = m.renderHelpOverlay()
 	} else if m.viewMode {
 		statusBar := m.renderStatusBar()
-		content = m.viewport.View() + "\n" + statusBar
+		if m.defLookup.visible {
+			modal := m.defLookup.render(m.width)
+			content = m.viewport.View() + "\n" + modal + "\n" + statusBar
+		} else {
+			content = m.viewport.View() + "\n" + statusBar
+		}
 	} else {
 		header := m.renderHeader()
 		statusBar := m.renderStatusBar()
-		content = header + "\n" + m.viewport.View() + "\n" + statusBar
+		if m.defLookup.visible {
+			modal := m.defLookup.render(m.width)
+			content = header + "\n" + m.viewport.View() + "\n" + modal + "\n" + statusBar
+		} else {
+			content = header + "\n" + m.viewport.View() + "\n" + statusBar
+		}
 	}
 
 	v := tea.NewView(content)
@@ -1963,6 +2148,8 @@ func (m Model) renderHelpOverlay() string {
 	help.WriteString("  ⌃Z" + s + "⌃Y        Undo " + s + " redo\n")
 	help.WriteString("  ⌥↑" + s + "⌥↓        Move block\n")
 	help.WriteString("  /            Block type\n")
+	help.WriteString("\n")
+	help.WriteString("  :            Definitions\n")
 	help.WriteString("\n")
 	help.WriteString("  ⌃R           View mode\n")
 	help.WriteString("  ⌃X           Checkbox\n")
@@ -2008,9 +2195,9 @@ func (m Model) renderStatusBar() string {
 		if !m.dismissedHints["editor.checkbox"] {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
-		right = "\u2303R edit \u00B7 Esc quit"
+		right = ": defs \u00B7 \u2303R edit \u00B7 Esc quit"
 	} else {
-		right = "/ blocks \u00B7 \u2303G help \u00B7 Esc quit"
+		right = "/ blocks \u00B7 : defs \u00B7 \u2303G help \u00B7 Esc quit"
 	}
 
 	bar := format.StatusBar(left, hint, right, width)
