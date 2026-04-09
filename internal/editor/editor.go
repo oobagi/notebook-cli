@@ -2436,8 +2436,8 @@ func (m *Model) computeBlockLineOffsets() {
 			content = m.textareas[i].Value()
 		}
 
-		// Strip empty blocks (mirrors renderViewContent exactly).
-		if content == "" && b.Type != block.Divider {
+		// Strip empty paragraph blocks (mirrors renderViewContent exactly).
+		if b.Type == block.Paragraph && content == "" {
 			offsets[i] = nextLine
 			continue
 		}
@@ -2555,9 +2555,8 @@ func (m Model) renderViewContent() string {
 			content = m.textareas[i].Value()
 		}
 
-		// Strip empty blocks for a cleaner reading layout (except Divider,
-		// which is visually meaningful even with no content).
-		if content == "" && b.Type != block.Divider {
+		// Strip empty paragraph blocks for a cleaner reading layout.
+		if b.Type == block.Paragraph && content == "" {
 			continue
 		}
 
