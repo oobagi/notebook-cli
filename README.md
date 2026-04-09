@@ -31,7 +31,7 @@
 
 ---
 
-Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
+Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor supporting 14 block types, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
 
 Everything runs in your terminal. No account, no sync, no config required.
 <p align="center">
@@ -69,15 +69,22 @@ notebook path/to/file.md
 
 ## Features
 
-- **Block editor** — 10 block types: paragraphs, headings, lists, checklists, code blocks, quotes, dividers. Press **/** to switch types.
+- **Block editor** — 14 block types: paragraphs, headings (3 levels), bullet lists, numbered lists, checklists, code blocks, tables, quotes, definitions, callouts, dividers, and embeds. Press **/** to switch types.
+- **Tables** — Pipe-delimited GFM tables with per-column widths. Alt+R/C to add rows/columns, Alt+Backspace/D to delete.
+- **Callouts** — Five admonition variants (Note, Tip, Important, Warning, Caution). Ctrl+T to cycle.
+- **Definitions** — Term/definition pairs. Press **:** to search and jump to definitions.
+- **Embeds** — Reference other notes inline with `![[notebook/note]]`. Click in view mode to expand.
+- **Nested lists** — Tab/Shift+Tab to indent and outdent. Checklist cascading on toggle.
 - **Syntax highlighting** — 500+ languages via Chroma. Name the language on the first line of a code block.
 - **Inline formatting** — `**bold**`, `*italic*`, `~~strikethrough~~`, `__underline__` render live in inactive blocks.
 - **View mode** — Ctrl+R for a clean, read-only view. Click checklists to toggle them without editing.
 - **Search** — Press **/** in the browser to search across all notebooks by title.
 - **Preview pane** — Press **p** to see note content while browsing.
+- **Settings** — Press **,** in the browser to configure storage, theme, date format, and more.
 - **16 themes** — Dark, Ocean, Forest, Sunset, Monochrome, Rose, Cyberpunk, Minimal, Retro, Nord, Solarized, Dracula, Tokyo, Lavender, Ember, Catppuccin.
 - **Undo/redo** — 100 levels, tracks content changes only.
 - **Mouse support** — Click checklists in view mode, native text selection in the editor.
+- **Open external files** — Press **i** in the browser or pass a file path to open any .md or .txt file.
 
 <details>
 <summary><strong>Editor keybindings</strong></summary>
@@ -85,12 +92,16 @@ notebook path/to/file.md
 | Key | Action |
 |---|---|
 | **Enter** | New block below |
-| **/** | Command palette (on empty block) |
+| **/** | Command palette (at start of block) |
+| **:** | Definition lookup (on empty block) |
 | **Ctrl+S** | Save |
 | **Ctrl+Z / Ctrl+Y** | Undo / Redo |
 | **Ctrl+K** | Cut block |
 | **Alt+Up / Alt+Down** | Move block up/down |
+| **Tab / Shift+Tab** | Indent / outdent list |
 | **Ctrl+X** | Toggle checkbox |
+| **Ctrl+T** | Cycle callout variant |
+| **Ctrl+H** | Sort checked items to bottom |
 | **Ctrl+R** | View mode |
 | **Ctrl+J / Shift+Enter** | Newline within block |
 | **Ctrl+W** | Toggle word wrap |
@@ -112,8 +123,10 @@ notebook path/to/file.md
 | **d** | Delete |
 | **r** | Rename |
 | **c** | Copy to clipboard |
+| **i** | Open external file |
 | **p** | Preview pane |
 | **t** | Theme picker |
+| **,** | Settings |
 | **Tab** | Cycle sections |
 | **?** | Help |
 
