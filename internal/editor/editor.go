@@ -192,7 +192,7 @@ func blockPrefixWidth(bt block.BlockType, indent int) int {
 		base = lipgloss.Width(fmt.Sprintf(th.Blocks.Numbered.Format, 1))
 	case block.Checklist:
 		base = lipgloss.Width(th.Blocks.Checklist.Unchecked)
-	case block.Quote:
+	case block.Quote, block.Callout:
 		base = lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
 		base = 4
@@ -549,7 +549,7 @@ func (m *Model) navigateDown() {
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -831,7 +831,7 @@ func (m *Model) handleEnter() {
 	// Code block / Quote: Enter inserts a newline within the block.
 	// On an empty last line, exit the block by trimming the empty line
 	// and inserting a new paragraph below.
-	if bt == block.CodeBlock || bt == block.Quote {
+	if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout {
 		lines := strings.Split(content, "\n")
 		cursorLine := ta.Line()
 		isLastLine := cursorLine >= len(lines)-1
@@ -1051,8 +1051,8 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// Don't merge content into code blocks, quote blocks, or definition lists.
-	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList {
+	// Don't merge content into code blocks, quote blocks, definition lists, or callout blocks.
+	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList || m.blocks[m.active-1].Type == block.Callout {
 		return false
 	}
 
@@ -1701,13 +1701,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
-			if m.isAtFirstLine() && m.active == 0 && m.blocks[0].Type != block.Paragraph {
-				// First block isn't a paragraph — pressing up inserts one
-				// above so there's always a way to add content before it.
-				m.pushUndo()
-				m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
-				m.updateViewport()
-				return m, nil
+			if m.isAtFirstLine() && m.active == 0 {
+				bt := m.blocks[0].Type
+				if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout || bt == block.DefinitionList || bt == block.Divider {
+					// These types don't split on Enter, so there's no other
+					// way to insert content above them. Create a paragraph.
+					m.pushUndo()
+					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+					m.updateViewport()
+					return m, nil
+				}
 			}
 			if m.isAtFirstLine() && m.active > 0 {
 				m.navigateUp()
@@ -1732,6 +1735,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pushUndo()
 			m.swapBlocks(1)
 			m.updateViewport()
+			return m, nil
+
+		case "ctrl+t":
+			if m.active >= 0 && m.blocks[m.active].Type == block.Callout {
+				m.pushUndo()
+				m.blocks[m.active].Variant = m.blocks[m.active].Variant.Next()
+				m.updateViewport()
+				return m, nil
+			}
 			return m, nil
 
 		case "ctrl+w", "alt+z":
@@ -2013,6 +2025,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Auto-convert Quote to Callout when user types [!TYPE] as first line.
+		if m.blocks[m.active].Type == block.Quote {
+			val := m.textareas[m.active].Value()
+			firstLine := val
+			if idx := strings.Index(val, "\n"); idx >= 0 {
+				firstLine = val[:idx]
+			}
+			if variant, ok := block.ParseCalloutMarker(firstLine); ok {
+				m.blocks[m.active].Type = block.Callout
+				m.blocks[m.active].Variant = variant
+				// Strip the marker line from content.
+				rest := ""
+				if idx := strings.Index(val, "\n"); idx >= 0 {
+					rest = val[idx+1:]
+				}
+				m.textareas[m.active].SetValue(rest)
+				m.cursorCmd = m.textareas[m.active].Focus()
+			}
+		}
+
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
 		// (e.g. deleting a newline inserted via Ctrl+J).
@@ -2180,11 +2212,11 @@ func (m *Model) computeBlockLineOffsets() {
 				advance("")
 			case b.Type == block.Heading2 || b.Type == block.Heading3:
 				advance("")
-			case b.Type == block.CodeBlock || b.Type == block.Quote:
+			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout:
 				if prev.Type != b.Type {
 					advance("")
 				}
-			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout:
 				advance("")
 			case b.Type == block.Embed:
 				advance("")
@@ -2307,12 +2339,12 @@ func (m Model) renderViewContent() string {
 				parts = append(parts, "", "") // extra blank before H1
 			case b.Type == block.Heading2 || b.Type == block.Heading3:
 				parts = append(parts, "") // blank before H2/H3
-			case b.Type == block.CodeBlock || b.Type == block.Quote:
+			case b.Type == block.CodeBlock || b.Type == block.Quote || b.Type == block.Callout:
 				if prev.Type != b.Type {
-					parts = append(parts, "") // blank before code/quote blocks
+					parts = append(parts, "") // blank before code/quote/callout blocks
 				}
-			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
-				parts = append(parts, "") // blank after code/quote blocks
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote || prev.Type == block.Callout:
+				parts = append(parts, "") // blank after code/quote/callout blocks
 			case b.Type == block.Embed:
 				parts = append(parts, "") // blank before embeds
 			case prev.Type == block.Embed:

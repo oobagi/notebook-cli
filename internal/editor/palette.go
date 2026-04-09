@@ -40,6 +40,7 @@ func defaultPaletteItems() []paletteItem {
 		{Icon: "``", Label: "Code Block", Type: block.CodeBlock},
 		{Icon: ">", Label: "Quote", Type: block.Quote},
 		{Icon: ":", Label: "Definition", Type: block.DefinitionList},
+		{Icon: "!", Label: "Callout", Type: block.Callout},
 		{Icon: "\u2014", Label: "Divider", Type: block.Divider},
 		{Icon: "\u2197", Label: "Embed", Type: block.Embed},
 	}

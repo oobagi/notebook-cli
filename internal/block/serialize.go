@@ -74,6 +74,18 @@ func Serialize(blocks []Block) string {
 				}
 			}
 
+		case Callout:
+			lines = append(lines, "> [!"+b.Variant.String()+"]")
+			if b.Content != "" {
+				for _, cl := range strings.Split(b.Content, "\n") {
+					if cl == "" {
+						lines = append(lines, ">")
+					} else {
+						lines = append(lines, "> "+cl)
+					}
+				}
+			}
+
 		case Divider:
 			lines = append(lines, "---")
 

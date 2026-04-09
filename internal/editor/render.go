@@ -19,6 +19,24 @@ import (
 )
 
 
+// calloutVariantColor returns the hex color for a given callout variant.
+func calloutVariantColor(cs theme.CalloutStyle, v block.CalloutVariant) string {
+	switch v {
+	case block.CalloutNote:
+		return cs.NoteColor
+	case block.CalloutTip:
+		return cs.TipColor
+	case block.CalloutWarning:
+		return cs.WarningColor
+	case block.CalloutCaution:
+		return cs.CautionColor
+	case block.CalloutImportant:
+		return cs.ImportantColor
+	default:
+		return cs.NoteColor
+	}
+}
+
 // listIndent returns the whitespace prefix for a list item's indent level.
 func listIndent(b block.Block) string {
 	if b.Indent == 0 {
@@ -387,6 +405,24 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor)).Render(icon)
 		rendered = prefixFirstLine(prefix, taView)
 
+	case block.Callout:
+		cs := th.Blocks.Callout
+		variantColor := calloutVariantColor(cs, b.Variant)
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(variantColor)).Render(th.Blocks.Quote.Bar)
+		variantLabel := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(variantColor)).
+			Render(b.Variant.String())
+		hint := lipgloss.NewStyle().
+			Faint(true).
+			Render("  Ctrl+T")
+		var result []string
+		result = append(result, bar+variantLabel+hint)
+		for _, l := range strings.Split(taView, "\n") {
+			result = append(result, bar+l)
+		}
+		rendered = strings.Join(result, "\n")
+
 	default:
 		rendered = taView
 	}
@@ -730,6 +766,26 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		}
 		rendered = strings.Join(lines, "\n")
 
+	case block.Callout:
+		cs := th.Blocks.Callout
+		variantColor := calloutVariantColor(cs, b.Variant)
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(variantColor)).Render(th.Blocks.Quote.Bar)
+		variantLabel := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(variantColor)).
+			Render(b.Variant.String())
+		var result []string
+		result = append(result, bar+variantLabel)
+		if wrapped == "" {
+			placeholder := lipgloss.NewStyle().Faint(true).Render("Empty callout")
+			result = append(result, bar+placeholder)
+		} else {
+			for _, l := range strings.Split(wrapped, "\n") {
+				result = append(result, bar+l)
+			}
+		}
+		rendered = strings.Join(result, "\n")
+
 	case block.Divider:
 		bs := th.Blocks.Divider
 		divColor := resolveColor(bs.Color, th.Muted)
@@ -925,6 +981,26 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			lines[i] = bar + l
 		}
 		rendered = strings.Join(lines, "\n")
+
+	case block.Callout:
+		cs := th.Blocks.Callout
+		variantColor := calloutVariantColor(cs, b.Variant)
+		bar := lipgloss.NewStyle().Foreground(lipgloss.Color(variantColor)).Render(th.Blocks.Quote.Bar)
+		variantLabel := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(variantColor)).
+			Render(b.Variant.String())
+		var result []string
+		result = append(result, bar+variantLabel)
+		if wrapped == "" {
+			placeholder := lipgloss.NewStyle().Faint(true).Render("Empty callout")
+			result = append(result, bar+placeholder)
+		} else {
+			for _, l := range strings.Split(wrapped, "\n") {
+				result = append(result, bar+l)
+			}
+		}
+		rendered = strings.Join(result, "\n")
 
 	case block.Divider:
 		bs := th.Blocks.Divider
