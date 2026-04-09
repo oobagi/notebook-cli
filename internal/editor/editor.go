@@ -15,6 +15,7 @@ import (
 	"github.com/oobagi/notebook-cli/internal/config"
 	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/oobagi/notebook-cli/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/ui"
 )
 
 // Config holds the configuration for the editor.
@@ -82,8 +83,8 @@ type Model struct {
 	showHelp    bool
 	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
 	statusGen   int    // generation counter for status auto-dismiss
-	palette     palette    // "/" command palette for block type insertion
-	defLookup   defLookup  // ":" definition lookup palette
+	palette     palette      // "/" command palette for block type insertion
+	defLookup   defLookup    // ":" definition lookup palette
 	wordWrap         bool            // when true, text wraps at terminal width
 	viewMode         bool            // when true, read-only rendering with no cursor
 	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
@@ -97,7 +98,7 @@ type Model struct {
 	sortChecked   bool // sort checked checklist items to bottom of each group
 	cascadeChecks bool // checking parent also checks/unchecks children
 	embedModal    embedModalState // overlay for viewing embedded note references
-	embedPicker   embedPicker     // note picker for embed block insertion
+	embedPicker   embedPicker       // note picker for embed block insertion
 	table         *tableState // active table cell state (non-nil when editing a Table block)
 }
 
@@ -290,6 +291,8 @@ func New(cfg Config) Model {
 		width:          defaultWidth,
 		height:         defaultHeight,
 		palette:        newPalette(),
+		defLookup:      newDefLookup(),
+		embedPicker:    newEmbedPicker(),
 		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
@@ -1246,6 +1249,52 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
 
+// activePicker returns whichever picker is currently visible, or nil.
+func (m *Model) activePicker() *ui.Picker {
+	if m.palette.Visible {
+		return &m.palette.Picker
+	}
+	if m.embedPicker.Visible {
+		return &m.embedPicker.Picker
+	}
+	if m.defLookup.Visible {
+		return &m.defLookup.Picker
+	}
+	return nil
+}
+
+// handlePickerSelect dispatches the "enter" action to whichever picker is active.
+func (m *Model) handlePickerSelect() {
+	switch {
+	case m.palette.Visible:
+		if sel := m.palette.selected(); sel != nil {
+			m.pushUndo()
+			m.applyPaletteSelection(sel.Type)
+		}
+		m.palette.close()
+
+	case m.embedPicker.Visible:
+		if sel := m.embedPicker.selected(); sel != "" {
+			m.textareas[m.active].SetValue(sel)
+			m.cursorCmd = m.textareas[m.active].Focus()
+		}
+		m.embedPicker.Close()
+
+	case m.defLookup.Visible:
+		if sel := m.defLookup.selected(); sel != nil {
+			if m.viewMode {
+				m.active = sel.BlockIdx
+				if sel.BlockIdx < len(m.blockLineOffsets) {
+					m.viewport.SetYOffset(m.blockLineOffsets[sel.BlockIdx])
+				}
+			} else {
+				m.focusBlock(sel.BlockIdx)
+			}
+		}
+		m.defLookup.close()
+	}
+}
+
 // isAtFirstLine returns true if the cursor is on the first visual line
 // of the active textarea, accounting for soft-wrapped lines.
 func (m Model) isAtFirstLine() bool {
@@ -1420,6 +1469,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Scroll the embed modal content.
 			if msg.Button == tea.MouseWheelDown {
 				m.embedModal.scroll++
+				m.clampEmbedScroll()
 			} else if msg.Button == tea.MouseWheelUp {
 				if m.embedModal.scroll > 0 {
 					m.embedModal.scroll--
@@ -1497,143 +1547,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// When palette is visible, intercept all keys.
-		if m.palette.visible {
-			switch msg.String() {
-			case "up":
-				m.palette.moveUp()
-				m.updateViewport()
-				return m, nil
-			case "down":
-				m.palette.moveDown()
-				m.updateViewport()
-				return m, nil
-			case "enter":
-				if sel := m.palette.selected(); sel != nil {
-					m.pushUndo()
-					m.applyPaletteSelection(sel.Type)
-				}
+		// Unified picker key handling: palette, embed picker, or def lookup.
+		if picker := m.activePicker(); picker != nil {
+			// Check trigger-key-closes before generic handling:
+			// "/" re-typed closes palette, ":" re-typed closes deflookup.
+			if m.palette.Visible && msg.Code == '/' {
 				m.palette.close()
 				m.updateViewport()
 				return m, nil
-			case "esc":
-				m.palette.close()
-				m.updateViewport()
-				return m, nil
-			case "backspace":
-				if !m.palette.deleteFilterRune() {
-					m.palette.close()
-				}
-				m.updateViewport()
-				return m, nil
-			default:
-				if msg.Code == '/' {
-					m.palette.close()
-					m.updateViewport()
-					return m, nil
-				}
-				if len(msg.Text) > 0 {
-					for _, r := range msg.Text {
-						m.palette.addFilterRune(r)
-					}
-					m.updateViewport()
-					return m, nil
-				}
 			}
-			// Ignore other keys while palette is open.
-			return m, nil
-		}
-
-		// When embed picker is visible, intercept all keys.
-		if m.embedPicker.visible {
-			switch msg.String() {
-			case "up":
-				m.embedPicker.moveUp()
-				m.updateViewport()
-				return m, nil
-			case "down":
-				m.embedPicker.moveDown()
-				m.updateViewport()
-				return m, nil
-			case "enter":
-				if sel := m.embedPicker.selected(); sel != "" {
-					m.textareas[m.active].SetValue(sel)
-					m.cursorCmd = m.textareas[m.active].Focus()
-				}
-				m.embedPicker.close()
-				m.updateViewport()
-				return m, nil
-			case "esc":
-				m.embedPicker.close()
-				m.updateViewport()
-				return m, nil
-			case "backspace":
-				if !m.embedPicker.deleteFilterRune() {
-					m.embedPicker.close()
-				}
-				m.updateViewport()
-				return m, nil
-			default:
-				if len(msg.Text) > 0 {
-					for _, r := range msg.Text {
-						m.embedPicker.addFilterRune(r)
-					}
-					m.updateViewport()
-					return m, nil
-				}
-			}
-			return m, nil
-		}
-
-		// When definition lookup is visible, intercept all keys.
-		if m.defLookup.visible {
-			switch msg.String() {
-			case "up":
-				m.defLookup.moveUp()
-				m.updateViewport()
-				return m, nil
-			case "down":
-				m.defLookup.moveDown()
-				m.updateViewport()
-				return m, nil
-			case "enter":
-				if sel := m.defLookup.selected(); sel != nil {
-					if m.viewMode {
-						// Scroll to the block in view mode.
-						m.active = sel.BlockIdx
-						if sel.BlockIdx < len(m.blockLineOffsets) {
-							m.viewport.SetYOffset(m.blockLineOffsets[sel.BlockIdx])
-						}
-					} else {
-						m.focusBlock(sel.BlockIdx)
-					}
-				}
+			if m.defLookup.Visible && msg.Code == ':' {
 				m.defLookup.close()
 				m.updateViewport()
 				return m, nil
-			case "esc":
-				m.defLookup.close()
-				m.updateViewport()
-				return m, nil
-			case "backspace":
-				if !m.defLookup.deleteFilterRune() {
-					m.defLookup.close()
+			}
+
+			handled, closed := ui.HandlePickerKey(picker, msg.String(), msg.Text, msg.Code)
+			if handled {
+				if !closed && msg.String() == "enter" {
+					m.handlePickerSelect()
 				}
 				m.updateViewport()
 				return m, nil
-			default:
-				if msg.Code == ':' {
-					m.defLookup.close()
-					m.updateViewport()
-					return m, nil
-				}
-				if len(msg.Text) > 0 {
-					for _, r := range msg.Text {
-						m.defLookup.addFilterRune(r)
-					}
-					m.updateViewport()
-					return m, nil
-				}
 			}
 			return m, nil
 		}
@@ -1656,6 +1591,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "down", "j":
 				m.embedModal.scroll++
+				m.clampEmbedScroll()
 			case "pgup":
 				m.embedModal.scroll -= m.height / 2
 				if m.embedModal.scroll < 0 {
@@ -1663,6 +1599,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "pgdown":
 				m.embedModal.scroll += m.height / 2
+				m.clampEmbedScroll()
 			case "ctrl+c":
 				m.embedModal.close()
 				if m.modified() {
@@ -1946,15 +1883,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+x":
-			// Toggle checklist checked state.
-			if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Checklist {
-				m.pushUndo()
-				m.toggleChecklist(m.active)
-				if m.sortChecked {
-					m.sortCheckedToBottom()
+			// Universal interact key — action depends on active block type.
+			if m.active >= 0 && m.active < len(m.blocks) {
+				switch m.blocks[m.active].Type {
+				case block.Checklist:
+					m.pushUndo()
+					m.toggleChecklist(m.active)
+					if m.sortChecked {
+						m.sortCheckedToBottom()
+					}
+					m.updateViewport()
+					return m, nil
+				case block.Embed:
+					m.openEmbedModal(m.active)
+					return m, nil
+				case block.DefinitionList:
+					m.defLookup.open(m.blocks)
+					m.updateViewport()
+					return m, nil
 				}
-				m.updateViewport()
-				return m, nil
 			}
 
 		case "ctrl+j", "shift+enter":
@@ -2344,10 +2291,7 @@ func (m *Model) updateViewport() {
 	// Recalculate viewport height to account for the header and status bar
 	// wrapping which may change as content is modified (e.g. "[modified]"
 	// indicator).
-	h := m.height - m.headerHeight() - m.statusBarHeight()
-	if m.defLookup.visible {
-		h -= m.defLookup.height()
-	}
+	h := m.height - m.headerHeight() - m.statusBarHeight() - m.footerHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -2547,7 +2491,7 @@ func (m Model) blockIndexAtLine(line int) int {
 // renderAllBlocks renders each block and joins them vertically.
 // When the command palette is visible, it is rendered below the active block.
 // As a side effect, it populates m.blockLineCounts with the number of rendered
-// lines for each block (including any palette lines appended after it).
+// lines for each block.
 func (m *Model) renderAllBlocks() string {
 	if m.viewMode {
 		return m.renderViewContent()
@@ -2558,18 +2502,6 @@ func (m *Model) renderAllBlocks() string {
 		rendered := m.renderBlock(i)
 		lineCount := strings.Count(rendered, "\n") + 1
 		parts = append(parts, rendered)
-		if m.palette.visible && i == m.active {
-			if pv := m.palette.render(m.width); pv != "" {
-				lineCount += strings.Count(pv, "\n") + 1
-				parts = append(parts, pv)
-			}
-		}
-		if m.embedPicker.visible && i == m.active {
-			if pv := m.embedPicker.render(m.width); pv != "" {
-				lineCount += strings.Count(pv, "\n") + 1
-				parts = append(parts, pv)
-			}
-		}
 		m.blockLineCounts[i] = lineCount
 	}
 	return strings.Join(parts, "\n")
@@ -2671,22 +2603,22 @@ func (m Model) View() tea.View {
 		content = m.renderEmbedSheet()
 	} else if m.showHelp {
 		content = m.renderHelpOverlay()
-	} else if m.viewMode {
-		statusBar := m.renderStatusBar()
-		if m.defLookup.visible {
-			modal := m.defLookup.render(m.width)
-			content = m.viewport.View() + "\n" + modal + "\n" + statusBar
-		} else {
-			content = m.viewport.View() + "\n" + statusBar
-		}
 	} else {
-		header := m.renderHeader()
 		statusBar := m.renderStatusBar()
-		if m.defLookup.visible {
-			modal := m.defLookup.render(m.width)
-			content = header + "\n" + m.viewport.View() + "\n" + modal + "\n" + statusBar
+		footer := m.renderPickerFooter()
+		if m.viewMode {
+			if footer != "" {
+				content = m.viewport.View() + "\n" + footer + statusBar
+			} else {
+				content = m.viewport.View() + "\n" + statusBar
+			}
 		} else {
-			content = header + "\n" + m.viewport.View() + "\n" + statusBar
+			header := m.renderHeader()
+			if footer != "" {
+				content = header + "\n" + m.viewport.View() + "\n" + footer + statusBar
+			} else {
+				content = header + "\n" + m.viewport.View() + "\n" + statusBar
+			}
 		}
 	}
 
@@ -2702,56 +2634,104 @@ func (m Model) View() tea.View {
 
 // renderHelpOverlay builds the full-screen help panel.
 func (m Model) renderHelpOverlay() string {
-	w := m.width
-	if w <= 0 {
-		w = 80
+	sections := []ui.HelpSection{{
+		Title: "Keybindings",
+		Bindings: []ui.HelpBinding{
+			{},
+			{Key: "Enter        ", Desc: "New block"},
+			{Key: "⇧Enter       ", Desc: "Newline"},
+			{Key: "Backspace    ", Desc: "Merge / delete"},
+			{Key: "⌃K           ", Desc: "Cut block"},
+			{Key: "⌃Z/⌃Y        ", Desc: "Undo / redo"},
+			{Key: "⌥↑/⌥↓        ", Desc: "Move block"},
+			{Key: "/            ", Desc: "Block type"},
+			{},
+			{Key: ":            ", Desc: "Definitions"},
+			{},
+			{Key: "⌃R           ", Desc: "View mode"},
+			{Key: "⌃X           ", Desc: "Checkbox"},
+			{Key: "⌃H           ", Desc: "Sort checked"},
+			{Key: "⌃W           ", Desc: "Word wrap"},
+			{},
+			{Key: "⌃S           ", Desc: "Save"},
+			{Key: "Esc/⌃C       ", Desc: "Quit"},
+		},
+	}}
+	return ui.RenderHelpOverlay(sections, "Esc/⌃G to close", m.width, m.height)
+}
+
+// renderPickerFooter returns the footer panel for whichever picker is active,
+// or "" if none. The result includes a trailing newline when non-empty.
+func (m Model) renderPickerFooter() string {
+	if m.palette.Visible {
+		return m.palette.RenderFooter(m.width)
 	}
-	h := m.height
-	if h <= 0 {
-		h = 24
+	if m.embedPicker.Visible {
+		return m.embedPicker.RenderFooter(m.width)
 	}
+	if m.defLookup.Visible {
+		return m.defLookup.RenderFooter(m.width)
+	}
+	return ""
+}
 
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent)).Bold(true)
-	dim := lipgloss.NewStyle().Faint(true)
-	sep := dim.Render("─────────────────────────")
-	s := dim.Render("/") // dimmed slash separator
+// footerHeight returns the number of lines occupied by the active picker footer.
+func (m Model) footerHeight() int {
+	if m.palette.Visible {
+		return m.palette.Height()
+	}
+	if m.embedPicker.Visible {
+		return m.embedPicker.Height()
+	}
+	if m.defLookup.Visible {
+		return m.defLookup.Height()
+	}
+	return 0
+}
 
-	var help strings.Builder
-	help.WriteString("  " + accent.Render("Keybindings") + "\n")
-	help.WriteString("  " + sep + "\n")
-	help.WriteString("\n")
-	help.WriteString("  Enter        New block\n")
-	help.WriteString("  ⇧Enter       Newline\n")
-	help.WriteString("  Backspace    Merge " + s + " delete\n")
-	help.WriteString("  ⌃K           Cut block\n")
-	help.WriteString("  ⌃Z" + s + "⌃Y        Undo " + s + " redo\n")
-	help.WriteString("  ⌥↑" + s + "⌥↓        Move block\n")
-	help.WriteString("  /            Block type\n")
-	help.WriteString("\n")
-	help.WriteString("  :            Definitions\n")
-	help.WriteString("\n")
-	help.WriteString("  ⌃R           View mode\n")
-	help.WriteString("  ⌃X           Checkbox\n")
-	help.WriteString("  ⌃H           Sort checked\n")
-	help.WriteString("  ⌃W           Word wrap\n")
-	help.WriteString("\n")
-	help.WriteString("  ⌃S           Save\n")
-	help.WriteString("  Esc" + s + "⌃C       Quit")
+// editModeHints builds the right-side status bar shortcuts for edit mode.
+// The "/" and ":" shortcuts only show when the cursor is at position 0
+// (i.e., when they would actually trigger the palette/deflookup).
+func (m Model) editModeHints() string {
+	var parts []string
+	atPos0 := false
+	if m.active >= 0 && m.active < len(m.textareas) {
+		ta := m.textareas[m.active]
+		atPos0 = ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0
+	}
+	if atPos0 {
+		parts = append(parts, "/ blocks")
+		// ":" only works on empty blocks.
+		if m.active >= 0 && m.active < len(m.textareas) && m.textareas[m.active].Value() == "" {
+			parts = append(parts, ": defs")
+		}
+	}
+	parts = append(parts, "\u2303G help", "Esc quit")
+	return strings.Join(parts, " \u00B7 ")
+}
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.Current().Border)).
-		Padding(1, 2).
-		Width(36).
-		Align(lipgloss.Left)
-
-	rendered := box.Render(help.String())
-
-	statusHint := dim.Render("Esc/⌃G to close")
-
-	full := rendered + "\n" + statusHint
-
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
+// blockHint returns a context-sensitive hint for the active block type,
+// shown in the status bar hint area.
+func (m Model) blockHint() string {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return ""
+	}
+	switch m.blocks[m.active].Type {
+	case block.Table:
+		return "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u232B del row \u00B7 \u2325D del col"
+	case block.Callout:
+		return "\u2303T variant"
+	case block.CodeBlock:
+		return "line 1 sets language"
+	case block.Checklist:
+		return "\u2303X toggle"
+	case block.Embed:
+		return "\u2303X open \u00B7 Tab pick"
+	case block.DefinitionList:
+		return "\u2303X search"
+	default:
+		return ""
+	}
 }
 
 // renderStatusBar builds the bottom status bar.
@@ -2775,11 +2755,13 @@ func (m Model) renderStatusBar() string {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
 		right = ": defs \u00B7 \u2303R edit \u00B7 Esc quit"
-	} else if m.table != nil && m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Table {
-		hint = "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u232B del row \u00B7 \u2325D del col"
-		right = "/ blocks \u00B7 : defs \u00B7 \u2303G help \u00B7 Esc quit"
 	} else {
-		right = "/ blocks \u00B7 : defs \u00B7 \u2303G help \u00B7 Esc quit"
+		// Build right-side hints: block-specific hints + contextual shortcuts.
+		bh := m.blockHint()
+		right = m.editModeHints()
+		if bh != "" {
+			right = bh + " \u00B7 " + right
+		}
 	}
 
 	bar := format.StatusBar(left, hint, right, width)
@@ -2800,6 +2782,25 @@ func (m Model) renderStatusBar() string {
 }
 
 // openEmbedModal resolves an embed block's reference and opens the sheet.
+// clampEmbedScroll ensures the embed modal scroll doesn't exceed the content.
+func (m *Model) clampEmbedScroll() {
+	sheetH := m.height - 2
+	if sheetH < 6 {
+		sheetH = 6
+	}
+	contentH := sheetH - 3
+	if contentH < 1 {
+		contentH = 1
+	}
+	maxScroll := len(m.embedModal.lines) - contentH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.embedModal.scroll > maxScroll {
+		m.embedModal.scroll = maxScroll
+	}
+}
+
 func (m *Model) openEmbedModal(idx int) {
 	if idx < 0 || idx >= len(m.blocks) || m.blocks[idx].Type != block.Embed {
 		return
