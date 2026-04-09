@@ -138,16 +138,17 @@ func TestPaletteContainsAllBlockTypes(t *testing.T) {
 	items := defaultPaletteItems()
 
 	expectedTypes := map[block.BlockType]bool{
-		block.Paragraph:    true,
-		block.Heading1:     true,
-		block.Heading2:     true,
-		block.Heading3:     true,
-		block.BulletList:   true,
-		block.NumberedList: true,
-		block.Checklist:    true,
-		block.CodeBlock:    true,
-		block.Quote:        true,
-		block.Divider:      true,
+		block.Paragraph:      true,
+		block.Heading1:       true,
+		block.Heading2:       true,
+		block.Heading3:       true,
+		block.BulletList:     true,
+		block.NumberedList:   true,
+		block.Checklist:      true,
+		block.CodeBlock:      true,
+		block.Quote:          true,
+		block.Divider:        true,
+		block.DefinitionList: true,
 	}
 
 	for _, item := range items {
@@ -311,7 +312,7 @@ func TestPaletteBlocksTypingToTextarea(t *testing.T) {
 	}
 }
 
-func TestSlashOnNonEmptyBlockDoesNotOpenPalette(t *testing.T) {
+func TestSlashAtPos0OnNonEmptyBlockOpensPalette(t *testing.T) {
 	m := New(Config{Title: "test", Content: "some text"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)
@@ -323,7 +324,120 @@ func TestSlashOnNonEmptyBlockDoesNotOpenPalette(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
+	if !m.palette.visible {
+		t.Fatal("palette should open at position 0 even when block has content")
+	}
+
+	// The "/" character must not be inserted into the textarea.
+	if strings.Contains(m.textareas[m.active].Value(), "/") {
+		t.Fatal("the '/' character should not be inserted into the textarea when palette opens")
+	}
+}
+
+func TestContentPreservedAfterTypeChange(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to position 0 and open palette.
+	m.textareas[m.active].CursorStart()
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updated.(Model)
+
+	if !m.palette.visible {
+		t.Fatal("palette should be visible")
+	}
+
+	// Move to Heading 1 (second item) and select it.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.blocks[m.active].Type != block.Heading1 {
+		t.Fatalf("expected block type Heading1, got %v", m.blocks[m.active].Type)
+	}
+
+	if m.textareas[m.active].Value() != "hello world" {
+		t.Fatalf("content should be preserved after type change, got %q", m.textareas[m.active].Value())
+	}
+}
+
+func TestDividerHiddenWhenBlockHasContent(t *testing.T) {
+	m := New(Config{Title: "test", Content: "some content"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to position 0 and open palette.
+	m.textareas[m.active].CursorStart()
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updated.(Model)
+
+	if !m.palette.visible {
+		t.Fatal("palette should be visible")
+	}
+
+	// Verify Divider is not in the filtered list.
+	for _, idx := range m.palette.filtered {
+		if m.palette.items[idx].Type == block.Divider {
+			t.Fatal("Divider should be hidden when the block has content")
+		}
+	}
+}
+
+func TestDividerShownWhenBlockIsEmpty(t *testing.T) {
+	m := New(Config{Title: "test", Content: ""})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Open palette on empty block.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updated.(Model)
+
+	if !m.palette.visible {
+		t.Fatal("palette should be visible")
+	}
+
+	// Verify Divider IS in the filtered list.
+	found := false
+	for _, idx := range m.palette.filtered {
+		if m.palette.items[idx].Type == block.Divider {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("Divider should be shown when the block is empty")
+	}
+}
+
+func TestPaletteShowsCurrentTypeIndicator(t *testing.T) {
+	p := newPalette()
+	p.openForBlock(0, block.Paragraph, false)
+
+	rendered := p.render(80)
+	if !strings.Contains(rendered, "\u2713") {
+		t.Fatal("palette should show a checkmark next to the current block type")
+	}
+}
+
+func TestSlashMidTextInsertsNormally(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	// Move cursor to end so it's not at position 0.
+	m.textareas[m.active].CursorEnd()
+
+	// Type "/".
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updated.(Model)
+
 	if m.palette.visible {
-		t.Fatal("palette should not open when block has content, even at position 0")
+		t.Fatal("palette should not open when / is typed mid-text")
+	}
+
+	if !strings.Contains(m.textareas[m.active].Value(), "/") {
+		t.Fatal("/ should be inserted normally when typed mid-text")
 	}
 }

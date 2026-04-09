@@ -10,12 +10,14 @@ import (
 
 // palette is the "/" command palette for changing a block's type.
 type palette struct {
-	visible  bool
-	items    []paletteItem
-	filtered []int  // indices into items matching current filter
-	filter   string // typed text after /
-	cursor   int    // selection in filtered list
-	blockIdx int    // which block triggered the palette
+	visible     bool
+	items       []paletteItem
+	filtered    []int          // indices into items matching current filter
+	filter      string         // typed text after /
+	cursor      int            // selection in filtered list
+	blockIdx    int            // which block triggered the palette
+	currentType block.BlockType // current block type (for visual indicator)
+	hasContent  bool           // whether the block has content (hides Divider)
 }
 
 // paletteItem describes one entry in the palette.
@@ -37,6 +39,7 @@ func defaultPaletteItems() []paletteItem {
 		{Icon: "\u2610", Label: "Checklist", Type: block.Checklist},
 		{Icon: "``", Label: "Code Block", Type: block.CodeBlock},
 		{Icon: ">", Label: "Quote", Type: block.Quote},
+		{Icon: ":", Label: "Definition", Type: block.DefinitionList},
 		{Icon: "\u2014", Label: "Divider", Type: block.Divider},
 		{Icon: "\u2197", Label: "Embed", Type: block.Embed},
 	}
@@ -61,6 +64,21 @@ func (p *palette) open(blockIdx int) {
 	p.blockIdx = blockIdx
 	p.filter = ""
 	p.cursor = 0
+	p.currentType = -1
+	p.hasContent = false
+	p.refilter()
+}
+
+// openForBlock makes the palette visible with awareness of the current block's
+// type and whether it has content. Divider is hidden when the block has content
+// to avoid silent data loss.
+func (p *palette) openForBlock(blockIdx int, currentType block.BlockType, hasContent bool) {
+	p.visible = true
+	p.blockIdx = blockIdx
+	p.filter = ""
+	p.cursor = 0
+	p.currentType = currentType
+	p.hasContent = hasContent
 	p.refilter()
 }
 
@@ -69,15 +87,22 @@ func (p *palette) close() {
 	p.visible = false
 	p.filter = ""
 	p.cursor = 0
+	p.currentType = -1
+	p.hasContent = false
 }
 
 // refilter rebuilds the filtered index list based on the current filter text.
 func (p *palette) refilter() {
 	if p.filter == "" {
-		p.filtered = make([]int, len(p.items))
-		for i := range p.items {
-			p.filtered[i] = i
+		var result []int
+		for i, item := range p.items {
+			// Hide Divider when the block has content (avoids silent data loss).
+			if p.hasContent && item.Type == block.Divider {
+				continue
+			}
+			result = append(result, i)
 		}
+		p.filtered = result
 		p.cursor = 0
 		return
 	}
@@ -85,6 +110,10 @@ func (p *palette) refilter() {
 	lower := strings.ToLower(p.filter)
 	var result []int
 	for i, item := range p.items {
+		// Hide Divider when the block has content (avoids silent data loss).
+		if p.hasContent && item.Type == block.Divider {
+			continue
+		}
 		if strings.Contains(strings.ToLower(item.Label), lower) {
 			result = append(result, i)
 		}
@@ -166,6 +195,8 @@ func (p *palette) render(width int) string {
 		var rows []string
 		for i, idx := range p.filtered {
 			item := p.items[idx]
+			isCurrent := item.Type == p.currentType
+
 			icon := lipgloss.NewStyle().
 				Width(4).
 				Align(lipgloss.Right).
@@ -173,17 +204,29 @@ func (p *palette) render(width int) string {
 				Render(item.Icon)
 
 			label := item.Label
+			if isCurrent {
+				label += " \u2713"
+			}
+
 			if i == p.cursor {
+				color := th.Accent
+				if isCurrent {
+					color = th.Muted
+				}
 				label = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color(th.Accent)).
+					Foreground(lipgloss.Color(color)).
 					Render(label)
 				icon = lipgloss.NewStyle().
 					Width(4).
 					Align(lipgloss.Right).
 					Bold(true).
-					Foreground(lipgloss.Color(th.Accent)).
+					Foreground(lipgloss.Color(color)).
 					Render(item.Icon)
+			} else if isCurrent {
+				label = lipgloss.NewStyle().
+					Foreground(lipgloss.Color(th.Muted)).
+					Render(label)
 			}
 
 			rows = append(rows, icon+" "+label)

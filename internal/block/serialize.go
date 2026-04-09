@@ -77,6 +77,13 @@ func Serialize(blocks []Block) string {
 		case Divider:
 			lines = append(lines, "---")
 
+		case DefinitionList:
+			term, def := ExtractDefinition(b.Content)
+			lines = append(lines, term)
+			for _, d := range strings.Split(def, "\n") {
+				lines = append(lines, ": "+d)
+			}
+
 		case Embed:
 			lines = append(lines, "![["+b.Content+"]]")
 

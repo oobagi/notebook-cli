@@ -222,6 +222,40 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name:  "definition list single item",
+			input: "Term\n: Definition text here",
+			expect: []Block{
+				{Type: DefinitionList, Content: "Term\nDefinition text here"},
+			},
+		},
+		{
+			name:  "definition list multiple items",
+			input: "Term One\n: First definition\n\nTerm Two\n: Second definition",
+			expect: []Block{
+				{Type: DefinitionList, Content: "Term One\nFirst definition"},
+				{Type: Paragraph, Content: ""},
+				{Type: DefinitionList, Content: "Term Two\nSecond definition"},
+			},
+		},
+		{
+			name:  "definition list in mixed document",
+			input: "# Glossary\n\nAPI\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
+			expect: []Block{
+				{Type: Heading1, Content: "Glossary"},
+				{Type: Paragraph, Content: ""},
+				{Type: DefinitionList, Content: "API\nApplication Programming Interface"},
+				{Type: Paragraph, Content: ""},
+				{Type: DefinitionList, Content: "SDK\nSoftware Development Kit"},
+			},
+		},
+		{
+			name:  "orphan definition line parsed as paragraph",
+			input: ": orphan definition",
+			expect: []Block{
+				{Type: Paragraph, Content: ": orphan definition"},
+			},
+		},
+		{
 			name:  "embed block",
 			input: "![[notebook/note]]",
 			expect: []Block{
@@ -299,6 +333,8 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("Quote")
 		case Divider:
 			b.WriteString("Divider")
+		case DefinitionList:
+			b.WriteString("DefinitionList")
 		case Embed:
 			b.WriteString("Embed")
 		}

@@ -130,6 +130,18 @@ func TestSerializeRoundTrip(t *testing.T) {
 			md:   "above\n\n---\n\nbelow",
 		},
 		{
+			name: "definition list single item",
+			md:   "Term\n: Definition text here",
+		},
+		{
+			name: "definition list multiple items",
+			md:   "Term One\n: First definition\n\nTerm Two\n: Second definition",
+		},
+		{
+			name: "definition list in mixed document",
+			md:   "# Glossary\n\nAPI\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
+		},
+		{
 			name: "embed block",
 			md:   "![[notebook/note]]",
 		},
@@ -167,6 +179,8 @@ func TestSerializeIdempotent(t *testing.T) {
 		"> quote\n> continues",
 		"---",
 		"# Title\n\nSome intro text.\n\n## Section\n\n- bullet one\n- bullet two\n\n1. step one\n2. step two\n\n> a quote\n\n---\n\n```go\nfunc main() {}\n```\n\n- [ ] task\n- [x] done",
+		"Term\n: Definition text here",
+		"API\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
 		"![[notebook/note]]",
 		"text\n\n![[ref]]\n\nmore text",
 	}

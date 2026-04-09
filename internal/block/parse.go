@@ -157,12 +157,35 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
+		// --- Definition (term followed by one or more ": definition" lines) ---
+		if i+1 < len(lines) && !isBlockStart(line) && isDefinitionLine(lines[i+1]) {
+			term := line
+			i++
+			var defs []string
+			for i < len(lines) && isDefinitionLine(lines[i]) {
+				defs = append(defs, strings.TrimPrefix(lines[i], ": "))
+				i++
+			}
+			blocks = append(blocks, Block{
+				Type:    DefinitionList,
+				Content: term + "\n" + strings.Join(defs, "\n"),
+			})
+			continue
+		}
+
 		// --- Paragraph (merge consecutive non-special lines) ---
 		var paraLines []string
 		for i < len(lines) {
 			if isBlockStart(lines[i]) {
 				break
 			}
+			paraLines = append(paraLines, lines[i])
+			i++
+		}
+		// Safety: if no lines were collected (current line is a block start
+		// that wasn't matched by any preceding handler), consume it as a
+		// single-line paragraph to avoid an infinite loop.
+		if len(paraLines) == 0 {
 			paraLines = append(paraLines, lines[i])
 			i++
 		}
@@ -185,7 +208,8 @@ func isBlockStart(line string) bool {
 		strings.HasPrefix(line, "# ") ||
 		strings.HasPrefix(line, "## ") ||
 		strings.HasPrefix(line, "### ") ||
-		strings.HasPrefix(line, "> ") {
+		strings.HasPrefix(line, "> ") ||
+		strings.HasPrefix(line, ": ") {
 		return true
 	}
 	_, stripped := stripListIndent(line)
@@ -201,6 +225,11 @@ func isBlockStart(line string) bool {
 		return true
 	}
 	return isDivider(line)
+}
+
+// isDefinitionLine reports whether a line starts a definition (": ").
+func isDefinitionLine(line string) bool {
+	return strings.HasPrefix(line, ": ")
 }
 
 // isDivider reports whether a line is a thematic break (---, ***, or ___).
