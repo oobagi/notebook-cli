@@ -2436,6 +2436,12 @@ func (m *Model) computeBlockLineOffsets() {
 			content = m.textareas[i].Value()
 		}
 
+		// Strip empty paragraph blocks (mirrors renderViewContent exactly).
+		if b.Type == block.Paragraph && content == "" {
+			offsets[i] = nextLine
+			continue
+		}
+
 		// Spacing lines before this block (mirrors renderViewContent exactly).
 		if prevIdx >= 0 {
 			prev := m.blocks[prevIdx]
@@ -2547,6 +2553,11 @@ func (m Model) renderViewContent() string {
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
+		}
+
+		// Strip empty paragraph blocks for a cleaner reading layout.
+		if b.Type == block.Paragraph && content == "" {
+			continue
 		}
 
 		hovered := i == m.hoverBlock
