@@ -138,16 +138,17 @@ func TestPaletteContainsAllBlockTypes(t *testing.T) {
 	items := defaultPaletteItems()
 
 	expectedTypes := map[block.BlockType]bool{
-		block.Paragraph:    true,
-		block.Heading1:     true,
-		block.Heading2:     true,
-		block.Heading3:     true,
-		block.BulletList:   true,
-		block.NumberedList: true,
-		block.Checklist:    true,
-		block.CodeBlock:    true,
-		block.Quote:        true,
-		block.Divider:      true,
+		block.Paragraph:      true,
+		block.Heading1:       true,
+		block.Heading2:       true,
+		block.Heading3:       true,
+		block.BulletList:     true,
+		block.NumberedList:   true,
+		block.Checklist:      true,
+		block.CodeBlock:      true,
+		block.Quote:          true,
+		block.Divider:        true,
+		block.DefinitionList: true,
 	}
 
 	for _, item := range items {

@@ -22,6 +22,7 @@ const (
 	CodeBlock                     // fenced code block (``` ... ```)
 	Quote                         // > block quote
 	Divider                       // ---, ***, or ___
+	DefinitionList                // term\n: definition
 )
 
 // String returns the human-readable name of a BlockType.
@@ -47,6 +48,8 @@ func (bt BlockType) String() string {
 		return "Quote"
 	case Divider:
 		return "Divider"
+	case DefinitionList:
+		return "DefinitionList"
 	default:
 		return "Unknown"
 	}
@@ -85,6 +88,8 @@ func (bt BlockType) Short() string {
 		return "qt"
 	case Divider:
 		return "hr"
+	case DefinitionList:
+		return "df"
 	default:
 		return "?"
 	}
@@ -116,6 +121,17 @@ func CountNumberedPosition(blocks []Block, idx int) int {
 		}
 	}
 	return num
+}
+
+// ExtractDefinition splits a definition list block's content into its term
+// (first line) and definition (remaining lines). The content stores both
+// parts separated by a newline.
+func ExtractDefinition(content string) (term, definition string) {
+	first, rest, found := strings.Cut(content, "\n")
+	if found {
+		return first, rest
+	}
+	return first, ""
 }
 
 // ExtractCodeLanguage splits a code block's content into its title line
