@@ -84,6 +84,9 @@ func Serialize(blocks []Block) string {
 				lines = append(lines, ": "+d)
 			}
 
+		case Embed:
+			lines = append(lines, "![["+b.Content+"]]")
+
 		default:
 			if b.Content != "" {
 				lines = append(lines, strings.Split(b.Content, "\n")...)

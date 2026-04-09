@@ -255,6 +255,31 @@ func TestParse(t *testing.T) {
 				{Type: Paragraph, Content: ": orphan definition"},
 			},
 		},
+		{
+			name:  "embed block",
+			input: "![[notebook/note]]",
+			expect: []Block{
+				{Type: Embed, Content: "notebook/note"},
+			},
+		},
+		{
+			name:  "embed in mixed content",
+			input: "# Title\n\n![[notebook/note]]\n\nSome text.",
+			expect: []Block{
+				{Type: Heading1, Content: "Title"},
+				{Type: Paragraph, Content: ""},
+				{Type: Embed, Content: "notebook/note"},
+				{Type: Paragraph, Content: ""},
+				{Type: Paragraph, Content: "Some text."},
+			},
+		},
+		{
+			name:  "embed with spaces in path",
+			input: "![[my notebook/my note]]",
+			expect: []Block{
+				{Type: Embed, Content: "my notebook/my note"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -310,6 +335,8 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("Divider")
 		case DefinitionList:
 			b.WriteString("DefinitionList")
+		case Embed:
+			b.WriteString("Embed")
 		}
 		if bl.Content != "" {
 			b.WriteString(" " + bl.Content)

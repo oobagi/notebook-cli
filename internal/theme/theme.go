@@ -98,6 +98,12 @@ type DefinitionStyle struct {
 	TermBold    bool   // whether to bold the term
 }
 
+// EmbedStyle controls embedded note link rendering.
+type EmbedStyle struct {
+	Icon  string // prefix icon, e.g. "↗ "
+	Color string // hex; "" means theme.Accent
+}
+
 // BlockStyles groups all per-block-type formatting.
 type BlockStyles struct {
 	Heading1   HeadingStyle
@@ -110,6 +116,7 @@ type BlockStyles struct {
 	Quote      QuoteStyle
 	Divider    DividerStyle
 	Definition DefinitionStyle
+	Embed      EmbedStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original
@@ -133,6 +140,7 @@ func DefaultBlockStyles() BlockStyles {
 		Quote:      QuoteStyle{Bar: "\u2502 "},
 		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
 		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
+		Embed:      EmbedStyle{Icon: "\u2197 "},
 	}
 }
 

@@ -141,6 +141,18 @@ func TestSerializeRoundTrip(t *testing.T) {
 			name: "definition list in mixed document",
 			md:   "# Glossary\n\nAPI\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
 		},
+		{
+			name: "embed block",
+			md:   "![[notebook/note]]",
+		},
+		{
+			name: "embed with spaces",
+			md:   "![[my notebook/my note]]",
+		},
+		{
+			name: "embed between paragraphs",
+			md:   "text\n\n![[ref]]\n\nmore text",
+		},
 	}
 
 	for _, tt := range tests {
@@ -169,6 +181,8 @@ func TestSerializeIdempotent(t *testing.T) {
 		"# Title\n\nSome intro text.\n\n## Section\n\n- bullet one\n- bullet two\n\n1. step one\n2. step two\n\n> a quote\n\n---\n\n```go\nfunc main() {}\n```\n\n- [ ] task\n- [x] done",
 		"Term\n: Definition text here",
 		"API\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
+		"![[notebook/note]]",
+		"text\n\n![[ref]]\n\nmore text",
 	}
 
 	for _, md := range inputs {

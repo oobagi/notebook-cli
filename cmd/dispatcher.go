@@ -215,6 +215,49 @@ func editNote(w io.Writer, book, note string) error {
 			recents.RecordStore(book, note)
 			return nil
 		},
+		ResolveEmbed: func(path string) (string, string, error) {
+			parts := strings.SplitN(path, "/", 2)
+			var nb, nt string
+			if len(parts) == 2 {
+				nb, nt = parts[0], parts[1]
+			} else {
+				// No slash — assume current notebook.
+				nb, nt = book, parts[0]
+			}
+			ref, err := store.GetNote(nb, nt)
+			if err != nil {
+				return "", "", err
+			}
+			title := storage.DisplayName(ref.Notebook) + " \u203A " + storage.DisplayName(ref.Name)
+			return title, ref.Content, nil
+		},
+		SaveEmbed: func(path, content string) error {
+			parts := strings.SplitN(path, "/", 2)
+			var nb, nt string
+			if len(parts) == 2 {
+				nb, nt = parts[0], parts[1]
+			} else {
+				nb, nt = book, parts[0]
+			}
+			return store.UpdateNote(nb, nt, content)
+		},
+		ListEmbedTargets: func() []string {
+			notebooks, err := store.ListNotebooks()
+			if err != nil {
+				return nil
+			}
+			var targets []string
+			for _, nb := range notebooks {
+				notes, err := store.ListNotes(nb)
+				if err != nil {
+					continue
+				}
+				for _, n := range notes {
+					targets = append(targets, nb+"/"+n.Name)
+				}
+			}
+			return targets
+		},
 		DismissedHints: config.LoadDismissedHints(),
 		HideChecked: cfg.HideChecked,
 		CascadeChecks: cfg.CascadeChecks,

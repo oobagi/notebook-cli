@@ -37,6 +37,14 @@ type Config struct {
 	CascadeChecks *bool
 	// WordWrap from config; nil = default (true).
 	WordWrap *bool
+	// ResolveEmbed resolves an embed path (e.g. "notebook/note") to its title
+	// and content. Returns an error if the note doesn't exist.
+	ResolveEmbed func(path string) (title, content string, err error)
+	// SaveEmbed saves modified content back to an embedded note.
+	SaveEmbed func(path, content string) error
+	// ListEmbedTargets returns all available "notebook/note" paths for the
+	// embed picker. Called when the picker opens.
+	ListEmbedTargets func() []string
 }
 
 // savedMsg is sent after a successful save.
@@ -88,6 +96,8 @@ type Model struct {
 	undoDirty   bool            // true when textarea content changed since last snapshot
 	sortChecked   bool // sort checked checklist items to bottom of each group
 	cascadeChecks bool // checking parent also checks/unchecks children
+	embedModal    embedModalState // overlay for viewing embedded note references
+	embedPicker   embedPicker     // note picker for embed block insertion
 }
 
 type statusKind int
@@ -98,6 +108,60 @@ const (
 	statusError
 	statusWarning
 )
+
+// embedModalState holds the state for the embedded note bottom sheet.
+type embedModalState struct {
+	visible          bool
+	title            string         // display title for the sheet header
+	path             string         // original embed path for save-back
+	blocks           []block.Block  // parsed blocks of the referenced note
+	scroll           int            // scroll offset (line index)
+	lines            []string       // pre-split rendered lines
+	blockLineOffsets []int          // starting line of each block within lines
+	hoverBlock       int            // block under mouse cursor (-1 = none)
+	sheetStartY      int            // Y line where the sheet content begins
+}
+
+// open prepares the sheet with parsed blocks and resets state.
+func (e *embedModalState) open(title, path string, blocks []block.Block) {
+	e.visible = true
+	e.title = title
+	e.path = path
+	e.blocks = blocks
+	e.scroll = 0
+	e.hoverBlock = -1
+	// Layout: line 0=context, 1=blank, 2=sep → sheet starts at Y=2.
+	e.sheetStartY = 2
+	// lines and blockLineOffsets are populated by renderEmbedSheetContent.
+}
+
+// close hides the sheet.
+func (e *embedModalState) close() {
+	e.visible = false
+	e.title = ""
+	e.path = ""
+	e.blocks = nil
+	e.lines = nil
+	e.blockLineOffsets = nil
+	e.scroll = 0
+	e.hoverBlock = -1
+}
+
+// blockAtLine returns the block index containing the given line, or -1.
+func (e *embedModalState) blockAtLine(line int) int {
+	if len(e.blockLineOffsets) == 0 {
+		return -1
+	}
+	result := -1
+	for i, offset := range e.blockLineOffsets {
+		if offset <= line {
+			result = i
+		} else {
+			break
+		}
+	}
+	return result
+}
 
 // defaultWidth and defaultHeight are sensible initial dimensions so the
 // cursor is visible even before the first WindowSizeMsg arrives.
@@ -134,6 +198,12 @@ func blockPrefixWidth(bt block.BlockType, indent int) int {
 		base = 4
 	case block.DefinitionList:
 		base = lipgloss.Width(th.Blocks.Definition.Marker)
+	case block.Embed:
+		icon := th.Blocks.Embed.Icon
+		if icon == "" {
+			icon = "\u2197 "
+		}
+		base = lipgloss.Width(icon)
 	}
 	return indent*4 + base
 }
@@ -1051,6 +1121,13 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
+	// Open the note picker for embed blocks so the user can browse targets.
+	if bt == block.Embed && m.config.ListEmbedTargets != nil {
+		targets := m.config.ListEmbedTargets()
+		if len(targets) > 0 {
+			m.embedPicker.open(targets)
+		}
+	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
 
@@ -1108,18 +1185,54 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMotionMsg:
+		if m.embedModal.visible {
+			contentStartY := m.embedModal.sheetStartY + 2
+			if msg.Y >= contentStartY {
+				contentLine := m.embedModal.scroll + (msg.Y - contentStartY)
+				idx := m.embedModal.blockAtLine(contentLine)
+				old := m.embedModal.hoverBlock
+				m.embedModal.hoverBlock = idx
+				if idx != old {
+					// Re-render for hover feedback on interactive blocks.
+					needsUpdate := false
+					for _, checkIdx := range []int{idx, old} {
+						if checkIdx >= 0 && checkIdx < len(m.embedModal.blocks) {
+							bt := m.embedModal.blocks[checkIdx].Type
+							if bt == block.Checklist || bt == block.Embed {
+								needsUpdate = true
+								break
+							}
+						}
+					}
+					if needsUpdate {
+						m.renderEmbedSheetContent()
+					}
+				}
+			} else {
+				m.embedModal.hoverBlock = -1
+			}
+			return m, nil
+		}
 		if m.viewMode {
-			// Track hover state for checklist visual feedback.
+			// Track hover state for checklist/embed visual feedback.
 			hoverY := m.viewport.YOffset() + msg.Y
 			idx := m.blockIndexAtLine(hoverY)
 			oldHover := m.hoverBlock
 			m.hoverBlock = idx
 
-			// Re-render if hovering over a different checklist block.
+			// Re-render if hovering over a different interactive block.
 			if idx != oldHover {
-				isChecklistHover := idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist
-				wasChecklistHover := oldHover >= 0 && oldHover < len(m.blocks) && m.blocks[oldHover].Type == block.Checklist
-				if isChecklistHover || wasChecklistHover {
+				needsUpdate := false
+				for _, checkIdx := range []int{idx, oldHover} {
+					if checkIdx >= 0 && checkIdx < len(m.blocks) {
+						bt := m.blocks[checkIdx].Type
+						if bt == block.Checklist || bt == block.Embed {
+							needsUpdate = true
+							break
+						}
+					}
+				}
+				if needsUpdate {
 					m.updateViewport()
 				}
 			}
@@ -1129,15 +1242,42 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
+		if m.embedModal.visible {
+			// Click above the sheet (context area) dismisses it.
+			if msg.Y < m.embedModal.sheetStartY {
+				m.embedModal.close()
+				m.updateViewport()
+				return m, nil
+			}
+			// Map click Y to a content line, accounting for scroll and sheet header.
+			// Sheet layout: sheetStartY=sep, +1=title, +2..=content
+			contentStartY := m.embedModal.sheetStartY + 2
+			if msg.Button == tea.MouseLeft && msg.Y >= contentStartY {
+				contentLine := m.embedModal.scroll + (msg.Y - contentStartY)
+				idx := m.embedModal.blockAtLine(contentLine)
+				if idx >= 0 && idx < len(m.embedModal.blocks) {
+					if m.embedModal.blocks[idx].Type == block.Checklist {
+						m.embedModal.blocks[idx].Checked = !m.embedModal.blocks[idx].Checked
+						// Save changes back to the referenced note.
+						if m.config.SaveEmbed != nil {
+							content := block.Serialize(m.embedModal.blocks)
+							_ = m.config.SaveEmbed(m.embedModal.path, content)
+						}
+						m.renderEmbedSheetContent()
+					}
+				}
+			}
+			return m, nil
+		}
 		if m.viewMode {
 			// Track hover state for checklist visual feedback.
 			hoverY := m.viewport.YOffset() + msg.Y
 			idx := m.blockIndexAtLine(hoverY)
 			m.hoverBlock = idx
 
-			// Left-click on a checklist block toggles its checked state.
-			if msg.Button == tea.MouseLeft {
-				if idx >= 0 && idx < len(m.blocks) && m.blocks[idx].Type == block.Checklist {
+			if msg.Button == tea.MouseLeft && idx >= 0 && idx < len(m.blocks) {
+				// Left-click on a checklist block toggles its checked state.
+				if m.blocks[idx].Type == block.Checklist {
 					m.pushUndo()
 					if idx < len(m.textareas) {
 						m.blocks[idx].Content = m.textareas[idx].Value()
@@ -1149,6 +1289,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateViewport()
 					return m, nil
 				}
+				// Left-click on an embed block opens the referenced note.
+				if m.blocks[idx].Type == block.Embed {
+					m.openEmbedModal(idx)
+					return m, nil
+				}
 			}
 		} else {
 			m.hoverBlock = -1
@@ -1156,6 +1301,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
+		if m.embedModal.visible {
+			// Scroll the embed modal content.
+			if msg.Button == tea.MouseWheelDown {
+				m.embedModal.scroll++
+			} else if msg.Button == tea.MouseWheelUp {
+				if m.embedModal.scroll > 0 {
+					m.embedModal.scroll--
+				}
+			}
+			return m, nil
+		}
 		// View mode captures mouse — forward wheel to viewport for scrolling.
 		if m.viewMode {
 			var cmd tea.Cmd
@@ -1273,6 +1429,47 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When embed picker is visible, intercept all keys.
+		if m.embedPicker.visible {
+			switch msg.String() {
+			case "up":
+				m.embedPicker.moveUp()
+				m.updateViewport()
+				return m, nil
+			case "down":
+				m.embedPicker.moveDown()
+				m.updateViewport()
+				return m, nil
+			case "enter":
+				if sel := m.embedPicker.selected(); sel != "" {
+					m.textareas[m.active].SetValue(sel)
+					m.cursorCmd = m.textareas[m.active].Focus()
+				}
+				m.embedPicker.close()
+				m.updateViewport()
+				return m, nil
+			case "esc":
+				m.embedPicker.close()
+				m.updateViewport()
+				return m, nil
+			case "backspace":
+				if !m.embedPicker.deleteFilterRune() {
+					m.embedPicker.close()
+				}
+				m.updateViewport()
+				return m, nil
+			default:
+				if len(msg.Text) > 0 {
+					for _, r := range msg.Text {
+						m.embedPicker.addFilterRune(r)
+					}
+					m.updateViewport()
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		// When definition lookup is visible, intercept all keys.
 		if m.defLookup.visible {
 			switch msg.String() {
@@ -1330,6 +1527,39 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.statusStyle == statusSuccess {
 			m.status = ""
 			m.statusStyle = statusNone
+		}
+
+		// Embed modal: intercept keys when overlay is showing.
+		if m.embedModal.visible {
+			switch msg.String() {
+			case "esc", "q":
+				m.embedModal.close()
+				m.updateViewport()
+			case "up", "k":
+				if m.embedModal.scroll > 0 {
+					m.embedModal.scroll--
+				}
+			case "down", "j":
+				m.embedModal.scroll++
+			case "pgup":
+				m.embedModal.scroll -= m.height / 2
+				if m.embedModal.scroll < 0 {
+					m.embedModal.scroll = 0
+				}
+			case "pgdown":
+				m.embedModal.scroll += m.height / 2
+			case "ctrl+c":
+				m.embedModal.close()
+				if m.modified() {
+					m.quitPrompt = true
+					m.status = "Save before quitting? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.quitting = true
+				return m, tea.Quit
+			}
+			return m, nil
 		}
 
 		// View mode: intercept keys early.
@@ -1620,6 +1850,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.defLookup.open(m.blocks)
 					m.updateViewport()
 					return m, nil
+				}
+			}
+
+			// On Embed blocks, Tab opens the note picker.
+			if keyMsg.Code == tea.KeyTab && m.blocks[m.active].Type == block.Embed {
+				if m.config.ListEmbedTargets != nil {
+					targets := m.config.ListEmbedTargets()
+					if len(targets) > 0 {
+						m.embedPicker.open(targets)
+						m.updateViewport()
+						return m, nil
+					}
 				}
 			}
 
@@ -1944,6 +2186,10 @@ func (m *Model) computeBlockLineOffsets() {
 				}
 			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
 				advance("")
+			case b.Type == block.Embed:
+				advance("")
+			case prev.Type == block.Embed:
+				advance("")
 			case b.Type == block.Divider:
 				advance("")
 			case prev.Type == block.Divider:
@@ -1993,6 +2239,12 @@ func (m *Model) renderAllBlocks() string {
 		parts = append(parts, rendered)
 		if m.palette.visible && i == m.active {
 			if pv := m.palette.render(m.width); pv != "" {
+				lineCount += strings.Count(pv, "\n") + 1
+				parts = append(parts, pv)
+			}
+		}
+		if m.embedPicker.visible && i == m.active {
+			if pv := m.embedPicker.render(m.width); pv != "" {
 				lineCount += strings.Count(pv, "\n") + 1
 				parts = append(parts, pv)
 			}
@@ -2061,6 +2313,10 @@ func (m Model) renderViewContent() string {
 				}
 			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
 				parts = append(parts, "") // blank after code/quote blocks
+			case b.Type == block.Embed:
+				parts = append(parts, "") // blank before embeds
+			case prev.Type == block.Embed:
+				parts = append(parts, "") // blank after embeds
 			case b.Type == block.Divider:
 				parts = append(parts, "") // blank before dividers
 			case prev.Type == block.Divider:
@@ -2090,7 +2346,9 @@ func (m Model) View() tea.View {
 	}
 
 	var content string
-	if m.showHelp {
+	if m.embedModal.visible {
+		content = m.renderEmbedSheet()
+	} else if m.showHelp {
 		content = m.renderHelpOverlay()
 	} else if m.viewMode {
 		statusBar := m.renderStatusBar()
@@ -2215,4 +2473,183 @@ func (m Model) renderStatusBar() string {
 	}
 
 	return style.Render(bar)
+}
+
+// openEmbedModal resolves an embed block's reference and opens the sheet.
+func (m *Model) openEmbedModal(idx int) {
+	if idx < 0 || idx >= len(m.blocks) || m.blocks[idx].Type != block.Embed {
+		return
+	}
+	path := m.blocks[idx].Content
+	if idx < len(m.textareas) {
+		path = m.textareas[idx].Value()
+	}
+	if path == "" {
+		return
+	}
+
+	if m.config.ResolveEmbed == nil {
+		errBlocks := []block.Block{{Type: block.Paragraph, Content: "Embed links not available."}}
+		m.embedModal.open(path, path, errBlocks)
+		m.renderEmbedSheetContent()
+		return
+	}
+
+	title, content, err := m.config.ResolveEmbed(path)
+	if err != nil {
+		errBlocks := []block.Block{{Type: block.Paragraph, Content: "Note not found: " + path}}
+		m.embedModal.open(path, path, errBlocks)
+		m.renderEmbedSheetContent()
+		return
+	}
+
+	refBlocks := block.Parse(content)
+	m.embedModal.open(title, path, refBlocks)
+	m.renderEmbedSheetContent()
+}
+
+// renderEmbedSheetContent pre-renders the embed sheet blocks into lines
+// and computes block line offsets for click hit-testing.
+func (m *Model) renderEmbedSheetContent() {
+	em := &m.embedModal
+	contentWidth := viewMaxWidth
+	if m.width-4 < contentWidth {
+		contentWidth = m.width - 4
+		if contentWidth < 20 {
+			contentWidth = 20
+		}
+	}
+
+	leftPad := (m.width - contentWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	padStr := strings.Repeat(" ", leftPad)
+
+	var parts []string
+	offsets := make([]int, len(em.blocks))
+	parts = append(parts, "") // top breathing room
+
+	prevIdx := -1
+	for i, b := range em.blocks {
+		if prevIdx >= 0 {
+			prev := em.blocks[prevIdx]
+			switch {
+			case b.Type == block.Heading1:
+				parts = append(parts, "", "")
+			case b.Type == block.Heading2 || b.Type == block.Heading3:
+				parts = append(parts, "")
+			case b.Type == block.CodeBlock || b.Type == block.Quote:
+				if prev.Type != b.Type {
+					parts = append(parts, "")
+				}
+			case prev.Type == block.CodeBlock || prev.Type == block.Quote:
+				parts = append(parts, "")
+			case b.Type == block.Embed:
+				parts = append(parts, "")
+			case prev.Type == block.Embed:
+				parts = append(parts, "")
+			case b.Type == block.Divider:
+				parts = append(parts, "")
+			case prev.Type == block.Divider:
+				parts = append(parts, "")
+			}
+		}
+
+		offsets[i] = len(parts)
+		hovered := i == em.hoverBlock
+		rendered := renderViewBlock(b, b.Content, contentWidth, true, em.blocks, i, hovered)
+		for _, l := range strings.Split(rendered, "\n") {
+			parts = append(parts, padStr+l)
+		}
+		prevIdx = i
+	}
+	parts = append(parts, "", "")
+
+	em.lines = parts
+	em.blockLineOffsets = offsets
+}
+
+// renderEmbedSheet renders the full-width bottom sheet overlay for embedded notes.
+func (m Model) renderEmbedSheet() string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+
+	th := theme.Current()
+	dim := lipgloss.NewStyle().Faint(true)
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
+
+	// Sheet takes all but the top 2 lines (context peek).
+	sheetH := h - 2
+	if sheetH < 6 {
+		sheetH = 6
+	}
+
+	// Title bar: centered, with separator line.
+	titleText := accent.Bold(true).Render(m.embedModal.title)
+	titleW := lipgloss.Width(titleText)
+	titlePad := (w - titleW) / 2
+	if titlePad < 0 {
+		titlePad = 0
+	}
+	titleLine := strings.Repeat(" ", titlePad) + titleText
+
+	sepChar := "\u2500"
+	sep := dim.Render(strings.Repeat(sepChar, w))
+
+	// Content area: sheetH minus title(1) + sep(1) + status(1) = sheetH-3
+	contentH := sheetH - 3
+	if contentH < 1 {
+		contentH = 1
+	}
+
+	// Apply scroll.
+	lines := m.embedModal.lines
+	maxScroll := len(lines) - contentH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	scroll := m.embedModal.scroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	end := scroll + contentH
+	if end > len(lines) {
+		end = len(lines)
+	}
+	visible := lines[scroll:end]
+
+	// Pad to fill the content area.
+	body := strings.Join(visible, "\n")
+	if len(visible) < contentH {
+		body += strings.Repeat("\n", contentH-len(visible))
+	}
+
+	// Status bar.
+	statusRight := "Esc close \u00B7 \u2191\u2193 scroll"
+	statusLeft := ""
+	if len(lines) > contentH {
+		pct := 0
+		if maxScroll > 0 {
+			pct = scroll * 100 / maxScroll
+		}
+		statusLeft = fmt.Sprintf(" %d%%", pct)
+	}
+	statusBar := format.StatusBar(statusLeft, "", statusRight, w)
+	statusBar = dim.Render(statusBar)
+
+	// Top context: dimmed current note title.
+	contextLine := dim.Render("  " + m.config.Title)
+	blank := ""
+
+	return contextLine + "\n" + blank + "\n" + sep + "\n" + titleLine + "\n" + body + "\n" + statusBar
 }

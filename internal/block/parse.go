@@ -149,6 +149,14 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
+		// --- Embed (![[path]]) ---
+		if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
+			path := line[3 : len(line)-2]
+			blocks = append(blocks, Block{Type: Embed, Content: path})
+			i++
+			continue
+		}
+
 		// --- Definition (term followed by one or more ": definition" lines) ---
 		if i+1 < len(lines) && !isBlockStart(line) && isDefinitionLine(lines[i+1]) {
 			term := line
@@ -211,6 +219,9 @@ func isBlockStart(line string) bool {
 		return true
 	}
 	if _, _, ok := parseNumberedItem(stripped); ok {
+		return true
+	}
+	if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
 		return true
 	}
 	return isDivider(line)

@@ -23,6 +23,7 @@ const (
 	Quote                         // > block quote
 	Divider                       // ---, ***, or ___
 	DefinitionList                // term\n: definition
+	Embed                         // ![[path]] embedded note reference
 )
 
 // String returns the human-readable name of a BlockType.
@@ -50,6 +51,8 @@ func (bt BlockType) String() string {
 		return "Divider"
 	case DefinitionList:
 		return "DefinitionList"
+	case Embed:
+		return "Embed"
 	default:
 		return "Unknown"
 	}
@@ -90,6 +93,8 @@ func (bt BlockType) Short() string {
 		return "hr"
 	case DefinitionList:
 		return "df"
+	case Embed:
+		return "em"
 	default:
 		return "?"
 	}
