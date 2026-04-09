@@ -670,9 +670,6 @@ func (m *Model) setCursorLineRelative(delta int) {
 	charOffset := max(m.lastCharOffset, li.CharOffset)
 	m.lastCharOffset = charOffset
 
-	// 2 columns to account for the trailing space wrapping.
-	const trailingSpace = 2
-
 	if delta > 0 { //nolint:nestif
 		// Moving down.
 		for range delta {
@@ -680,8 +677,9 @@ func (m *Model) setCursorLineRelative(delta int) {
 				m.row++
 				m.col = 0
 			} else {
-				// Move the cursor to the start of the next virtual line.
-				m.col = min(li.StartColumn+li.Width+trailingSpace, len(m.value[m.row])-1)
+				// Jump to the segment boundary; LineInfo's wrap-around
+				// logic naturally advances to the next visual line.
+				m.col = min(li.StartColumn+li.Width, len(m.value[m.row]))
 			}
 			li = m.LineInfo()
 		}
@@ -692,8 +690,9 @@ func (m *Model) setCursorLineRelative(delta int) {
 				m.row--
 				m.col = len(m.value[m.row])
 			} else {
-				// Move the cursor to the end of the previous line.
-				m.col = li.StartColumn - trailingSpace
+				// Move one position before the current segment start
+				// to land in the previous visual line.
+				m.col = max(li.StartColumn-1, 0)
 			}
 			li = m.LineInfo()
 		}

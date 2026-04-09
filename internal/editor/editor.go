@@ -228,6 +228,37 @@ func (m Model) contentWidth(b block.Block) int {
 	return w
 }
 
+// tableCellTAWidth returns the textarea width for a table cell.
+// In word-wrap mode this is the visual cell width so text wraps within
+// the cell. In no-wrap mode this is noWrapWidth so text stays on one
+// line; the render handles per-cell scrolling with ← → indicators.
+func (m Model) tableCellTAWidth() int {
+	if !m.wordWrap {
+		return noWrapWidth
+	}
+	if m.table == nil {
+		return 5
+	}
+	mw := m.width
+	if mw <= 0 {
+		mw = defaultWidth
+	}
+	return tableCellWidth(mw-gutterWidth, m.table.numCols())
+}
+
+// tableCellDisplayWidth returns the visual column width for rendering,
+// always based on the window width regardless of word-wrap.
+func (m Model) tableCellDisplayWidth() int {
+	if m.table == nil {
+		return 5
+	}
+	mw := m.width
+	if mw <= 0 {
+		mw = defaultWidth
+	}
+	return tableCellWidth(mw-gutterWidth, m.table.numCols())
+}
+
 // New creates a new editor Model from the given config.
 func New(cfg Config) Model {
 	blocks := block.Parse(cfg.Content)
@@ -269,8 +300,8 @@ func New(cfg Config) Model {
 	// If first block is a Table, init table state.
 	if len(m.blocks) > 0 && m.blocks[0].Type == block.Table {
 		m.table = initTable(m.blocks[0].Content)
-		cw := tableCellWidth(defaultWidth-gutterWidth, m.table.numCols())
-		m.table.loadCell(&m.textareas[0], cw)
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[0], cw, false)
 		m.cursorCmd = m.textareas[0].Focus()
 	}
 
@@ -503,7 +534,7 @@ func (m *Model) resizeTextareas() {
 	for i, b := range m.blocks {
 		if m.table != nil && i == m.active && b.Type == block.Table {
 			// Active table textarea shows a cell; size to cell width.
-			cw := tableCellWidth(w-gutterWidth, m.table.numCols())
+			cw := m.tableCellTAWidth()
 			m.textareas[i].SetWidth(cw)
 		} else {
 			m.textareas[i].SetWidth(m.contentWidth(b))
@@ -560,8 +591,8 @@ func (m *Model) focusBlock(idx int) {
 	// Entering a table: init table state and load first cell.
 	if m.blocks[idx].Type == block.Table {
 		m.table = initTable(m.blocks[idx].Content)
-		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
-		m.table.loadCell(&m.textareas[idx], cw)
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[idx], cw, false)
 		m.cursorCmd = m.textareas[idx].Focus()
 	}
 }
@@ -1208,8 +1239,8 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.blocks[m.active].Content = content
 		m.textareas[m.active].SetValue(content)
 		m.table = initTable(content)
-		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
-		m.table.loadCell(&m.textareas[m.active], cw)
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[m.active], cw, false)
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
@@ -1670,8 +1701,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Re-init table state if returning to a table block.
 					if m.blocks[m.active].Type == block.Table {
 						m.table = initTable(m.blocks[m.active].Content)
-						cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
-						m.table.loadCell(&m.textareas[m.active], cw)
+						cw := m.tableCellTAWidth()
+						m.table.loadCell(&m.textareas[m.active], cw, false)
 						m.cursorCmd = m.textareas[m.active].Focus()
 					}
 				}
@@ -1798,13 +1829,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
-			// Table: move to cell above before block navigation.
+			// Table: move to cell above, preserving horizontal position.
 			if m.isAtFirstLine() && m.table != nil && m.table.row > 0 {
 				ta := &m.textareas[m.active]
-				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+				charOffset := ta.LineInfo().CharOffset
+				cw := m.tableCellTAWidth()
 				m.table.syncCell(*ta)
 				m.table.row--
-				m.table.loadCell(ta, cw)
+				m.table.loadCell(ta, cw, true)
+				li := ta.LineInfo()
+				ta.SetCursorColumn(li.StartColumn + charOffset)
 				m.cursorCmd = ta.Focus()
 				m.updateViewport()
 				return m, nil
@@ -1822,13 +1856,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
-			// Table: move to cell below before block navigation.
+			// Table: move to cell below, preserving horizontal position.
 			if m.isAtLastLine() && m.table != nil && m.table.row < len(m.table.cells)-1 {
 				ta := &m.textareas[m.active]
-				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+				charOffset := ta.LineInfo().CharOffset
+				cw := m.tableCellTAWidth()
 				m.table.syncCell(*ta)
 				m.table.row++
-				m.table.loadCell(ta, cw)
+				m.table.loadCell(ta, cw, false)
+				ta.SetCursorColumn(charOffset)
 				m.cursorCmd = ta.Focus()
 				m.updateViewport()
 				return m, nil
@@ -1995,16 +2031,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// boundary navigation. Everything else goes to the textarea.
 			if m.table != nil && m.blocks[m.active].Type == block.Table {
 				ta := &m.textareas[m.active]
-				cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
+				cw := m.tableCellTAWidth()
 
 				if keyMsg.Code == tea.KeyTab {
 					m.table.syncCell(*ta)
 					if keyMsg.Mod.Contains(tea.ModShift) {
 						m.table.prevCell()
+						m.table.loadCell(ta, cw, true)
 					} else {
 						m.table.nextCell()
+						m.table.loadCell(ta, cw, false)
 					}
-					m.table.loadCell(ta, cw)
 					m.cursorCmd = ta.Focus()
 					m.updateViewport()
 					return m, nil
@@ -2017,9 +2054,90 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						newRow := make([]string, m.table.numCols())
 						m.table.cells = append(m.table.cells, newRow)
 					}
-					m.table.loadCell(ta, cw)
+					m.table.loadCell(ta, cw, false)
 					m.cursorCmd = ta.Focus()
 					m.updateViewport()
+					return m, nil
+				}
+
+				// Left at position 0: move to previous cell.
+				if keyMsg.Code == tea.KeyLeft && !keyMsg.Mod.Contains(tea.ModAlt) {
+					if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.LineInfo().RowOffset == 0 {
+						if m.table.row > 0 || m.table.col > 0 {
+							m.table.syncCell(*ta)
+							m.table.prevCell()
+							m.table.loadCell(ta, cw, true)
+							m.cursorCmd = ta.Focus()
+							m.updateViewport()
+							return m, nil
+						}
+					}
+				}
+
+				// Right at end of text: move to next cell.
+				if keyMsg.Code == tea.KeyRight && !keyMsg.Mod.Contains(tea.ModAlt) {
+					if m.isAtLastLine() {
+						li := ta.LineInfo()
+						lineLen := len([]rune(strings.Split(ta.Value(), "\n")[ta.Line()]))
+						atEnd := li.StartColumn+li.ColumnOffset >= lineLen
+						if atEnd && (m.table.row < len(m.table.cells)-1 || m.table.col < m.table.numCols()-1) {
+							m.table.syncCell(*ta)
+							m.table.nextCell()
+							m.table.loadCell(ta, cw, false)
+							m.cursorCmd = ta.Focus()
+							m.updateViewport()
+							return m, nil
+						}
+					}
+				}
+
+				// Alt+R: insert row below.
+				if keyMsg.Code == 'r' && keyMsg.Mod.Contains(tea.ModAlt) {
+					m.pushUndo()
+					m.table.syncCell(*ta)
+					m.table.addRow()
+					m.table.loadCell(ta, cw, false)
+					m.cursorCmd = ta.Focus()
+					m.updateViewport()
+					return m, nil
+				}
+
+				// Alt+C: insert column after.
+				if keyMsg.Code == 'c' && keyMsg.Mod.Contains(tea.ModAlt) {
+					m.pushUndo()
+					m.table.syncCell(*ta)
+					m.table.addCol()
+					cw = m.tableCellTAWidth() // recompute — column count changed
+					m.table.loadCell(ta, cw, false)
+					m.cursorCmd = ta.Focus()
+					m.resizeTextareas()
+					m.updateViewport()
+					return m, nil
+				}
+
+				// Alt+Backspace: delete current row (if more than one).
+				if keyMsg.Code == tea.KeyBackspace && keyMsg.Mod.Contains(tea.ModAlt) {
+					m.pushUndo()
+					m.table.syncCell(*ta)
+					if m.table.deleteRow() {
+						m.table.loadCell(ta, cw, false)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+					}
+					return m, nil
+				}
+
+				// Alt+D: delete current column (if more than one).
+				if keyMsg.Code == 'd' && keyMsg.Mod.Contains(tea.ModAlt) {
+					m.pushUndo()
+					m.table.syncCell(*ta)
+					if m.table.deleteCol() {
+						cw = m.tableCellTAWidth()
+						m.table.loadCell(ta, cw, false)
+						m.cursorCmd = ta.Focus()
+						m.resizeTextareas()
+						m.updateViewport()
+					}
 					return m, nil
 				}
 
@@ -2151,6 +2269,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			preState = m.captureState()
 		}
 
+		// Enforce correct width BEFORE the textarea processes the key,
+		// so cursor movement uses the right wrapping.
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			cw := m.tableCellTAWidth()
+			m.textareas[m.active].SetWidth(cw)
+			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+		}
+
 		var cmd tea.Cmd
 		m.textareas[m.active], cmd = m.textareas[m.active].Update(msg)
 
@@ -2197,7 +2323,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-enforce width and recalculate height after every keystroke.
 		// This ensures the textarea re-wraps correctly after content changes
 		// (e.g. deleting a newline inserted via Ctrl+J).
-		m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			cw := m.tableCellTAWidth()
+			m.textareas[m.active].SetWidth(cw)
+		} else {
+			m.textareas[m.active].SetWidth(m.contentWidth(m.blocks[m.active]))
+		}
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 
 		m.updateViewport()
@@ -2644,6 +2775,9 @@ func (m Model) renderStatusBar() string {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
 		right = ": defs \u00B7 \u2303R edit \u00B7 Esc quit"
+	} else if m.table != nil && m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Table {
+		hint = "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u232B del row \u00B7 \u2325D del col"
+		right = "/ blocks \u00B7 : defs \u00B7 \u2303G help \u00B7 Esc quit"
 	} else {
 		right = "/ blocks \u00B7 : defs \u00B7 \u2303G help \u00B7 Esc quit"
 	}

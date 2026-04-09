@@ -42,7 +42,8 @@ func (ts *tableState) syncCell(ta textarea.Model) {
 }
 
 // loadCell sets the textarea's value to cells[row][col] and configures width.
-func (ts *tableState) loadCell(ta *textarea.Model, width int) {
+// If toEnd is true the cursor is placed at the end; otherwise at the beginning.
+func (ts *tableState) loadCell(ta *textarea.Model, width int, toEnd bool) {
 	val := ""
 	if ts.row >= 0 && ts.row < len(ts.cells) && ts.col >= 0 && ts.col < len(ts.cells[ts.row]) {
 		val = ts.cells[ts.row][ts.col]
@@ -50,7 +51,11 @@ func (ts *tableState) loadCell(ta *textarea.Model, width int) {
 	ta.SetWidth(width)
 	ta.SetValue(val)
 	ta.SetHeight(ta.VisualLineCount())
-	ta.MoveToEnd()
+	if toEnd {
+		ta.MoveToEnd()
+	} else {
+		ta.MoveToBegin()
+	}
 }
 
 // serialize converts cells back to pipe content.
@@ -103,20 +108,103 @@ func (ts *tableState) prevCell() {
 	}
 }
 
-// tableCellWidth computes the width for each cell column given available terminal width.
-// Layout: | pad content pad | pad content pad | ...
-// = (numCols+1) border chars + numCols * (2 padding + cellWidth)
+// addRow inserts an empty row after the current row and moves to it.
+func (ts *tableState) addRow() {
+	nc := ts.numCols()
+	if nc == 0 {
+		return
+	}
+	newRow := make([]string, nc)
+	insertAt := ts.row + 1
+	ts.cells = append(ts.cells[:insertAt], append([][]string{newRow}, ts.cells[insertAt:]...)...)
+	ts.row = insertAt
+	ts.col = 0
+}
+
+// addCol inserts an empty column after the current column and moves to it.
+func (ts *tableState) addCol() {
+	insertAt := ts.col + 1
+	for i := range ts.cells {
+		row := ts.cells[i]
+		newRow := make([]string, len(row)+1)
+		copy(newRow, row[:insertAt])
+		newRow[insertAt] = ""
+		copy(newRow[insertAt+1:], row[insertAt:])
+		ts.cells[i] = newRow
+	}
+	ts.aligns = append(ts.aligns[:insertAt], append([]string{"left"}, ts.aligns[insertAt:]...)...)
+	ts.col = insertAt
+}
+
+// deleteRow removes the current row. Returns false if only one data row remains.
+func (ts *tableState) deleteRow() bool {
+	if len(ts.cells) <= 1 {
+		return false
+	}
+	ts.cells = append(ts.cells[:ts.row], ts.cells[ts.row+1:]...)
+	if ts.row >= len(ts.cells) {
+		ts.row = len(ts.cells) - 1
+	}
+	return true
+}
+
+// deleteCol removes the current column. Returns false if only one column remains.
+func (ts *tableState) deleteCol() bool {
+	nc := ts.numCols()
+	if nc <= 1 {
+		return false
+	}
+	for i := range ts.cells {
+		ts.cells[i] = append(ts.cells[i][:ts.col], ts.cells[i][ts.col+1:]...)
+	}
+	if ts.col < len(ts.aligns) {
+		ts.aligns = append(ts.aligns[:ts.col], ts.aligns[ts.col+1:]...)
+	}
+	if ts.col >= ts.numCols() {
+		ts.col = ts.numCols() - 1
+	}
+	return true
+}
+
+// tableCellWidth computes the base content width for each cell column.
+// This is the minimum width; some columns may be 1 wider to fill the
+// available space (see tableCellWidths).
 func tableCellWidth(totalWidth, numCols int) int {
 	if numCols <= 0 {
 		return 5
 	}
-	// totalWidth = (numCols+1)*1 + numCols*(2+cw)
-	// cw = (totalWidth - numCols - 1 - 2*numCols) / numCols
-	cw := (totalWidth - numCols - 1 - 2*numCols) / numCols
+	avail := totalWidth - numCols - 1 - 2*numCols
+	cw := avail / numCols
 	if cw < 5 {
 		cw = 5
 	}
 	return cw
+}
+
+// tableCellWidths returns per-column widths that exactly fill totalWidth.
+// The first `remainder` columns are 1 wider than the rest so the table
+// grid spans the full available width without gaps.
+func tableCellWidths(totalWidth, numCols int) []int {
+	if numCols <= 0 {
+		return nil
+	}
+	avail := totalWidth - numCols - 1 - 2*numCols
+	base := avail / numCols
+	if base < 5 {
+		base = 5
+	}
+	rem := avail - base*numCols
+	if rem < 0 {
+		rem = 0
+	}
+	widths := make([]int, numCols)
+	for i := range widths {
+		widths[i] = base
+		if i < rem {
+			widths[i]++
+		}
+	}
+	return widths
 }
 
 // renderActiveTable renders the table grid with one cell showing the textarea cursor.
@@ -136,7 +224,8 @@ func renderActiveTable(m Model, idx int, ta textarea.Model, width int, wordWrap 
 	if tableWidth < 10 {
 		tableWidth = 10
 	}
-	cw := tableCellWidth(tableWidth, numCols)
+	colWidths := tableCellWidths(tableWidth, numCols)
+	cw := tableCellWidth(tableWidth, numCols) // base width for textarea
 
 	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Border))
 
@@ -150,20 +239,22 @@ func renderActiveTable(m Model, idx int, ta textarea.Model, width int, wordWrap 
 	for r, row := range ts.cells {
 		var cellRenders []cellRender
 		for c, cell := range row {
+			cellCW := cw
+			if c < len(colWidths) {
+				cellCW = colWidths[c]
+			}
 			if r == ts.row && c == ts.col {
-				// Active cell: render with cursor.
-				cr := renderCellWithCursor(ta, cell, cw, cursorRawRow, cursorColInWrap, cursorWrapRow, r == 0 && th.Blocks.Table.HeaderBold)
+				cr := renderCellWithCursor(ta, cell, cellCW, cursorRawRow, cursorColInWrap, cursorWrapRow, r == 0 && th.Blocks.Table.HeaderBold, wordWrap)
 				cellRenders = append(cellRenders, cr)
 			} else {
-				// Inactive cell: wrap and apply inline markdown.
-				cr := renderStaticCell(cell, cw, r == 0 && th.Blocks.Table.HeaderBold)
+				cr := renderStaticCell(cell, cellCW, r == 0 && th.Blocks.Table.HeaderBold, wordWrap)
 				cellRenders = append(cellRenders, cr)
 			}
 		}
 		gridRows = append(gridRows, cellRenders)
 	}
 
-	return buildGrid(gridRows, cw, numCols, tableWidth, bc, ts.row, ts.col)
+	return buildGrid(gridRows, colWidths, numCols, tableWidth, bc, ts.row, ts.col)
 }
 
 // cellRender holds pre-rendered cell lines for grid assembly.
@@ -172,7 +263,7 @@ type cellRender struct {
 }
 
 // renderCellWithCursor renders the active cell with the textarea cursor.
-func renderCellWithCursor(ta textarea.Model, _ string, cw int, cursorRawRow, cursorColInWrap, cursorWrapRow int, bold bool) cellRender {
+func renderCellWithCursor(ta textarea.Model, _ string, cw int, cursorRawRow, cursorColInWrap, cursorWrapRow int, bold bool, wordWrap bool) cellRender {
 	content := ta.Value()
 	rawLines := strings.Split(content, "\n")
 	boldStyle := lipgloss.NewStyle()
@@ -180,6 +271,50 @@ func renderCellWithCursor(ta textarea.Model, _ string, cw int, cursorRawRow, cur
 		boldStyle = boldStyle.Bold(true)
 	}
 
+	if !wordWrap {
+		// No-wrap: one visual line per raw line, scrolled to cursor.
+		var visualLines []string
+		for rawIdx, raw := range rawLines {
+			line := raw
+			isCursorLine := rawIdx == cursorRawRow
+
+			if isCursorLine {
+				runes := []rune(line)
+				col := cursorColInWrap
+				if col > len(runes) {
+					col = len(runes)
+				}
+				before := string(runes[:col])
+				curChar := " "
+				after := ""
+				if col < len(runes) {
+					curChar = string(runes[col : col+1])
+					after = string(runes[col+1:])
+				}
+				ta.CursorSetChar(curChar)
+				if bold {
+					line = boldStyle.Render(before) + ta.CursorView() + boldStyle.Render(after)
+				} else {
+					line = before + ta.CursorView() + after
+				}
+				line = scrollOrTruncate(line, cw, col, true)
+			} else {
+				if bold {
+					line = boldStyle.Render(line)
+				}
+				line = scrollOrTruncate(line, cw, 0, false)
+			}
+
+			// Pad to cw after truncation.
+			if pad := cw - lipgloss.Width(line); pad > 0 {
+				line += strings.Repeat(" ", pad)
+			}
+			visualLines = append(visualLines, line)
+		}
+		return cellRender{lines: visualLines}
+	}
+
+	// Word-wrap: wrap text within the cell.
 	var visualLines []string
 	for rawIdx, raw := range rawLines {
 		segs := textarea.Wrap([]rune(raw), cw)
@@ -224,19 +359,27 @@ func renderCellWithCursor(ta textarea.Model, _ string, cw int, cursorRawRow, cur
 }
 
 // renderStaticCell renders an inactive cell with wrapping and inline markdown.
-func renderStaticCell(content string, cw int, bold bool) cellRender {
-	wrapped := wrapText(content, cw)
-	wrapped = format.RenderInlineMarkdown(wrapped)
+func renderStaticCell(content string, cw int, bold bool, wordWrap bool) cellRender {
+	var rendered string
+	if wordWrap {
+		rendered = wrapText(content, cw)
+	} else {
+		rendered = content
+	}
+	rendered = format.RenderInlineMarkdown(rendered)
 
 	boldStyle := lipgloss.NewStyle()
 	if bold {
 		boldStyle = boldStyle.Bold(true)
 	}
 
-	lines := strings.Split(wrapped, "\n")
+	lines := strings.Split(rendered, "\n")
 	for i, l := range lines {
 		if bold {
 			l = boldStyle.Render(l)
+		}
+		if !wordWrap {
+			l = scrollOrTruncate(l, cw, 0, false)
 		}
 		if pad := cw - lipgloss.Width(l); pad > 0 {
 			l += strings.Repeat(" ", pad)
@@ -248,14 +391,17 @@ func renderStaticCell(content string, cw int, bold bool) cellRender {
 }
 
 // buildGrid assembles the visual grid from cell renders.
-func buildGrid(gridRows [][]cellRender, cw, numCols, tableWidth int, bc lipgloss.Style, activeRow, activeCol int) string {
+func buildGrid(gridRows [][]cellRender, colWidths []int, numCols, tableWidth int, bc lipgloss.Style, activeRow, activeCol int) string {
 	pipe := bc.Render("\u2502")
 
-	// Build border lines.
-	cellDash := strings.Repeat("\u2500", cw+2) // +2 for padding spaces
-	topBorder := bc.Render("\u256D" + strings.Join(repeatStr(cellDash, numCols), "\u252C") + "\u256E")
-	midBorder := bc.Render("\u251C" + strings.Join(repeatStr(cellDash, numCols), "\u253C") + "\u2524")
-	botBorder := bc.Render("\u2570" + strings.Join(repeatStr(cellDash, numCols), "\u2534") + "\u256F")
+	// Build border lines with per-column widths.
+	var dashes []string
+	for _, w := range colWidths {
+		dashes = append(dashes, strings.Repeat("\u2500", w+2))
+	}
+	topBorder := bc.Render("\u256D" + strings.Join(dashes, "\u252C") + "\u256E")
+	midBorder := bc.Render("\u251C" + strings.Join(dashes, "\u253C") + "\u2524")
+	botBorder := bc.Render("\u2570" + strings.Join(dashes, "\u2534") + "\u256F")
 
 	var out []string
 	out = append(out, topBorder)
@@ -273,10 +419,14 @@ func buildGrid(gridRows [][]cellRender, cw, numCols, tableWidth int, bc lipgloss
 			}
 		}
 
-		// Pad cells with fewer lines.
+		// Pad cells with fewer lines using per-column widths.
 		for c := range rowCells {
+			w := colWidths[0]
+			if c < len(colWidths) {
+				w = colWidths[c]
+			}
 			for len(rowCells[c].lines) < maxLines {
-				rowCells[c].lines = append(rowCells[c].lines, strings.Repeat(" ", cw))
+				rowCells[c].lines = append(rowCells[c].lines, strings.Repeat(" ", w))
 			}
 		}
 
@@ -320,38 +470,33 @@ func renderTableGrid(content string, width int, borderColor string, headerBold b
 		return ""
 	}
 
-	var cw int
-	if wordWrap {
-		cw = tableCellWidth(width, numCols)
-	} else {
-		// Natural content-width columns.
-		cw = 3
-		for _, row := range cells {
-			for _, cell := range row {
-				if len(cell) > cw {
-					cw = len(cell)
-				}
-			}
-		}
-	}
+	colWidths := tableCellWidths(width, numCols)
 
 	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
 
 	var gridRows [][]cellRender
 	for r, row := range cells {
 		var cellRenders []cellRender
-		for _, cell := range row {
-			cr := renderStaticCell(cell, cw, r == 0 && headerBold)
+		for c, cell := range row {
+			cellCW := colWidths[0]
+			if c < len(colWidths) {
+				cellCW = colWidths[c]
+			}
+			cr := renderStaticCell(cell, cellCW, r == 0 && headerBold, wordWrap)
 			cellRenders = append(cellRenders, cr)
 		}
 		// Normalize column count.
-		for len(cellRenders) < numCols {
-			cellRenders = append(cellRenders, renderStaticCell("", cw, false))
+		for c := len(cellRenders); c < numCols; c++ {
+			cellCW := colWidths[0]
+			if c < len(colWidths) {
+				cellCW = colWidths[c]
+			}
+			cellRenders = append(cellRenders, renderStaticCell("", cellCW, false, wordWrap))
 		}
 		gridRows = append(gridRows, cellRenders)
 	}
 
-	return buildGrid(gridRows, cw, numCols, width, bc, -1, -1)
+	return buildGrid(gridRows, colWidths, numCols, width, bc, -1, -1)
 }
 
 // renderActiveTableFull renders the active table block with gutter and scroll handling.
@@ -391,8 +536,10 @@ func (m Model) renderActiveTableFull(idx int, b block.Block) string {
 		// Compute cursor column: gutter + border + padding + cell cursor position.
 		cursorCol := gutterWidth + 1 + 1 + ta.LineInfo().ColumnOffset
 		// Add offset for columns before the active one.
-		cw := tableCellWidth(tableWidth, m.table.numCols())
-		cursorCol += m.table.col * (cw + 3) // each col: pad + content + pad + border
+		colWidths := tableCellWidths(tableWidth, m.table.numCols())
+		for c := 0; c < m.table.col && c < len(colWidths); c++ {
+			cursorCol += colWidths[c] + 3 // content + pad + pad + border
+		}
 
 		// Find which line has the cursor.
 		// The cursor is in the active row. Account for top border (1 line)

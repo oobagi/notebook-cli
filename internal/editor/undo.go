@@ -112,8 +112,8 @@ func (m *Model) restoreState(state editorState) {
 	// If active block is a Table, init table state.
 	if active < len(m.blocks) && m.blocks[active].Type == block.Table {
 		m.table = initTable(m.blocks[active].Content)
-		cw := tableCellWidth(m.width-gutterWidth, m.table.numCols())
-		m.table.loadCell(&m.textareas[active], cw)
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[active], cw, false)
 		m.cursorCmd = m.textareas[active].Focus()
 	}
 }
