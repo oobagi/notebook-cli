@@ -280,6 +280,38 @@ func TestParse(t *testing.T) {
 				{Type: Embed, Content: "my notebook/my note"},
 			},
 		},
+		{
+			name:  "simple 2x2 table",
+			input: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+			expect: []Block{
+				{Type: Table, Content: "| A | B |\n| --- | --- |\n| 1 | 2 |"},
+			},
+		},
+		{
+			name:  "table with alignment markers",
+			input: "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |",
+			expect: []Block{
+				{Type: Table, Content: "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |"},
+			},
+		},
+		{
+			name:  "table with no body rows",
+			input: "| Name | Age |\n| --- | --- |",
+			expect: []Block{
+				{Type: Table, Content: "| Name | Age |\n| --- | --- |"},
+			},
+		},
+		{
+			name:  "table between other block types",
+			input: "# Title\n\n| X | Y |\n| - | - |\n| 1 | 2 |\n\nSome text",
+			expect: []Block{
+				{Type: Heading1, Content: "Title"},
+				{Type: Paragraph, Content: ""},
+				{Type: Table, Content: "| X | Y |\n| - | - |\n| 1 | 2 |"},
+				{Type: Paragraph, Content: ""},
+				{Type: Paragraph, Content: "Some text"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -337,6 +369,8 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("DefinitionList")
 		case Embed:
 			b.WriteString("Embed")
+		case Table:
+			b.WriteString("Table")
 		}
 		if bl.Content != "" {
 			b.WriteString(" " + bl.Content)

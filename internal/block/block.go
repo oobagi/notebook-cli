@@ -25,6 +25,7 @@ const (
 	DefinitionList                // term\n: definition
 	Embed                         // ![[path]] embedded note reference
 	Callout                       // > [!NOTE] callout/admonition
+	Table                         // GFM pipe table
 )
 
 // String returns the human-readable name of a BlockType.
@@ -56,6 +57,8 @@ func (bt BlockType) String() string {
 		return "Embed"
 	case Callout:
 		return "Callout"
+	case Table:
+		return "Table"
 	default:
 		return "Unknown"
 	}
@@ -100,6 +103,8 @@ func (bt BlockType) Short() string {
 		return "em"
 	case Callout:
 		return "co"
+	case Table:
+		return "tb"
 	default:
 		return "?"
 	}

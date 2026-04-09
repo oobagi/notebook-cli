@@ -113,6 +113,11 @@ type EmbedStyle struct {
 	Color string // hex; "" means theme.Accent
 }
 
+// TableStyle controls table rendering.
+type TableStyle struct {
+	HeaderBold bool // whether header row is rendered bold
+}
+
 // BlockStyles groups all per-block-type formatting.
 type BlockStyles struct {
 	Heading1   HeadingStyle
@@ -127,6 +132,7 @@ type BlockStyles struct {
 	Divider    DividerStyle
 	Definition DefinitionStyle
 	Embed      EmbedStyle
+	Table      TableStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original
@@ -158,6 +164,7 @@ func DefaultBlockStyles() BlockStyles {
 		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
 		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
 		Embed:      EmbedStyle{Icon: "\u2197 "},
+		Table:      TableStyle{HeaderBold: true},
 	}
 }
 
