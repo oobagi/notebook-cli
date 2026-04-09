@@ -24,6 +24,7 @@ const (
 	Divider                       // ---, ***, or ___
 	DefinitionList                // term\n: definition
 	Embed                         // ![[path]] embedded note reference
+	Callout                       // > [!NOTE] callout/admonition
 )
 
 // String returns the human-readable name of a BlockType.
@@ -53,6 +54,8 @@ func (bt BlockType) String() string {
 		return "DefinitionList"
 	case Embed:
 		return "Embed"
+	case Callout:
+		return "Callout"
 	default:
 		return "Unknown"
 	}
@@ -95,17 +98,73 @@ func (bt BlockType) Short() string {
 		return "df"
 	case Embed:
 		return "em"
+	case Callout:
+		return "co"
 	default:
 		return "?"
 	}
 }
 
+// CalloutVariant enumerates the supported callout/admonition types.
+type CalloutVariant int
+
+const (
+	CalloutNote      CalloutVariant = iota // [!NOTE]
+	CalloutTip                             // [!TIP]
+	CalloutWarning                         // [!WARNING]
+	CalloutCaution                         // [!CAUTION]
+	CalloutImportant                       // [!IMPORTANT]
+)
+
+// String returns the uppercase name of a CalloutVariant.
+func (cv CalloutVariant) String() string {
+	switch cv {
+	case CalloutNote:
+		return "NOTE"
+	case CalloutTip:
+		return "TIP"
+	case CalloutWarning:
+		return "WARNING"
+	case CalloutCaution:
+		return "CAUTION"
+	case CalloutImportant:
+		return "IMPORTANT"
+	default:
+		return "NOTE"
+	}
+}
+
+// Next returns the next CalloutVariant in the cycle (Note → Tip → ... → Important → Note).
+func (cv CalloutVariant) Next() CalloutVariant {
+	return (cv + 1) % (CalloutImportant + 1)
+}
+
+// ParseCalloutVariant returns the CalloutVariant for a string (case-insensitive).
+// The second return value is false if the string is not a recognized variant.
+func ParseCalloutVariant(s string) (CalloutVariant, bool) {
+	switch strings.ToUpper(s) {
+	case "NOTE":
+		return CalloutNote, true
+	case "TIP":
+		return CalloutTip, true
+	case "WARNING":
+		return CalloutWarning, true
+	case "CAUTION":
+		return CalloutCaution, true
+	case "IMPORTANT":
+		return CalloutImportant, true
+	default:
+		return CalloutNote, false
+	}
+}
+
 // Block holds a single parsed content block.
 type Block struct {
-	Type    BlockType // kind of block
-	Content string    // text content without markdown prefix
-	Checked bool      // whether checklist item is checked (Checklist only)
-	Indent  int       // nesting level for list items (0 = top level)
+	Type    BlockType      // kind of block
+	Content string         // text content without markdown prefix
+	Checked bool           // whether checklist item is checked (Checklist only)
+	Indent  int            // nesting level for list items (0 = top level)
+	Variant CalloutVariant // admonition variant (Callout only)
 }
 
 // CountNumberedPosition returns the 1-based position of a numbered list block

@@ -129,7 +129,7 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
-		// --- Block quotes ---
+		// --- Block quotes / Callouts ---
 		if strings.HasPrefix(line, "> ") || line == ">" {
 			var quoteLines []string
 			for i < len(lines) {
@@ -142,6 +142,23 @@ func Parse(markdown string) []Block {
 				}
 				i++
 			}
+
+			// Check if this is a callout/admonition: first line matches [!TYPE]
+			if len(quoteLines) > 0 {
+				if variant, ok := ParseCalloutMarker(quoteLines[0]); ok {
+					content := ""
+					if len(quoteLines) > 1 {
+						content = strings.Join(quoteLines[1:], "\n")
+					}
+					blocks = append(blocks, Block{
+						Type:    Callout,
+						Content: content,
+						Variant: variant,
+					})
+					continue
+				}
+			}
+
 			blocks = append(blocks, Block{
 				Type:    Quote,
 				Content: strings.Join(quoteLines, "\n"),
@@ -249,6 +266,17 @@ func allSameChar(s string, c byte) bool {
 		}
 	}
 	return true
+}
+
+// ParseCalloutMarker checks if a line matches the [!TYPE] callout marker
+// pattern (case-insensitive). Returns the variant and true if matched.
+func ParseCalloutMarker(line string) (CalloutVariant, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "[!") || !strings.HasSuffix(trimmed, "]") {
+		return CalloutNote, false
+	}
+	inner := trimmed[2 : len(trimmed)-1]
+	return ParseCalloutVariant(inner)
 }
 
 // parseNumberedItem splits "123. text" into the number prefix, text, and

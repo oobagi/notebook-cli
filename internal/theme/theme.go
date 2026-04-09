@@ -84,6 +84,15 @@ type QuoteStyle struct {
 	BarColor string // hex; "" means theme.Muted
 }
 
+// CalloutStyle controls per-variant admonition colors on Quote blocks.
+type CalloutStyle struct {
+	NoteColor      string // hex color for [!NOTE]
+	TipColor       string // hex color for [!TIP]
+	WarningColor   string // hex color for [!WARNING]
+	CautionColor   string // hex color for [!CAUTION]
+	ImportantColor string // hex color for [!IMPORTANT]
+}
+
 // DividerStyle controls horizontal rule rendering.
 type DividerStyle struct {
 	Char     string // e.g. "─", "━", "-"
@@ -114,6 +123,7 @@ type BlockStyles struct {
 	Checklist  ChecklistStyle
 	Code       CodeStyle
 	Quote      QuoteStyle
+	Callout    CalloutStyle
 	Divider    DividerStyle
 	Definition DefinitionStyle
 	Embed      EmbedStyle
@@ -138,6 +148,13 @@ func DefaultBlockStyles() BlockStyles {
 		},
 		Code:       CodeStyle{LabelAlign: "left"},
 		Quote:      QuoteStyle{Bar: "\u2502 "},
+		Callout: CalloutStyle{
+			NoteColor:      "#6CB6FF",
+			TipColor:       "#3FB950",
+			WarningColor:   "#D29922",
+			CautionColor:   "#F85149",
+			ImportantColor: "#A371F7",
+		},
 		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
 		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
 		Embed:      EmbedStyle{Icon: "\u2197 "},
