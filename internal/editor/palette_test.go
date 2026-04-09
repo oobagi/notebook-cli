@@ -14,7 +14,7 @@ func TestSlashAtPos0OpensPalette(t *testing.T) {
 	m = updated.(Model)
 
 	// The first block is an empty paragraph with cursor at pos 0.
-	if m.palette.visible {
+	if m.palette.Visible {
 		t.Fatal("palette should not be visible initially")
 	}
 
@@ -22,7 +22,7 @@ func TestSlashAtPos0OpensPalette(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible after typing / at position 0 of an empty block")
 	}
 }
@@ -40,7 +40,7 @@ func TestSlashMidLineDoesNotOpenPalette(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if m.palette.visible {
+	if m.palette.Visible {
 		t.Fatal("palette should not open when / is typed mid-line")
 	}
 }
@@ -49,23 +49,23 @@ func TestPaletteFilterReducesList(t *testing.T) {
 	p := newPalette()
 	p.open(0)
 
-	allCount := len(p.filtered)
-	if allCount != len(p.items) {
+	allCount := p.FilteredCount()
+	if allCount != len(p.Items()) {
 		t.Fatalf("expected all items visible initially, got %d", allCount)
 	}
 
 	// Type "hea" to filter.
-	p.addFilterRune('h')
-	p.addFilterRune('e')
-	p.addFilterRune('a')
+	p.AddFilterRune('h')
+	p.AddFilterRune('e')
+	p.AddFilterRune('a')
 
-	if len(p.filtered) >= allCount {
-		t.Fatalf("filtered list should be smaller after typing 'hea', got %d", len(p.filtered))
+	if p.FilteredCount() >= allCount {
+		t.Fatalf("filtered list should be smaller after typing 'hea', got %d", p.FilteredCount())
 	}
 
 	// All filtered items should contain "hea" in their label.
-	for _, idx := range p.filtered {
-		item := p.items[idx]
+	for _, idx := range p.FilteredIndices() {
+		item := p.Items()[idx].(paletteItem)
 		if !containsPlainText(item.Label, "Heading") {
 			t.Fatalf("filtered item %q should contain 'Heading'", item.Label)
 		}
@@ -81,7 +81,7 @@ func TestPaletteEnterAppliesSelectedType(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible")
 	}
 
@@ -93,7 +93,7 @@ func TestPaletteEnterAppliesSelectedType(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 
-	if m.palette.visible {
+	if m.palette.Visible {
 		t.Fatal("palette should be closed after Enter")
 	}
 
@@ -113,7 +113,7 @@ func TestPaletteEscClosesWithoutChanges(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible")
 	}
 
@@ -125,7 +125,7 @@ func TestPaletteEscClosesWithoutChanges(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = updated.(Model)
 
-	if m.palette.visible {
+	if m.palette.Visible {
 		t.Fatal("palette should be closed after Esc")
 	}
 
@@ -135,7 +135,7 @@ func TestPaletteEscClosesWithoutChanges(t *testing.T) {
 }
 
 func TestPaletteContainsAllBlockTypes(t *testing.T) {
-	items := defaultPaletteItems()
+	items := defaultPaletteItems(-1)
 
 	expectedTypes := map[block.BlockType]bool{
 		block.Paragraph:      true,
@@ -152,7 +152,8 @@ func TestPaletteContainsAllBlockTypes(t *testing.T) {
 	}
 
 	for _, item := range items {
-		delete(expectedTypes, item.Type)
+		pi := item.(paletteItem)
+		delete(expectedTypes, pi.Type)
 	}
 
 	if len(expectedTypes) != 0 {
@@ -164,30 +165,30 @@ func TestPaletteUpDownNavigation(t *testing.T) {
 	p := newPalette()
 	p.open(0)
 
-	if p.cursor != 0 {
-		t.Fatalf("cursor should start at 0, got %d", p.cursor)
+	if p.Cursor() != 0 {
+		t.Fatalf("cursor should start at 0, got %d", p.Cursor())
 	}
 
-	p.moveDown()
-	if p.cursor != 1 {
-		t.Fatalf("cursor should be 1 after moveDown, got %d", p.cursor)
+	p.MoveDown()
+	if p.Cursor() != 1 {
+		t.Fatalf("cursor should be 1 after MoveDown, got %d", p.Cursor())
 	}
 
-	p.moveDown()
-	if p.cursor != 2 {
-		t.Fatalf("cursor should be 2 after second moveDown, got %d", p.cursor)
+	p.MoveDown()
+	if p.Cursor() != 2 {
+		t.Fatalf("cursor should be 2 after second MoveDown, got %d", p.Cursor())
 	}
 
-	p.moveUp()
-	if p.cursor != 1 {
-		t.Fatalf("cursor should be 1 after moveUp, got %d", p.cursor)
+	p.MoveUp()
+	if p.Cursor() != 1 {
+		t.Fatalf("cursor should be 1 after MoveUp, got %d", p.Cursor())
 	}
 
 	// Move up past the top.
-	p.moveUp()
-	p.moveUp()
-	if p.cursor != 0 {
-		t.Fatalf("cursor should not go below 0, got %d", p.cursor)
+	p.MoveUp()
+	p.MoveUp()
+	if p.Cursor() != 0 {
+		t.Fatalf("cursor should not go below 0, got %d", p.Cursor())
 	}
 }
 
@@ -223,7 +224,7 @@ func TestPaletteRenderNotEmpty(t *testing.T) {
 	p := newPalette()
 	p.open(0)
 
-	rendered := p.render(80)
+	rendered := p.RenderFooter(80)
 	if rendered == "" {
 		t.Fatal("palette render should not be empty when visible")
 	}
@@ -235,14 +236,14 @@ func TestPaletteRenderEmptyState(t *testing.T) {
 
 	// Type a filter that matches nothing.
 	for _, r := range "zzz" {
-		p.addFilterRune(r)
+		p.AddFilterRune(r)
 	}
 
-	if len(p.filtered) != 0 {
-		t.Fatalf("expected no filtered items for 'zzz', got %d", len(p.filtered))
+	if p.FilteredCount() != 0 {
+		t.Fatalf("expected no filtered items for 'zzz', got %d", p.FilteredCount())
 	}
 
-	rendered := p.render(80)
+	rendered := p.RenderFooter(80)
 	if rendered == "" {
 		t.Fatal("palette should still render when filter has no matches")
 	}
@@ -251,8 +252,8 @@ func TestPaletteRenderEmptyState(t *testing.T) {
 		t.Fatalf("palette should show 'No matches' text, got %q", rendered)
 	}
 
-	if !strings.Contains(rendered, "/zzz") {
-		t.Fatalf("palette should still show the filter input '/zzz', got %q", rendered)
+	if !strings.Contains(rendered, "zzz") {
+		t.Fatalf("palette should still show the filter input 'zzz', got %q", rendered)
 	}
 }
 
@@ -261,8 +262,8 @@ func TestPaletteBackspaceOnEmptyFilterCloses(t *testing.T) {
 	p.open(0)
 
 	// Filter is empty, backspace should return false (close signal).
-	if p.deleteFilterRune() {
-		t.Fatal("deleteFilterRune should return false when filter is empty")
+	if p.DeleteFilterRune() {
+		t.Fatal("DeleteFilterRune should return false when filter is empty")
 	}
 }
 
@@ -270,19 +271,19 @@ func TestPaletteBackspaceRemovesFilterChar(t *testing.T) {
 	p := newPalette()
 	p.open(0)
 
-	p.addFilterRune('h')
-	p.addFilterRune('e')
+	p.AddFilterRune('h')
+	p.AddFilterRune('e')
 
-	if p.filter != "he" {
-		t.Fatalf("filter should be 'he', got %q", p.filter)
+	if p.Filter() != "he" {
+		t.Fatalf("filter should be 'he', got %q", p.Filter())
 	}
 
-	if !p.deleteFilterRune() {
-		t.Fatal("deleteFilterRune should return true when filter is non-empty")
+	if !p.DeleteFilterRune() {
+		t.Fatal("DeleteFilterRune should return true when filter is non-empty")
 	}
 
-	if p.filter != "h" {
-		t.Fatalf("filter should be 'h' after backspace, got %q", p.filter)
+	if p.Filter() != "h" {
+		t.Fatalf("filter should be 'h' after backspace, got %q", p.Filter())
 	}
 }
 
@@ -302,8 +303,8 @@ func TestPaletteBlocksTypingToTextarea(t *testing.T) {
 	m = updated.(Model)
 
 	// Characters should go to the palette filter, not the textarea.
-	if m.palette.filter != "ab" {
-		t.Fatalf("palette filter should be 'ab', got %q", m.palette.filter)
+	if m.palette.Filter() != "ab" {
+		t.Fatalf("palette filter should be 'ab', got %q", m.palette.Filter())
 	}
 
 	// Textarea should still be empty.
@@ -324,7 +325,7 @@ func TestSlashAtPos0OnNonEmptyBlockOpensPalette(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should open at position 0 even when block has content")
 	}
 
@@ -344,7 +345,7 @@ func TestContentPreservedAfterTypeChange(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible")
 	}
 
@@ -373,13 +374,13 @@ func TestDividerHiddenWhenBlockHasContent(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible")
 	}
 
 	// Verify Divider is not in the filtered list.
-	for _, idx := range m.palette.filtered {
-		if m.palette.items[idx].Type == block.Divider {
+	for _, idx := range m.palette.FilteredIndices() {
+		if m.palette.Items()[idx].(paletteItem).Type == block.Divider {
 			t.Fatal("Divider should be hidden when the block has content")
 		}
 	}
@@ -394,14 +395,14 @@ func TestDividerShownWhenBlockIsEmpty(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if !m.palette.visible {
+	if !m.palette.Visible {
 		t.Fatal("palette should be visible")
 	}
 
 	// Verify Divider IS in the filtered list.
 	found := false
-	for _, idx := range m.palette.filtered {
-		if m.palette.items[idx].Type == block.Divider {
+	for _, idx := range m.palette.FilteredIndices() {
+		if m.palette.Items()[idx].(paletteItem).Type == block.Divider {
 			found = true
 			break
 		}
@@ -415,7 +416,7 @@ func TestPaletteShowsCurrentTypeIndicator(t *testing.T) {
 	p := newPalette()
 	p.openForBlock(0, block.Paragraph, false)
 
-	rendered := p.render(80)
+	rendered := p.RenderFooter(80)
 	if !strings.Contains(rendered, "\u2713") {
 		t.Fatal("palette should show a checkmark next to the current block type")
 	}
@@ -433,7 +434,7 @@ func TestSlashMidTextInsertsNormally(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = updated.(Model)
 
-	if m.palette.visible {
+	if m.palette.Visible {
 		t.Fatal("palette should not open when / is typed mid-text")
 	}
 

@@ -65,6 +65,16 @@ func StatusBarInput(prompt, value string, cursorPos int, hints string, width int
 	return left + cursor + right + dim.Render(strings.Repeat(" ", pad))
 }
 
+// FooterInput renders an input line with a top border, matching the footer
+// panel style used by editor pickers. This provides visual consistency between
+// browser input modes and editor picker footers.
+func FooterInput(prompt, value string, cursorPos int, hints string, width int, cursorVisible bool) string {
+	muted := lipgloss.NewStyle().Faint(true)
+	border := muted.Render(strings.Repeat("\u2500", width))
+	input := StatusBarInput(prompt, value, cursorPos, hints, width, cursorVisible)
+	return border + "\n" + input
+}
+
 // ShortenHome replaces the home directory prefix with ~/ for display.
 func ShortenHome(path string) string {
 	home, err := os.UserHomeDir()

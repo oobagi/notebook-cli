@@ -18,6 +18,7 @@ import (
 	"github.com/oobagi/notebook-cli/internal/recents"
 	"github.com/oobagi/notebook-cli/internal/storage"
 	"github.com/oobagi/notebook-cli/internal/theme"
+	"github.com/oobagi/notebook-cli/internal/ui"
 )
 
 // Config holds the dependencies needed by the browser.
@@ -1763,54 +1764,32 @@ func (m Model) renderSettingsView() string {
 
 // renderHelpOverlay builds the centered help panel.
 func (m Model) renderHelpOverlay() string {
-	w := m.width
-	if w <= 0 {
-		w = 80
+	sections := []ui.HelpSection{
+		{
+			Title: "Navigation",
+			Bindings: []ui.HelpBinding{
+				{Key: "↑/↓         ", Desc: "Navigate"},
+				{Key: "Enter       ", Desc: "Open / edit"},
+				{Key: "Esc/⌃C      ", Desc: "Back / quit"},
+				{Key: "Tab         ", Desc: "Jump section"},
+				{Key: "/           ", Desc: "Search"},
+			},
+		},
+		{
+			Title: "Actions",
+			Bindings: []ui.HelpBinding{
+				{Key: "n           ", Desc: "New"},
+				{Key: "i           ", Desc: "Open file"},
+				{Key: "d           ", Desc: "Delete / remove"},
+				{Key: "r           ", Desc: "Rename"},
+				{Key: "c           ", Desc: "Copy (notes)"},
+				{Key: "t           ", Desc: "Theme"},
+				{Key: "p           ", Desc: "Preview"},
+				{Key: ",           ", Desc: "Settings"},
+			},
+		},
 	}
-	h := m.height
-	if h <= 0 {
-		h = 24
-	}
-
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Current().Accent)).Bold(true)
-	dim := lipgloss.NewStyle().Faint(true)
-	sep := dim.Render("─────────────────────")
-	s := dim.Render("/") // dimmed slash separator
-
-	var help strings.Builder
-	help.WriteString("  " + accent.Render("Navigation") + "\n")
-	help.WriteString("  " + sep + "\n")
-	help.WriteString("  ↑" + s + "↓         Navigate\n")
-	help.WriteString("  Enter       Open " + s + " edit\n")
-	help.WriteString("  Esc" + s + "⌃C      Back " + s + " quit\n")
-	help.WriteString("  Tab         Jump section\n")
-	help.WriteString("  /           Search\n")
-	help.WriteString("\n")
-	help.WriteString("  " + accent.Render("Actions") + "\n")
-	help.WriteString("  " + sep + "\n")
-	help.WriteString("  n           New\n")
-	help.WriteString("  i           Open file\n")
-	help.WriteString("  d           Delete " + s + " remove\n")
-	help.WriteString("  r           Rename\n")
-	help.WriteString("  c           Copy (notes)\n")
-	help.WriteString("  t           Theme\n")
-	help.WriteString("  p           Preview\n")
-	help.WriteString("  ,           Settings")
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.Current().Border)).
-		Padding(1, 2).
-		Width(36).
-		Align(lipgloss.Left)
-
-	rendered := box.Render(help.String())
-
-	statusHint := dim.Render("Esc/? to close")
-
-	full := rendered + "\n" + statusHint
-
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
+	return ui.RenderHelpOverlay(sections, "Esc/? to close", m.width, m.height)
 }
 
 // currentHintID returns the hint ID relevant to the current browser state,
@@ -2376,11 +2355,11 @@ func (m Model) renderStatusBar() string {
 	}
 
 	if m.inputMode {
-		return format.StatusBarInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
+		return format.FooterInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
 	}
 
 	if m.filtering {
-		return format.StatusBarInput("Search:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
+		return format.FooterInput("Search:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
 	}
 
 	left := " "

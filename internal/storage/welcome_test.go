@@ -16,7 +16,7 @@ func TestEnsureWelcomeFirstLaunch(t *testing.T) {
 	}
 
 	// Welcome note should exist.
-	note, err := store.GetNote("getting-started", "welcome")
+	note, err := store.GetNote("getting-started", "1-welcome")
 	if err != nil {
 		t.Fatalf("GetNote: %v", err)
 	}

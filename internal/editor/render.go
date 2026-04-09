@@ -413,11 +413,8 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			Bold(true).
 			Foreground(lipgloss.Color(variantColor)).
 			Render(b.Variant.String())
-		hint := lipgloss.NewStyle().
-			Faint(true).
-			Render("  Ctrl+T")
 		var result []string
-		result = append(result, bar+variantLabel+hint)
+		result = append(result, bar+variantLabel)
 		for _, l := range strings.Split(taView, "\n") {
 			result = append(result, bar+l)
 		}
