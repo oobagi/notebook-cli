@@ -77,6 +77,9 @@ func Serialize(blocks []Block) string {
 		case Divider:
 			lines = append(lines, "---")
 
+		case Embed:
+			lines = append(lines, "![["+b.Content+"]]")
+
 		default:
 			if b.Content != "" {
 				lines = append(lines, strings.Split(b.Content, "\n")...)

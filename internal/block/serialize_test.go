@@ -129,6 +129,18 @@ func TestSerializeRoundTrip(t *testing.T) {
 			name: "divider between paragraphs",
 			md:   "above\n\n---\n\nbelow",
 		},
+		{
+			name: "embed block",
+			md:   "![[notebook/note]]",
+		},
+		{
+			name: "embed with spaces",
+			md:   "![[my notebook/my note]]",
+		},
+		{
+			name: "embed between paragraphs",
+			md:   "text\n\n![[ref]]\n\nmore text",
+		},
 	}
 
 	for _, tt := range tests {
@@ -155,6 +167,8 @@ func TestSerializeIdempotent(t *testing.T) {
 		"> quote\n> continues",
 		"---",
 		"# Title\n\nSome intro text.\n\n## Section\n\n- bullet one\n- bullet two\n\n1. step one\n2. step two\n\n> a quote\n\n---\n\n```go\nfunc main() {}\n```\n\n- [ ] task\n- [x] done",
+		"![[notebook/note]]",
+		"text\n\n![[ref]]\n\nmore text",
 	}
 
 	for _, md := range inputs {

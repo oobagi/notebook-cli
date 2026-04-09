@@ -22,6 +22,7 @@ const (
 	CodeBlock                     // fenced code block (``` ... ```)
 	Quote                         // > block quote
 	Divider                       // ---, ***, or ___
+	Embed                         // ![[path]] embedded note reference
 )
 
 // String returns the human-readable name of a BlockType.
@@ -47,6 +48,8 @@ func (bt BlockType) String() string {
 		return "Quote"
 	case Divider:
 		return "Divider"
+	case Embed:
+		return "Embed"
 	default:
 		return "Unknown"
 	}
@@ -85,6 +88,8 @@ func (bt BlockType) Short() string {
 		return "qt"
 	case Divider:
 		return "hr"
+	case Embed:
+		return "em"
 	default:
 		return "?"
 	}

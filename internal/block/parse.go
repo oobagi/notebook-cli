@@ -149,6 +149,14 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
+		// --- Embed (![[path]]) ---
+		if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
+			path := line[3 : len(line)-2]
+			blocks = append(blocks, Block{Type: Embed, Content: path})
+			i++
+			continue
+		}
+
 		// --- Paragraph (merge consecutive non-special lines) ---
 		var paraLines []string
 		for i < len(lines) {
@@ -187,6 +195,9 @@ func isBlockStart(line string) bool {
 		return true
 	}
 	if _, _, ok := parseNumberedItem(stripped); ok {
+		return true
+	}
+	if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
 		return true
 	}
 	return isDivider(line)

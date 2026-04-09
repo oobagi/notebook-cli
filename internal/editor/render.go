@@ -312,6 +312,16 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 		rendered = strings.Join(lines, "\n")
 
+	case block.Embed:
+		bs := th.Blocks.Embed
+		embedColor := resolveColor(bs.Color, th.Accent)
+		icon := bs.Icon
+		if icon == "" {
+			icon = "\u2197 "
+		}
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor)).Render(icon)
+		rendered = prefixFirstLine(prefix, taView)
+
 	default:
 		rendered = taView
 	}
@@ -672,6 +682,18 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
 
+	case block.Embed:
+		bs := th.Blocks.Embed
+		embedColor := resolveColor(bs.Color, th.Accent)
+		icon := bs.Icon
+		if icon == "" {
+			icon = "\u2197 "
+		}
+		pill := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(embedColor)).
+			Render(icon + wrapped)
+		rendered = pill
+
 	default:
 		rendered = wrapped
 	}
@@ -816,6 +838,19 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			divLine = string(runes[:width])
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
+
+	case block.Embed:
+		bs := th.Blocks.Embed
+		embedColor := resolveColor(bs.Color, th.Accent)
+		icon := bs.Icon
+		if icon == "" {
+			icon = "\u2197 "
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor))
+		if hovered {
+			style = style.Underline(true)
+		}
+		rendered = style.Render(icon + wrapped)
 
 	default:
 		rendered = wrapped

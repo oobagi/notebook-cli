@@ -91,6 +91,12 @@ type DividerStyle struct {
 	Color    string // hex; "" means theme.Accent (active) / theme.Muted (inactive)
 }
 
+// EmbedStyle controls embedded note link rendering.
+type EmbedStyle struct {
+	Icon  string // prefix icon, e.g. "↗ "
+	Color string // hex; "" means theme.Accent
+}
+
 // BlockStyles groups all per-block-type formatting.
 type BlockStyles struct {
 	Heading1  HeadingStyle
@@ -102,6 +108,7 @@ type BlockStyles struct {
 	Code      CodeStyle
 	Quote     QuoteStyle
 	Divider   DividerStyle
+	Embed     EmbedStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original
@@ -124,6 +131,7 @@ func DefaultBlockStyles() BlockStyles {
 		Code:    CodeStyle{LabelAlign: "left"},
 		Quote:   QuoteStyle{Bar: "\u2502 "},
 		Divider: DividerStyle{Char: "\u2500", MaxWidth: 40},
+		Embed:   EmbedStyle{Icon: "\u2197 "},
 	}
 }
 
