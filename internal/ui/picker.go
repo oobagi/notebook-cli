@@ -94,6 +94,39 @@ func (p *Picker) DeleteFilterRune() bool {
 	return true
 }
 
+// DeleteFilterWord removes the last word from the filter. Returns false if the
+// filter was already empty, signalling the caller should close the picker.
+func (p *Picker) DeleteFilterWord() bool {
+	if p.filter == "" {
+		return false
+	}
+	// Trim trailing spaces, then remove back to the next space.
+	s := strings.TrimRight(p.filter, " ")
+	if s == "" {
+		p.filter = ""
+		p.Refilter()
+		return true
+	}
+	if i := strings.LastIndex(s, " "); i >= 0 {
+		p.filter = s[:i+1]
+	} else {
+		p.filter = ""
+	}
+	p.Refilter()
+	return true
+}
+
+// ClearFilter resets the filter text and refilters. Returns false if the
+// filter was already empty.
+func (p *Picker) ClearFilter() bool {
+	if p.filter == "" {
+		return false
+	}
+	p.filter = ""
+	p.Refilter()
+	return true
+}
+
 // MoveUp moves the cursor up in the filtered list.
 func (p *Picker) MoveUp() {
 	if p.cursor > 0 {

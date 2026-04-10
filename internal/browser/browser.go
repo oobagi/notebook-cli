@@ -525,19 +525,85 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// insertAtCursor inserts ch into s at the given cursor position and returns the
-// updated string and new cursor position.
-func insertAtCursor(s string, cursor int, ch string) (string, int) {
-	return s[:cursor] + ch + s[cursor:], cursor + len(ch)
+// lineEdit handles common single-line text editing keys (movement, deletion,
+// insertion) on a (string, cursor) pair. Returns the updated string, cursor,
+// and whether the key was consumed. Callers handle mode-specific keys (esc,
+// enter, tab, up/down) before calling this.
+func lineEdit(s string, cursor int, key string, text string) (string, int, bool) {
+	switch key {
+	case "left":
+		if cursor > 0 {
+			cursor--
+		}
+	case "right":
+		if cursor < len(s) {
+			cursor++
+		}
+	case "alt+left", "alt+b":
+		cursor = wordLeft(s, cursor)
+	case "alt+right", "alt+f":
+		cursor = wordRight(s, cursor)
+	case "home", "ctrl+a":
+		cursor = 0
+	case "end", "ctrl+e":
+		cursor = len(s)
+	case "backspace":
+		if cursor > 0 {
+			s = s[:cursor-1] + s[cursor:]
+			cursor--
+		}
+	case "alt+backspace", "ctrl+w":
+		newPos := wordLeft(s, cursor)
+		s = s[:newPos] + s[cursor:]
+		cursor = newPos
+	case "ctrl+u":
+		s = s[cursor:]
+		cursor = 0
+	case "ctrl+k":
+		s = s[:cursor]
+	case "space":
+		s = s[:cursor] + " " + s[cursor:]
+		cursor++
+	default:
+		if len(text) > 0 {
+			s = s[:cursor] + text + s[cursor:]
+			cursor += len(text)
+		} else {
+			return s, cursor, false
+		}
+	}
+	return s, cursor, true
 }
 
-// backspaceAtCursor removes the character before cursor and returns the updated
-// string and new cursor position. If cursor is already at 0, s is unchanged.
-func backspaceAtCursor(s string, cursor int) (string, int) {
-	if cursor > 0 {
-		return s[:cursor-1] + s[cursor:], cursor - 1
+// wordLeft returns the cursor position of the start of the previous word.
+func wordLeft(s string, cursor int) int {
+	if cursor <= 0 {
+		return 0
 	}
-	return s, cursor
+	i := cursor - 1
+	for i > 0 && s[i] == ' ' {
+		i--
+	}
+	for i > 0 && s[i-1] != ' ' {
+		i--
+	}
+	return i
+}
+
+// wordRight returns the cursor position past the end of the next word.
+func wordRight(s string, cursor int) int {
+	n := len(s)
+	if cursor >= n {
+		return n
+	}
+	i := cursor
+	for i < n && s[i] != ' ' {
+		i++
+	}
+	for i < n && s[i] == ' ' {
+		i++
+	}
+	return i
 }
 
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -550,39 +616,18 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.resetFilter()
 		m.inputCur.Blur()
 		return m, nil
-
 	case "enter":
 		m.filtering = false
 		m.inputCur.Blur()
 		return m.handleEnter()
-
-	case "left":
-		if m.filterCursor > 0 {
-			m.filterCursor--
-		}
-		return m, nil
-
-	case "right":
-		if m.filterCursor < len(m.filter) {
-			m.filterCursor++
-		}
-		return m, nil
-
 	case "tab":
 		m.tabNextSection()
 		return m, nil
-
-	case "backspace":
-		m.filter, m.filterCursor = backspaceAtCursor(m.filter, m.filterCursor)
-		m.applyFilter()
-		return m, nil
-
 	case "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 		return m, nil
-
 	case "down":
 		max := m.listLen() - 1
 		if max < 0 {
@@ -592,20 +637,13 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 		return m, nil
-
-	case "space":
-		m.filter, m.filterCursor = insertAtCursor(m.filter, m.filterCursor, " ")
-		m.applyFilter()
-		return m, nil
-
 	default:
-		if len(msg.Text) > 0 {
-			m.filter, m.filterCursor = insertAtCursor(m.filter, m.filterCursor, msg.Text)
+		prev := m.filter
+		m.filter, m.filterCursor, _ = lineEdit(m.filter, m.filterCursor, msg.String(), msg.Text)
+		if m.filter != prev {
 			m.applyFilter()
-			return m, nil
 		}
 	}
-
 	return m, nil
 }
 
@@ -620,7 +658,6 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inputAction = nil
 		m.inputCur.Blur()
 		return m, nil
-
 	case "enter":
 		action := m.inputAction
 		value := m.inputValue
@@ -634,34 +671,9 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, action(value)
 		}
 		return m, nil
-
-	case "left":
-		if m.inputCursor > 0 {
-			m.inputCursor--
-		}
-		return m, nil
-
-	case "right":
-		if m.inputCursor < len(m.inputValue) {
-			m.inputCursor++
-		}
-		return m, nil
-
-	case "backspace":
-		m.inputValue, m.inputCursor = backspaceAtCursor(m.inputValue, m.inputCursor)
-		return m, nil
-
-	case "space":
-		m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, " ")
-		return m, nil
-
 	default:
-		if len(msg.Text) > 0 {
-			m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, msg.Text)
-			return m, nil
-		}
+		m.inputValue, m.inputCursor, _ = lineEdit(m.inputValue, m.inputCursor, msg.String(), msg.Text)
 	}
-
 	return m, nil
 }
 
@@ -689,27 +701,8 @@ func (m Model) handleSettingsInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			return m, action(value)
 		}
 		return m, nil
-	case "left":
-		if m.inputCursor > 0 {
-			m.inputCursor--
-		}
-		return m, nil
-	case "right":
-		if m.inputCursor < len(m.inputValue) {
-			m.inputCursor++
-		}
-		return m, nil
-	case "backspace":
-		m.inputValue, m.inputCursor = backspaceAtCursor(m.inputValue, m.inputCursor)
-		return m, nil
-	case "space":
-		m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, " ")
-		return m, nil
 	default:
-		if len(msg.Text) > 0 {
-			m.inputValue, m.inputCursor = insertAtCursor(m.inputValue, m.inputCursor, msg.Text)
-			return m, nil
-		}
+		m.inputValue, m.inputCursor, _ = lineEdit(m.inputValue, m.inputCursor, msg.String(), msg.Text)
 	}
 	return m, nil
 }

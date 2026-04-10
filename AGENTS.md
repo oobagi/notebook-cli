@@ -16,7 +16,7 @@ Terminal-native note manager with a block-based editor supporting 14 block types
 ```bash
 go install ./cmd/notebook/    # Install as "notebook" binary
 go run ./cmd/notebook/        # Run from source
-go test ./...                 # Test (650+ tests across 14 packages)
+go test ./...                 # Test (649 tests across 13 packages)
 go vet ./...                  # Lint
 ```
 

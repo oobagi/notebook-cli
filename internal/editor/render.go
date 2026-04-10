@@ -3,7 +3,6 @@ package editor
 import (
 	"bytes"
 	"fmt"
-	"image/color"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -293,15 +292,10 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		label := ""
 		cursorOnTitle := ta.Line() == 0
 		if cursorOnTitle {
-			// Cursor is on the title — render with visible cursor.
-			// Use explicit fg+bg so Reverse(true) doesn't leak bare
-			// ANSI escapes ([7m / [40m) on themes with unusual palette.
-			cursorFg := lipgloss.Color(th.Accent)
 			if titleText == "" {
-				cursor := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
-				label = cursor.Render(" ") + faintStyle.Render("language")
+				label = renderPlaceholder("language", true)
 			} else {
-				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle, cursorFg)
+				label = renderLabelCursor(titleText, ta.LineInfo().ColumnOffset, faintStyle)
 			}
 		} else if titleText != "" {
 			label = faintStyle.Render(titleText)
@@ -335,7 +329,6 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		markerColor := resolveColor(bs.MarkerColor, th.Muted)
 		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
 		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
-		faint := lipgloss.NewStyle().Faint(true)
 		rawLines := strings.Split(ta.Value(), "\n")
 		lines := strings.Split(taView, "\n")
 
@@ -361,30 +354,19 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			}
 		}
 
-		cursorFg := lipgloss.Color(th.Accent)
-		cursorStyle := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
-
 		for i, l := range lines {
 			vi := visMap[i]
 			if vi.rawIdx == 0 {
 				// Term line: no prefix, just bold + placeholder.
 				if rawLines[0] == "" && vi.isFirst {
-					if cursorVisIdx == i {
-						lines[i] = cursorStyle.Render(" ") + faint.Render("Term")
-					} else {
-						lines[i] = faint.Render("Term")
-					}
+					lines[i] = renderPlaceholder("Term", cursorVisIdx == i)
 				} else if bs.TermBold {
 					lines[i] = styleAroundCursor(l, lipgloss.NewStyle().Bold(true), cursorByteOffset, cursorLen, cursorVisIdx-i)
 				}
 			} else if vi.isFirst {
 				// First visual line of a definition: marker prefix.
 				if rawLines[vi.rawIdx] == "" {
-					if cursorVisIdx == i {
-						lines[i] = marker + cursorStyle.Render(" ") + faint.Render("Definition")
-					} else {
-						lines[i] = marker + faint.Render("Definition")
-					}
+					lines[i] = marker + renderPlaceholder("Definition", cursorVisIdx == i)
 				} else {
 					lines[i] = marker + l
 				}
@@ -403,7 +385,11 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			icon = "\u2197 "
 		}
 		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor)).Render(icon)
-		rendered = prefixFirstLine(prefix, taView)
+		if content == "" {
+			rendered = prefix + renderPlaceholder("Link or note path", true)
+		} else {
+			rendered = prefixFirstLine(prefix, taView)
+		}
 
 	case block.Callout:
 		cs := th.Blocks.Callout
@@ -415,8 +401,12 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			Render(b.Variant.String())
 		var result []string
 		result = append(result, bar+variantLabel)
-		for _, l := range strings.Split(taView, "\n") {
-			result = append(result, bar+l)
+		if content == "" {
+			result = append(result, bar+renderPlaceholder("Empty callout", true))
+		} else {
+			for _, l := range strings.Split(taView, "\n") {
+				result = append(result, bar+l)
+			}
 		}
 		rendered = strings.Join(result, "\n")
 
@@ -536,11 +526,9 @@ func renderCodeBox(code, label, borderColor, labelAlign string, padWidth int) st
 
 // renderLabelCursor renders a label string with a reverse-video cursor at
 // the given column position. Text outside the cursor is styled with base.
-// cursorFg sets the cursor's foreground color (which becomes the background
-// after Reverse) so bare ANSI escapes don't leak on certain themes.
-func renderLabelCursor(text string, col int, base lipgloss.Style, cursorFg color.Color) string {
+func renderLabelCursor(text string, col int, base lipgloss.Style) string {
 	runes := []rune(text)
-	cursor := lipgloss.NewStyle().Foreground(cursorFg).Reverse(true)
+	cursor := lipgloss.NewStyle().Reverse(true)
 	if col >= len(runes) {
 		return base.Render(text) + cursor.Render(" ")
 	}
@@ -548,6 +536,19 @@ func renderLabelCursor(text string, col int, base lipgloss.Style, cursorFg color
 	ch := string(runes[col : col+1])
 	after := string(runes[col+1:])
 	return base.Render(before) + cursor.Render(ch) + base.Render(after)
+}
+
+// renderPlaceholder renders placeholder text with consistent behavior: the
+// cursor sits on the first letter (plain reverse) and the rest is faint. When
+// the cursor is not on this field, the entire text is faint.
+func renderPlaceholder(text string, hasCursor bool) string {
+	faint := lipgloss.NewStyle().Faint(true)
+	if !hasCursor {
+		return faint.Render(text)
+	}
+	runes := []rune(text)
+	cursor := lipgloss.NewStyle().Reverse(true)
+	return cursor.Render(string(runes[:1])) + faint.Render(string(runes[1:]))
 }
 
 // scrollOrTruncate fits a line within availWidth, adding ← → scroll
@@ -848,10 +849,14 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if icon == "" {
 			icon = "\u2197 "
 		}
-		pill := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(embedColor)).
-			Render(icon + wrapped)
-		rendered = pill
+		prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor)).Render(icon)
+		if wrapped == "" {
+			rendered = prefix + renderPlaceholder("Link or note path", false)
+		} else {
+			rendered = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(embedColor)).
+				Render(icon + wrapped)
+		}
 
 	case block.Table:
 		tableWidth := width - gutterWidth
@@ -1058,11 +1063,16 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		if icon == "" {
 			icon = "\u2197 "
 		}
-		style := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor))
-		if hovered {
-			style = style.Underline(true)
+		if wrapped == "" {
+			prefix := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor)).Render(icon)
+			rendered = prefix + renderPlaceholder("Link or note path", false)
+		} else {
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(embedColor))
+			if hovered {
+				style = style.Underline(true)
+			}
+			rendered = style.Render(icon + wrapped)
 		}
-		rendered = style.Render(icon + wrapped)
 
 	case block.Table:
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)

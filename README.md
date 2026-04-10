@@ -162,6 +162,10 @@ Config lives at `~/.config/notebook/config.toml`. Set values with `notebook conf
 | `editor` | built-in | External editor command (leave empty for built-in) |
 | `theme` | `dark` | Theme name (see `notebook theme` for options) |
 | `date_format` | `relative` | How dates are displayed |
+| `hide_checked` | `false` | Sort checked items to bottom of lists |
+| `cascade_checks` | `true` | Toggle parent/child checklists together |
+| `show_preview` | `true` | Show preview pane in browser |
+| `word_wrap` | `true` | Wrap long lines in the editor |
 
 ## License
 
