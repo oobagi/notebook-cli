@@ -608,18 +608,19 @@ func (m *Model) navigateUp() {
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
 	m.focusBlock(m.active - 1)
 
-	// Entering a table from below: place cursor at the last data cell.
+	// Entering a table from below: bottom-left cell, apply charOffset.
 	if m.table != nil {
 		lastRow := len(m.table.cells) - 1
-		lastCol := 0
-		if lastRow >= 0 && len(m.table.cells[lastRow]) > 0 {
-			lastCol = len(m.table.cells[lastRow]) - 1
+		if lastRow < 0 {
+			lastRow = 0
 		}
 		m.table.row = lastRow
-		m.table.col = lastCol
 		cw := m.tableCellTAWidth()
 		m.table.loadCell(&m.textareas[m.active], cw, true)
-		m.cursorCmd = m.textareas[m.active].Focus()
+		ta := &m.textareas[m.active]
+		li := ta.LineInfo()
+		ta.SetCursorColumn(li.StartColumn + charOffset)
+		m.cursorCmd = ta.Focus()
 		return
 	}
 
@@ -636,6 +637,15 @@ func (m *Model) navigateDown() {
 	}
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
 	m.focusBlock(m.active + 1)
+
+	// Entering a table from above: top-left cell, apply charOffset.
+	if m.table != nil {
+		ta := &m.textareas[m.active]
+		ta.SetCursorColumn(charOffset)
+		m.cursorCmd = ta.Focus()
+		return
+	}
+
 	ta := &m.textareas[m.active]
 	ta.MoveToBegin()
 	ta.SetCursorColumn(charOffset)
@@ -1116,8 +1126,16 @@ func (m *Model) handleBackspace() bool {
 	content := ta.Value()
 	bt := m.blocks[m.active].Type
 
-	// Table cell: no-op.
+	// Table: at cell (0,0) convert to paragraph; otherwise no-op.
 	if bt == block.Table {
+		if m.table == nil || m.table.row > 0 || m.table.col > 0 {
+			return true
+		}
+		m.pushUndo()
+		m.table.syncCell(*ta)
+		keepContent := m.table.cells[0][0]
+		m.table = nil
+		m.convertToParagraph(keepContent)
 		return true
 	}
 
@@ -1550,6 +1568,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+g", "esc":
 				m.showHelp = false
+				m.updateViewport()
 			case "ctrl+c":
 				m.showHelp = false
 				if m.modified() {
@@ -1732,6 +1751,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "ctrl+g":
 				m.showHelp = true
+				m.updateViewport()
 				return m, nil
 			case "up":
 				m.viewport.ScrollUp(1)
@@ -1776,6 +1796,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+g":
 			m.showHelp = true
+			m.updateViewport()
 			return m, nil
 
 		case "ctrl+z":
@@ -2660,11 +2681,14 @@ func (m Model) View() tea.View {
 	var content string
 	if m.embedModal.visible {
 		content = m.renderEmbedSheet()
-	} else if m.showHelp {
-		content = m.renderHelpOverlay()
 	} else {
 		statusBar := m.renderStatusBar()
-		footer := m.renderPickerFooter()
+		var footer string
+		if m.showHelp {
+			footer = m.renderHelpFooter()
+		} else {
+			footer = m.renderPickerFooter()
+		}
 		if m.viewMode {
 			if footer != "" {
 				content = m.viewport.View() + "\n" + footer + statusBar
@@ -2691,32 +2715,26 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// renderHelpOverlay builds the full-screen help panel.
-func (m Model) renderHelpOverlay() string {
-	sections := []ui.HelpSection{{
-		Title: "Keybindings",
-		Bindings: []ui.HelpBinding{
-			{},
-			{Key: "Enter        ", Desc: "New block"},
-			{Key: "⇧Enter       ", Desc: "Newline"},
-			{Key: "Backspace    ", Desc: "Merge / delete"},
-			{Key: "⌃K           ", Desc: "Cut block"},
-			{Key: "⌃Z/⌃Y        ", Desc: "Undo / redo"},
-			{Key: "⌥↑/⌥↓        ", Desc: "Move block"},
-			{Key: "/            ", Desc: "Block type"},
-			{},
-			{Key: ":            ", Desc: "Definitions"},
-			{},
-			{Key: "⌃R           ", Desc: "View mode"},
-			{Key: "⌃X           ", Desc: "Checkbox"},
-			{Key: "⌃H           ", Desc: "Sort checked"},
-			{Key: "⌃W           ", Desc: "Word wrap"},
-			{},
-			{Key: "⌃S           ", Desc: "Save"},
-			{Key: "Esc/⌃C       ", Desc: "Quit"},
-		},
-	}}
-	return ui.RenderHelpOverlay(sections, "Esc/⌃G to close", m.width, m.height)
+// renderHelpFooter builds the help footer panel with keybind reference.
+func (m Model) renderHelpFooter() string {
+	return ui.RenderHelpFooter([]ui.HelpBinding{
+		{Key: "Enter", Desc: "New block"},
+		{Key: "⇧Enter", Desc: "Newline"},
+		{Key: "Bksp", Desc: "Delete / merge"},
+		{Key: "⌃K", Desc: "Cut block"},
+		{Key: "⌃Z/⌃Y", Desc: "Undo / redo"},
+		{Key: "⌥↑/⌥↓", Desc: "Move block"},
+		{Key: "/", Desc: "Block type"},
+		{Key: ":", Desc: "Definitions"},
+		{Key: "Tab/⇧Tab", Desc: "Indent"},
+		{Key: "⌃X", Desc: "Interact"},
+		{Key: "⌃R", Desc: "View mode"},
+		{Key: "⌃W", Desc: "Word wrap"},
+		{Key: "⌃H", Desc: "Sort checked"},
+		{Key: "⌃S", Desc: "Save"},
+		{Key: "Esc/⌃C", Desc: "Quit"},
+		{Key: "⌃G", Desc: "Close"},
+	}, m.width)
 }
 
 // renderPickerFooter returns the footer panel for whichever picker is active,
@@ -2736,6 +2754,9 @@ func (m Model) renderPickerFooter() string {
 
 // footerHeight returns the number of lines occupied by the active picker footer.
 func (m Model) footerHeight() int {
+	if m.showHelp {
+		return strings.Count(m.renderHelpFooter(), "\n")
+	}
 	if m.palette.Visible {
 		return m.palette.Height()
 	}
@@ -2801,14 +2822,17 @@ func (m Model) renderStatusBar() string {
 	}
 
 	left := " "
-	if m.modified() {
-		left += " [modified]"
+	if m.viewport.TotalLineCount() > m.viewport.Height() {
+		pct := int(m.viewport.ScrollPercent() * 100)
+		left += fmt.Sprintf(" %d%%", pct)
 	}
 
 	var hint string
 	var right string
 	if m.status != "" {
 		right = m.status
+	} else if m.showHelp {
+		right = "\u2303G close"
 	} else if m.viewMode {
 		if !m.dismissedHints["editor.checkbox"] {
 			hint = "click checkboxes to toggle!  [h]ide"
