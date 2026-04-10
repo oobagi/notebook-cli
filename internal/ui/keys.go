@@ -29,6 +29,18 @@ func HandlePickerKey(p *Picker, key string, text string, code rune) (handled, cl
 			return true, true
 		}
 		return true, false
+	case "alt+backspace", "ctrl+w":
+		if !p.DeleteFilterWord() {
+			p.Close()
+			return true, true
+		}
+		return true, false
+	case "ctrl+u":
+		if !p.ClearFilter() {
+			p.Close()
+			return true, true
+		}
+		return true, false
 	default:
 		if len(text) > 0 {
 			for _, r := range text {

@@ -164,7 +164,7 @@ func DefaultBlockStyles() BlockStyles {
 		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
 		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
 		Embed:      EmbedStyle{Icon: "\u2197 "},
-		Table:      TableStyle{HeaderBold: true},
+		Table:      TableStyle{HeaderBold: false},
 	}
 }
 

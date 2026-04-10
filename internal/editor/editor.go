@@ -296,7 +296,7 @@ func New(cfg Config) Model {
 		wordWrap:       config.BoolVal(cfg.WordWrap, true),
 		dismissedHints: dismissed,
 		hoverBlock:     -1,
-		sortChecked:   config.BoolVal(cfg.HideChecked, true),
+		sortChecked:   config.BoolVal(cfg.HideChecked, false),
 		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
 	}
 
@@ -607,6 +607,22 @@ func (m *Model) navigateUp() {
 	}
 	charOffset := m.textareas[m.active].LineInfo().CharOffset
 	m.focusBlock(m.active - 1)
+
+	// Entering a table from below: place cursor at the last data cell.
+	if m.table != nil {
+		lastRow := len(m.table.cells) - 1
+		lastCol := 0
+		if lastRow >= 0 && len(m.table.cells[lastRow]) > 0 {
+			lastCol = len(m.table.cells[lastRow]) - 1
+		}
+		m.table.row = lastRow
+		m.table.col = lastCol
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[m.active], cw, true)
+		m.cursorCmd = m.textareas[m.active].Focus()
+		return
+	}
+
 	ta := &m.textareas[m.active]
 	ta.MoveToEnd()
 	li := ta.LineInfo()
@@ -909,14 +925,36 @@ func (m *Model) handleEnter() {
 			return
 		}
 
-		// Otherwise insert a newline within the block (term→def, or new def line).
+		// Term line: if a definition line already exists below, just move
+		// the cursor down instead of inserting a duplicate empty line.
+		if cursorLine == 0 && len(lines) > 1 {
+			ta.CursorDown()
+			ta.CursorEnd()
+			m.cursorCmd = ta.Focus()
+			return
+		}
+
+		// Otherwise insert a newline within the block (new def line).
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
 		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 		return
 	}
 
-	// Code block / Quote: Enter inserts a newline within the block.
+	// Empty multi-line or embed block: convert to paragraph.
+	// For code blocks, content is "\n" when empty (language separator).
+	if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout || bt == block.Embed {
+		if strings.TrimRight(content, "\n") == "" {
+			m.blocks[m.active].Type = block.Paragraph
+			m.blocks[m.active].Content = ""
+			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+			m.cursorCmd = newTA.Focus()
+			m.textareas[m.active] = newTA
+			return
+		}
+	}
+
+	// Code block / Quote / Callout: Enter inserts a newline within the block.
 	// On an empty last line, exit the block by trimming the empty line
 	// and inserting a new paragraph below.
 	if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout {
@@ -1050,6 +1088,15 @@ func (m *Model) handleEnter() {
 
 // handleBackspace processes Backspace at position 0 for block deletion/merging.
 // Returns true if the backspace was handled (caller should not forward to textarea).
+//
+// Unified behavior:
+//   - Table: no-op (cells handle their own editing).
+//   - Divider: delete block, focus previous.
+//   - List items: outdent if indented, else convert to paragraph.
+//   - Any other non-paragraph type: convert to paragraph (unwrap formatting).
+//     Code blocks keep body only (drop language line). Definition keeps term only.
+//   - Empty paragraph: delete block, focus previous.
+//   - Non-empty paragraph: merge with previous block.
 func (m *Model) handleBackspace() bool {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return false
@@ -1069,12 +1116,12 @@ func (m *Model) handleBackspace() bool {
 	content := ta.Value()
 	bt := m.blocks[m.active].Type
 
-	// Table cell: never merge/delete — just no-op at position 0.
+	// Table cell: no-op.
 	if bt == block.Table {
 		return true
 	}
 
-	// Divider: backspace always deletes the divider (selected as a unit).
+	// Divider: delete the block.
 	if bt == block.Divider {
 		m.pushUndo()
 		m.deleteBlock(m.active)
@@ -1082,7 +1129,7 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// List item at position 0: outdent if indented, otherwise convert to paragraph.
+	// List items: outdent if indented, else convert to paragraph.
 	if bt.IsListItem() {
 		m.pushUndo()
 		if m.blocks[m.active].Indent > 0 {
@@ -1091,40 +1138,35 @@ func (m *Model) handleBackspace() bool {
 			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 			return true
 		}
-		m.blocks[m.active].Type = block.Paragraph
-		m.blocks[m.active].Checked = false
-		m.blocks[m.active].Indent = 0
-		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-		newTA.SetValue(content)
-		m.cursorCmd = newTA.Focus()
-		newTA.SetCursorColumn(0)
-		m.textareas[m.active] = newTA
+		m.convertToParagraph(content)
 		return true
 	}
 
-	// Definition list at position 0: convert to paragraph (keep content).
-	if bt == block.DefinitionList {
+	// Any non-paragraph type: convert to paragraph (unwrap).
+	if bt != block.Paragraph {
 		m.pushUndo()
-		// Take only the term line as paragraph content.
-		term, _ := block.ExtractDefinition(content)
-		m.blocks[m.active].Type = block.Paragraph
-		m.blocks[m.active].Content = term
-		newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-		newTA.SetValue(term)
-		m.cursorCmd = newTA.Focus()
-		newTA.SetCursorColumn(0)
-		m.textareas[m.active] = newTA
+		// Determine what content to keep.
+		keepContent := content
+		switch bt {
+		case block.CodeBlock:
+			// Drop the language line, keep body only.
+			if idx := strings.Index(content, "\n"); idx >= 0 {
+				keepContent = content[idx+1:]
+			}
+		case block.DefinitionList:
+			// Keep only the term line.
+			keepContent, _ = block.ExtractDefinition(content)
+		}
+		m.convertToParagraph(keepContent)
 		return true
 	}
 
+	// --- From here, block is a Paragraph. ---
+
+	// Empty paragraph: delete it, focus previous.
 	if content == "" {
-		// Empty block: delete it, focus previous.
-		if m.active == 0 {
-			if len(m.blocks) <= 1 {
-				if m.blocks[0].Type == block.Paragraph {
-					return true // Already empty paragraph, nothing to do.
-				}
-			}
+		if m.active == 0 && len(m.blocks) <= 1 {
+			return true // Last block, nothing to do.
 		}
 		m.pushUndo()
 		m.deleteBlock(m.active)
@@ -1132,9 +1174,9 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// Non-empty block at position 0: merge with previous block.
+	// Non-empty paragraph at position 0: merge with previous block.
 	if m.active == 0 {
-		return false // No previous block to merge into.
+		return false
 	}
 
 	// If previous block is a divider, just delete the divider.
@@ -1144,14 +1186,30 @@ func (m *Model) handleBackspace() bool {
 		return true
 	}
 
-	// Don't merge content into code blocks, quote blocks, definition lists, callouts, or tables.
-	if m.blocks[m.active-1].Type == block.CodeBlock || m.blocks[m.active-1].Type == block.Quote || m.blocks[m.active-1].Type == block.DefinitionList || m.blocks[m.active-1].Type == block.Callout || m.blocks[m.active-1].Type == block.Table {
+	// Don't merge into multi-line container blocks.
+	prev := m.blocks[m.active-1].Type
+	if prev == block.CodeBlock || prev == block.Quote || prev == block.DefinitionList || prev == block.Callout || prev == block.Table {
 		return false
 	}
 
 	m.pushUndo()
 	m.mergeBlockUp(m.active)
 	return true
+}
+
+// convertToParagraph changes the active block to a paragraph with the given
+// content, rebuilds its textarea, and places the cursor at position 0.
+func (m *Model) convertToParagraph(content string) {
+	m.blocks[m.active].Type = block.Paragraph
+	m.blocks[m.active].Content = content
+	m.blocks[m.active].Checked = false
+	m.blocks[m.active].Indent = 0
+	m.blocks[m.active].Variant = 0
+	newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+	newTA.SetValue(content)
+	m.cursorCmd = newTA.Focus()
+	newTA.SetCursorColumn(0)
+	m.textareas[m.active] = newTA
 }
 
 // cutBlock removes the active block and stores it in the block clipboard.
@@ -1216,6 +1274,7 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	// from the title into the code area immediately.
 	if bt == block.CodeBlock && !strings.Contains(m.textareas[m.active].Value(), "\n") {
 		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
+		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
 	// Ensure new definition list blocks have term\ndefinition structure.
@@ -1237,7 +1296,7 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		content := m.textareas[m.active].Value()
 		if content == "" || !strings.Contains(content, "|") {
 			// Set a default 2x2 table template.
-			content = "| Header 1 | Header 2 |\n| --- | --- |\n|  |  |"
+			content = "|  |  |\n| --- | --- |\n|  |  |"
 		}
 		m.blocks[m.active].Content = content
 		m.textareas[m.active].SetValue(content)
