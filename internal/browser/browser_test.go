@@ -390,11 +390,11 @@ func TestBrowserHelpToggle(t *testing.T) {
 	}
 
 	view := m.View().Content
-	if !containsStr(view, "Navigation") {
-		t.Errorf("help overlay should contain 'Keybindings', got:\n%s", view)
-	}
 	if !containsStr(view, "Navigate") {
-		t.Errorf("help overlay should contain 'Navigate', got:\n%s", view)
+		t.Errorf("help footer should contain 'Navigate', got:\n%s", view)
+	}
+	if !containsStr(view, "Search") {
+		t.Errorf("help footer should contain 'Search', got:\n%s", view)
 	}
 
 	// Press '?' again to dismiss.
@@ -405,8 +405,8 @@ func TestBrowserHelpToggle(t *testing.T) {
 	}
 
 	view = m.View().Content
-	if containsStr(view, "Navigation") {
-		t.Error("help overlay should not be visible after dismissing")
+	if containsStr(view, "Navigate") {
+		t.Error("help footer should not be visible after dismissing")
 	}
 }
 

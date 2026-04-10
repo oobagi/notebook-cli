@@ -443,7 +443,7 @@ func TestHelpViewContainsKeybindings(t *testing.T) {
 	keybindings := []string{
 		"\u2303S", "Save",
 		"\u2303C", "Quit",
-		"\u2303G", "to close",
+		"\u2303G", "Close",
 		"\u2303K", "Cut block",
 	}
 	for _, kb := range keybindings {
@@ -918,8 +918,8 @@ func TestHelpContainsBlockOperationKeybindings(t *testing.T) {
 
 	keybindings := []string{
 		"Enter", "New block",
-		"Backspace", "Merge",
-		"delete",
+		"Bksp", "Delete",
+		"merge",
 		"Move block",
 	}
 	for _, kb := range keybindings {

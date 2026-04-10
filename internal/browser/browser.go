@@ -608,6 +608,13 @@ func wordRight(s string, cursor int) int {
 
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.inputCur.IsBlinked = false
+	// "/" with empty filter dismisses search (toggle behavior).
+	if msg.Text == "/" && m.filter == "" {
+		m.filtering = false
+		m.resetFilter()
+		m.inputCur.Blur()
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		m.filtering = false
@@ -709,6 +716,10 @@ func (m Model) handleSettingsInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 
 func (m Model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	defs := settingDefs()
+	if msg.Text == "," {
+		m.showSettings = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		m.showSettings = false
@@ -1682,7 +1693,13 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 
 // renderSettingsView builds the full-screen settings view matching the
 // browser's list layout with section header, bullet selection, and status bar.
-func (m Model) renderSettingsView() string {
+// renderSettingsFooter builds the settings panel as a footer popup.
+func (m Model) renderSettingsFooter() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+
 	th := theme.Current()
 	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
 	dim := lipgloss.NewStyle().Faint(true)
@@ -1690,16 +1707,10 @@ func (m Model) renderSettingsView() string {
 	cfg := m.settingsCfg
 	defs := settingDefs()
 
+	border := dim.Render(strings.Repeat("\u2500", width))
+
 	var b strings.Builder
-
-	// Section header — same style as browser's "Notebooks" / "Recent" headers.
-	headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	b.WriteString(" " + headerStyle.Render("Settings") + "\n")
-
-	contentHeight := m.height - 2 - m.statusBarHeight()
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	b.WriteString(border + "\n")
 
 	maxLabel := 0
 	for _, d := range defs {
@@ -1708,12 +1719,10 @@ func (m Model) renderSettingsView() string {
 		}
 	}
 
-	lines := 1 // header
 	for i, d := range defs {
 		val, _ := config.Get(cfg, d.key)
 		displayVal := settingDisplayValue(d, val)
 
-		// Cycle settings show arrows.
 		if d.kind == settingCycle && len(d.options) > 1 {
 			displayVal = "◂ " + displayVal + " ▸"
 		}
@@ -1723,66 +1732,33 @@ func (m Model) renderSettingsView() string {
 
 		if i == m.settingsCursor {
 			bullet := accentStyle.Render("\u25CF") + " "
-			line := bullet + accentStyle.Render(label) + pad + accentStyle.Render(displayVal)
-			b.WriteString(line + "\n")
+			b.WriteString(bullet + accentStyle.Render(label) + pad + accentStyle.Render(displayVal) + "\n")
 		} else {
-			line := "  " + label + pad + dim.Render(displayVal)
-			b.WriteString(line + "\n")
-		}
-		lines++
-	}
-
-	// Description for selected setting.
-	if m.settingsCursor < len(defs) {
-		desc := defs[m.settingsCursor].desc
-		if desc != "" {
-			b.WriteString("\n")
-			b.WriteString("  " + dim.Render(desc) + "\n")
-			lines += 2
+			b.WriteString("  " + label + pad + dim.Render(displayVal) + "\n")
 		}
 	}
-
-	// Pad to push status bar to bottom.
-	for lines < contentHeight {
-		b.WriteString("\n")
-		lines++
-	}
-
-	// Status bar.
-	b.WriteString("\n")
-	b.WriteString(m.renderStatusBar())
 
 	return b.String()
 }
 
-// renderHelpOverlay builds the centered help panel.
-func (m Model) renderHelpOverlay() string {
-	sections := []ui.HelpSection{
-		{
-			Title: "Navigation",
-			Bindings: []ui.HelpBinding{
-				{Key: "↑/↓         ", Desc: "Navigate"},
-				{Key: "Enter       ", Desc: "Open / edit"},
-				{Key: "Esc/⌃C      ", Desc: "Back / quit"},
-				{Key: "Tab         ", Desc: "Jump section"},
-				{Key: "/           ", Desc: "Search"},
-			},
-		},
-		{
-			Title: "Actions",
-			Bindings: []ui.HelpBinding{
-				{Key: "n           ", Desc: "New"},
-				{Key: "i           ", Desc: "Open file"},
-				{Key: "d           ", Desc: "Delete / remove"},
-				{Key: "r           ", Desc: "Rename"},
-				{Key: "c           ", Desc: "Copy (notes)"},
-				{Key: "t           ", Desc: "Theme"},
-				{Key: "p           ", Desc: "Preview"},
-				{Key: ",           ", Desc: "Settings"},
-			},
-		},
-	}
-	return ui.RenderHelpOverlay(sections, "Esc/? to close", m.width, m.height)
+// renderHelpFooter builds the help footer panel with keybind reference.
+func (m Model) renderHelpFooter() string {
+	return ui.RenderHelpFooter([]ui.HelpBinding{
+		{Key: "↑/↓", Desc: "Navigate"},
+		{Key: "Enter", Desc: "Open"},
+		{Key: "Esc", Desc: "Back / quit"},
+		{Key: "Tab", Desc: "Jump section"},
+		{Key: "/", Desc: "Search"},
+		{Key: "n", Desc: "New"},
+		{Key: "d", Desc: "Delete"},
+		{Key: "r", Desc: "Rename"},
+		{Key: "c", Desc: "Copy note"},
+		{Key: "i", Desc: "Import file"},
+		{Key: "t", Desc: "Theme"},
+		{Key: "p", Desc: "Preview"},
+		{Key: ",", Desc: "Settings"},
+		{Key: "?", Desc: "Close"},
+	}, m.width)
 }
 
 // currentHintID returns the hint ID relevant to the current browser state,
@@ -1812,12 +1788,8 @@ func (m Model) View() tea.View {
 
 	var content string
 
-	if m.showHelp {
-		content = m.renderHelpOverlay()
-	} else if m.themeMode {
+	if m.themeMode {
 		content = m.renderThemeOverlay()
-	} else if m.showSettings {
-		content = m.renderSettingsView()
 	} else if m.err != nil {
 		content = fmt.Sprintf("\n  Error: %v\n", m.err)
 	} else {
@@ -1830,12 +1802,24 @@ func (m Model) View() tea.View {
 			b.WriteString("\n")
 		}
 
+		// Footer panel (help or settings).
+		var footer string
+		if m.showSettings {
+			footer = m.renderSettingsFooter()
+		} else if m.showHelp {
+			footer = m.renderHelpFooter()
+		}
+
 		// Content area.
 		headerLines := 1 // breadcrumb line
 		if breadcrumb == "" {
 			headerLines = 0
 		}
-		contentHeight := m.height - headerLines - 1 - m.statusBarHeight() // header + status bar + blank line above status
+		footerH := 1 // gap line before status bar
+		if footer != "" {
+			footerH = strings.Count(footer, "\n")
+		}
+		contentHeight := m.height - headerLines - footerH - m.statusBarHeight()
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
@@ -1851,8 +1835,12 @@ func (m Model) View() tea.View {
 			}
 		}
 
-		// Status bar.
-		b.WriteString("\n")
+		// Footer and status bar.
+		if footer != "" {
+			b.WriteString(footer)
+		} else {
+			b.WriteString("\n")
+		}
 		b.WriteString(m.renderStatusBar())
 		content = b.String()
 	}
@@ -2347,6 +2335,10 @@ func (m Model) renderStatusBar() string {
 		width = 80
 	}
 
+	if m.inputMode && m.showSettings {
+		// Settings text edit: use input bar without border (settings footer provides its own).
+		return format.StatusBarInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
+	}
 	if m.inputMode {
 		return format.FooterInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
 	}
@@ -2359,13 +2351,34 @@ func (m Model) renderStatusBar() string {
 	var hint string
 	var right string
 
-	if m.statusText != "" {
+	if m.showSettings {
+		defs := settingDefs()
+		if m.settingsCursor < len(defs) {
+			if desc := defs[m.settingsCursor].desc; desc != "" {
+				left = "  " + desc
+			}
+			switch defs[m.settingsCursor].kind {
+			case settingBool:
+				right = "Enter toggle \u00B7 Esc close"
+			case settingCycle:
+				right = "←/→ cycle \u00B7 Esc close"
+			case settingText:
+				right = "Enter edit \u00B7 Esc close"
+			}
+		}
+	} else if m.showHelp {
+		right = "? close"
+	} else if m.statusText != "" {
 		left = "  " + m.statusText
 	} else if m.level == 0 {
 		if !m.dismissedHints["browser.theme"] {
 			hint = "press t to change theme!  [h]ide"
 		}
-		right = "Tab jump \u00B7 / search \u00B7 ? help"
+		if len(m.filteredRecent) > 0 && len(m.filtered) > 0 {
+			right = "Tab jump \u00B7 / search \u00B7 ? help"
+		} else {
+			right = "/ search \u00B7 ? help"
+		}
 	} else {
 		right = "/ search \u00B7 Esc back \u00B7 ? help"
 	}

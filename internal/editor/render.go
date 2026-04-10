@@ -64,6 +64,9 @@ func (m Model) renderHeader() string {
 	metaStyle := lipgloss.NewStyle().Faint(true)
 
 	left := " " + titleStyle.Render(m.config.Title)
+	if m.modified() {
+		left += " " + metaStyle.Render("[modified]")
+	}
 
 	var rightParts []string
 	if m.config.FilePath != "" {

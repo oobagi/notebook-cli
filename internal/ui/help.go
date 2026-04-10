@@ -13,61 +13,61 @@ type HelpBinding struct {
 	Desc string
 }
 
-// HelpSection is a titled group of keybindings.
-type HelpSection struct {
-	Title    string
-	Bindings []HelpBinding
-}
-
-// RenderHelpOverlay builds a centered help panel.
-func RenderHelpOverlay(sections []HelpSection, closeHint string, w, h int) string {
-	if w <= 0 {
-		w = 80
+// RenderHelpFooter builds a compact footer panel with bindings in a
+// column-major grid, matching the picker footer style.
+func RenderHelpFooter(bindings []HelpBinding, width int) string {
+	if width <= 0 {
+		width = 80
 	}
-	if h <= 0 {
-		h = 24
+	if len(bindings) == 0 {
+		return ""
 	}
 
 	th := theme.Current()
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent)).Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
-	sep := dim.Render("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
-	s := dim.Render("/") // dimmed slash separator
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Accent))
 
-	var help strings.Builder
-	for si, section := range sections {
-		if si > 0 {
-			help.WriteString("\n")
-		}
-		help.WriteString("  " + accent.Render(section.Title) + "\n")
-		help.WriteString("  " + sep + "\n")
-
-		for _, b := range section.Bindings {
-			if b.Key == "" {
-				// Blank separator line.
-				help.WriteString("\n")
-				continue
-			}
-			// Replace "/" in desc with dimmed slash for visual consistency.
-			desc := strings.ReplaceAll(b.Desc, " / ", " "+s+" ")
-			key := strings.ReplaceAll(b.Key, "/", s)
-			help.WriteString("  " + key + desc + "\n")
+	// Find max visual width of any single binding entry.
+	maxEntry := 0
+	for _, b := range bindings {
+		w := lipgloss.Width(b.Key) + 1 + lipgloss.Width(b.Desc)
+		if w > maxEntry {
+			maxEntry = w
 		}
 	}
 
-	// Trim trailing newline so the box doesn't have extra space.
-	content := strings.TrimRight(help.String(), "\n")
+	colW := maxEntry + 3
+	cols := (width - 2) / colW // -2 for left margin
+	if cols < 1 {
+		cols = 1
+	}
+	if cols > len(bindings) {
+		cols = len(bindings)
+	}
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(th.Border)).
-		Padding(1, 2).
-		Width(36).
-		Align(lipgloss.Left)
+	rows := (len(bindings) + cols - 1) / cols
 
-	rendered := box.Render(content)
-	statusHint := dim.Render(closeHint)
-	full := rendered + "\n" + statusHint
+	border := dim.Render(strings.Repeat("\u2500", width))
 
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, full)
+	var sb strings.Builder
+	sb.WriteString(border + "\n")
+
+	for r := 0; r < rows; r++ {
+		sb.WriteString("  ")
+		for c := 0; c < cols; c++ {
+			idx := r + c*rows // column-major order
+			if idx < len(bindings) {
+				k := bindings[idx].Key
+				desc := bindings[idx].Desc
+				sb.WriteString(accent.Render(k) + " " + desc)
+				visual := lipgloss.Width(k) + 1 + lipgloss.Width(desc)
+				if pad := colW - visual; pad > 0 {
+					sb.WriteString(strings.Repeat(" ", pad))
+				}
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
