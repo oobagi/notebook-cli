@@ -228,7 +228,7 @@ func Get(cfg Config, key string) (string, error) {
 	case "date_format":
 		return cfg.DateFormat, nil
 	case "hide_checked":
-		return fmt.Sprintf("%t", BoolVal(cfg.HideChecked, true)), nil
+		return fmt.Sprintf("%t", BoolVal(cfg.HideChecked, false)), nil
 	case "cascade_checks":
 		return fmt.Sprintf("%t", BoolVal(cfg.CascadeChecks, true)), nil
 	case "show_preview":

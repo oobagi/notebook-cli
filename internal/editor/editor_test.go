@@ -1535,8 +1535,10 @@ func TestCutBlockDoesNotDeleteExtra(t *testing.T) {
 	}
 }
 
-func TestMergeHeadingIntoEmptyBlockPreservesType(t *testing.T) {
+func TestBackspaceOnHeadingConvertsToParagraph(t *testing.T) {
 	// Empty paragraph followed by a heading.
+	// Backspace at pos 0 on a heading should convert it to a paragraph
+	// (consistent with list items, code blocks, etc.).
 	content := "\n# Important Title"
 	m := New(Config{Title: "test", Content: content})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -1561,13 +1563,12 @@ func TestMergeHeadingIntoEmptyBlockPreservesType(t *testing.T) {
 	m.focusBlock(headingIdx)
 	m.textareas[m.active].CursorStart()
 
-	// Press Backspace to merge into the empty block above.
+	// Press Backspace — should convert heading to paragraph, not merge.
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = updated.(Model)
 
-	// The merged block should be a Heading1, not a Paragraph.
-	if m.blocks[m.active].Type != block.Heading1 {
-		t.Fatalf("merged block should be Heading1, got %s", m.blocks[m.active].Type)
+	if m.blocks[m.active].Type != block.Paragraph {
+		t.Fatalf("heading should convert to Paragraph, got %s", m.blocks[m.active].Type)
 	}
 
 	// Content should be preserved.
