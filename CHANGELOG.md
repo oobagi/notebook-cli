@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0] - 2026-04-09
+## [1.2.1] - 2026-04-09
 
 ### Added
 - Placeholder text for empty blocks: callout ("Empty callout"), definition ("Term" / "Definition"), code block ("language"), and embed ("Link or note path") now show placeholder hints in edit, inactive, and view modes.
