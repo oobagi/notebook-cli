@@ -826,6 +826,36 @@ func TestAltDownMovesBlockDown(t *testing.T) {
 	}
 }
 
+// Regression: swapBlocks on an active Table block used to clobber the
+// cell textarea with the full serialized table, which rendered as a
+// nested "double table" inside cell (0,0).
+func TestAltDownOnActiveTableKeepsCellTextarea(t *testing.T) {
+	content := "| a | b |\n| --- | --- |\n| c | d |\n\nParagraph"
+	m := New(Config{Title: "test", Content: content})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	m.focusBlock(0)
+	if m.blocks[0].Type != block.Table {
+		t.Fatalf("expected first block to be a table, got %d", m.blocks[0].Type)
+	}
+	if m.table == nil {
+		t.Fatal("expected table state to be initialised on focus")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModAlt})
+	m = updated.(Model)
+
+	if m.blocks[m.active].Type != block.Table {
+		t.Fatalf("table should have moved and stayed focused, got type %d", m.blocks[m.active].Type)
+	}
+	// Active cell is (0,0); textarea must hold only that cell's value.
+	got := m.textareas[m.active].Value()
+	if strings.Contains(got, "|") || strings.Contains(got, "---") {
+		t.Fatalf("cell textarea should hold cell value, not serialized table: %q", got)
+	}
+}
+
 func TestAltUpNoOpAtTop(t *testing.T) {
 	content := "# Title\n\nParagraph"
 	m := New(Config{Title: "test", Content: content})

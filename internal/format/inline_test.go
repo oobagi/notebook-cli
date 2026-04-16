@@ -125,6 +125,16 @@ func TestRenderInlineMarkdown_MultiLine(t *testing.T) {
 	}
 }
 
+// When the caller has already word-wrapped the text, a **bold** pair can
+// span across a newline. The renderer should still style both lines.
+func TestRenderInlineMarkdown_DelimiterSpansWrappedLines(t *testing.T) {
+	result := RenderInlineMarkdown("**add the correct version\nto the settings.**")
+	expected := boldOn + "add the correct version" + boldOff + "\n" + boldOn + "to the settings." + boldOff
+	if result != expected {
+		t.Errorf("wrapped bold:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
 func TestRenderInlineMarkdown_PlainText(t *testing.T) {
 	input := "no formatting here"
 	result := RenderInlineMarkdown(input)

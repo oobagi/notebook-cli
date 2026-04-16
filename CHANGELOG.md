@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Tables: Home/End now jump between cells when already at the cell's line start/end.
+- Tables: Alt+Left/Right jump to the previous/next cell when the cursor is at the cell's start/end (previously only plain Left/Right did this — Alt variants now skip the walk-to-edge step).
+- Tables: Alt+Up/Down move the focused cell up/down within the table when the cursor is on the first/last line of the cell, falling through to block-swap only on the top/bottom row.
+- Tables: Enter on a fully empty row exits the table and drops the row.
+- Tables: Alt+Shift+Backspace / Alt+Shift+D delete row / column.
+- Definition lookup (`:`) now searches definitions across every note in every notebook, not just the current one. Cross-note matches are read-only and labelled with their `notebook/note` source.
+- Browser: `c` now copies the contents of the highlighted recent entry to the clipboard, matching the existing notebook-level `c` binding.
+
+### Changed
+- Tables: Alt+Backspace / Alt+D now delete word (matching all other blocks); row/column delete moved to the Alt+Shift variants above.
+- View mode (Ctrl+R) trims leading and trailing empty paragraph blocks so accidental top/bottom whitespace doesn't pad the rendered view. The file on disk is untouched.
+- Command palette (/) and other pickers now keep a constant footer height as you filter, so the layout no longer jumps.
+
+### Fixed
+- Inline markdown (**bold**, *italic*, __underline__, ~~strike~~) now renders correctly when a delimiter pair is split across wrapped lines.
+- Alt+Up / Alt+Down on a focused table no longer duplicates the entire table into cell (0,0).
+- Undo no longer needs to be pressed twice in tables. Previously cursor-only key presses inside a cell registered as edits because the dirty-check compared per-cell text against the full serialized table.
+
 ## [1.2.1] - 2026-04-09
 
 ### Added

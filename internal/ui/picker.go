@@ -21,6 +21,7 @@ type Picker struct {
 	filtered    []int
 	filter      string
 	cursor      int
+	reserved    int    // row slots kept constant across filter changes
 	Prompt      string // displayed before the filter text, e.g. "/", "↗ ", ": "
 	Placeholder string // shown when filter is empty, e.g. "type to filter..."
 	NoMatchText string // shown when filter yields no results
@@ -35,11 +36,17 @@ type Picker struct {
 }
 
 // Open populates the picker with items, resets state, and makes it visible.
+// The reserved row count is pinned at open time so subsequent filter changes
+// don't resize the footer and shift surrounding layout.
 func (p *Picker) Open(items []PickerItem) {
 	p.Visible = true
 	p.items = items
 	p.filter = ""
 	p.cursor = 0
+	p.reserved = len(items)
+	if p.MaxVisible > 0 && p.reserved > p.MaxVisible {
+		p.reserved = p.MaxVisible
+	}
 	p.Refilter()
 }
 
@@ -48,6 +55,7 @@ func (p *Picker) Close() {
 	p.Visible = false
 	p.filter = ""
 	p.cursor = 0
+	p.reserved = 0
 	p.items = nil
 	p.FilterFunc = nil
 }
@@ -167,14 +175,15 @@ func (p *Picker) FilteredIndices() []int {
 func (p *Picker) Items() []PickerItem { return p.items }
 
 // Height returns the number of terminal lines the footer panel occupies.
+// Once opened, the height stays pinned to the reserved row count so
+// filter-driven list shrinkage can't reshape the surrounding layout.
 func (p *Picker) Height() int {
 	if !p.Visible {
 		return 0
 	}
-	// border + filter line = 2
-	n := p.visibleCount()
-	if n == 0 && p.filter != "" {
-		n = 1 // "No matches" line
+	n := p.reserved
+	if n < 1 && p.filter != "" {
+		n = 1 // room for "No matches"
 	}
 	return n + 2
 }
@@ -232,38 +241,50 @@ func (p *Picker) RenderFooter(width int) string {
 		// Show the list even when filter is empty.
 	}
 
-	if len(p.filtered) == 0 && p.filter != "" {
-		noMatch := dim.Render(p.NoMatchText)
-		return border + "\n" + filterLine + "\n" + " " + noMatch + "\n"
-	}
-
-	if len(p.filtered) == 0 {
-		return border + "\n" + filterLine + "\n"
-	}
-
-	// Build rows.
-	start, end := p.visibleWindow()
+	// Build rows. The list is padded to `reserved` rows so the footer
+	// height stays constant even as filter narrows results.
 	var rows []string
 
-	// Scroll-up indicator.
-	if start > 0 {
-		rows = append(rows, dim.Render("  \u2191 more"))
+	if len(p.filtered) == 0 {
+		if p.filter != "" {
+			rows = append(rows, " "+dim.Render(p.NoMatchText))
+		}
+	} else {
+		start, end := p.visibleWindow()
+
+		// Scroll-up indicator.
+		if start > 0 {
+			rows = append(rows, dim.Render("  \u2191 more"))
+		}
+
+		rowWidth := width - 4 // margin for borders/padding
+		if rowWidth < 20 {
+			rowWidth = 20
+		}
+
+		for i := start; i < end; i++ {
+			item := p.items[p.filtered[i]]
+			rows = append(rows, item.RenderRow(i == p.cursor, rowWidth))
+		}
+
+		// Scroll-down indicator.
+		if end < len(p.filtered) {
+			rows = append(rows, dim.Render("  \u2193 more"))
+		}
 	}
 
-	rowWidth := width - 4 // margin for borders/padding
-	if rowWidth < 20 {
-		rowWidth = 20
+	// Pad to the reserved row count so layout doesn't shift as the
+	// filter narrows results.
+	target := p.reserved
+	if target < 1 && p.filter != "" {
+		target = 1
+	}
+	for len(rows) < target {
+		rows = append(rows, "")
 	}
 
-	for i := start; i < end; i++ {
-		item := p.items[p.filtered[i]]
-		rows = append(rows, item.RenderRow(i == p.cursor, rowWidth))
+	if len(rows) == 0 {
+		return border + "\n" + filterLine + "\n"
 	}
-
-	// Scroll-down indicator.
-	if end < len(p.filtered) {
-		rows = append(rows, dim.Render("  \u2193 more"))
-	}
-
 	return border + "\n" + filterLine + "\n" + strings.Join(rows, "\n") + "\n"
 }

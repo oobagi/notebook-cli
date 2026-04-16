@@ -15,11 +15,16 @@ type defLookup struct {
 	defItems []defItem // raw items with block indices
 }
 
-// defItem represents one definition list block in the document.
+// defItem represents one definition list block. Local items (from the
+// current document) have BlockIdx >= 0 and Notebook/Note empty; remote
+// items (gathered across notebooks) have BlockIdx == -1 and a populated
+// Notebook/Note pair shown alongside the term.
 type defItem struct {
 	Term       string
 	Definition string
 	BlockIdx   int
+	Notebook   string
+	Note       string
 }
 
 func (d defItem) FilterValue() string { return d.Term }
@@ -33,8 +38,18 @@ func (d defItem) RenderRow(selected bool, width int) string {
 	if term == "" {
 		term = "(empty)"
 	}
+
+	var location string
+	if d.Notebook != "" || d.Note != "" {
+		location = d.Notebook + "/" + d.Note
+	}
+
 	def := d.Definition
-	maxDef := width - len(term) - 8
+	overhead := len(term) + 8
+	if location != "" {
+		overhead += len(location) + 3
+	}
+	maxDef := width - overhead
 	if maxDef < 10 {
 		maxDef = 10
 	}
@@ -46,25 +61,35 @@ func (d defItem) RenderRow(selected bool, width int) string {
 		marker := accent.Render("\u203a")
 		termStr := accent.Render(term)
 		defStr := dim.Render(def)
-		return " " + marker + " " + termStr + "  " + defStr
+		out := " " + marker + " " + termStr + "  " + defStr
+		if location != "" {
+			out += "  " + dim.Render("["+location+"]")
+		}
+		return out
 	}
 	termStr := lipgloss.NewStyle().Bold(true).Render(term)
 	defStr := dim.Render(def)
-	return "   " + termStr + "  " + defStr
+	out := "   " + termStr + "  " + defStr
+	if location != "" {
+		out += "  " + dim.Render("["+location+"]")
+	}
+	return out
 }
 
 // newDefLookup creates a definition lookup ready for use.
 func newDefLookup() defLookup {
 	d := defLookup{}
 	d.Prompt = ": "
-	d.Placeholder = "search definitions..."
+	d.Placeholder = "search definitions across all files..."
 	d.NoMatchText = "No matches"
 	d.MaxVisible = 6
 	return d
 }
 
-// open scans blocks for definition lists and shows the lookup.
-func (d *defLookup) open(blocks []block.Block) {
+// open scans the current document for definition lists, optionally
+// merging in cross-note definitions when remote != nil. Local items
+// always come first so jumping within the current note stays cheap.
+func (d *defLookup) open(blocks []block.Block, remote []DefinitionEntry) {
 	d.defItems = nil
 	for i, b := range blocks {
 		if b.Type == block.DefinitionList {
@@ -75,6 +100,15 @@ func (d *defLookup) open(blocks []block.Block) {
 				BlockIdx:   i,
 			})
 		}
+	}
+	for _, e := range remote {
+		d.defItems = append(d.defItems, defItem{
+			Term:       e.Term,
+			Definition: e.Definition,
+			BlockIdx:   -1,
+			Notebook:   e.Notebook,
+			Note:       e.Note,
+		})
 	}
 	items := make([]ui.PickerItem, len(d.defItems))
 	for i, di := range d.defItems {
