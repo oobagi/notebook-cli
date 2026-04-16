@@ -46,6 +46,20 @@ type Config struct {
 	// ListEmbedTargets returns all available "notebook/note" paths for the
 	// embed picker. Called when the picker opens.
 	ListEmbedTargets func() []string
+	// ListAllDefinitions returns definition list entries gathered from every
+	// note across all notebooks, excluding the note currently being edited
+	// (since its in-memory blocks may differ from disk). When nil, the ":"
+	// lookup is restricted to the current note.
+	ListAllDefinitions func() []DefinitionEntry
+}
+
+// DefinitionEntry is a single definition list block sourced from another
+// note. The Notebook/Note pair locates the source for display in the lookup.
+type DefinitionEntry struct {
+	Term       string
+	Definition string
+	Notebook   string
+	Note       string
 }
 
 // savedMsg is sent after a successful save.
@@ -849,11 +863,13 @@ func (m *Model) swapBlocks(delta int) {
 
 	bStart, bEnd := m.blockBundle(m.active)
 
-	// Sync table cell before swapping.
+	// Sync the active cell into the block's serialized content so the
+	// swap persists user edits. The textarea itself must stay as the
+	// cell view — clobbering it with the full serialized table would
+	// cause the next render to draw the whole table inside one cell.
 	if m.table != nil && m.blocks[m.active].Type == block.Table {
 		m.table.syncCell(m.textareas[m.active])
 		m.blocks[m.active].Content = m.table.serialize()
-		m.textareas[m.active].SetValue(m.blocks[m.active].Content)
 	}
 
 	// Sync textarea content in the active bundle.
@@ -1358,7 +1374,7 @@ func (m *Model) handlePickerSelect() {
 		m.embedPicker.Close()
 
 	case m.defLookup.Visible:
-		if sel := m.defLookup.selected(); sel != nil {
+		if sel := m.defLookup.selected(); sel != nil && sel.BlockIdx >= 0 {
 			if m.viewMode {
 				m.active = sel.BlockIdx
 				if sel.BlockIdx < len(m.blockLineOffsets) {
@@ -1370,6 +1386,15 @@ func (m *Model) handlePickerSelect() {
 		}
 		m.defLookup.close()
 	}
+}
+
+// remoteDefinitions returns definition entries from notes other than the
+// current one, or nil when the host hasn't wired up the lookup.
+func (m Model) remoteDefinitions() []DefinitionEntry {
+	if m.config.ListAllDefinitions == nil {
+		return nil
+	}
+	return m.config.ListAllDefinitions()
 }
 
 // isAtFirstLine returns true if the cursor is on the first visual line
@@ -1767,7 +1792,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			default:
 				if msg.Code == ':' {
-					m.defLookup.open(m.blocks)
+					m.defLookup.open(m.blocks, m.remoteDefinitions())
 					m.updateViewport()
 					return m, nil
 				}
@@ -1893,12 +1918,43 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "alt+up":
+			// Table: at top line of cell, move to cell above
+			// (preserving horizontal position). Falls through to block
+			// swap when already on the top row.
+			if m.isAtFirstLine() && m.table != nil && m.table.row > 0 {
+				ta := &m.textareas[m.active]
+				charOffset := ta.LineInfo().CharOffset
+				cw := m.tableCellTAWidth()
+				m.table.syncCell(*ta)
+				m.table.row--
+				m.table.loadCell(ta, cw, true)
+				li := ta.LineInfo()
+				ta.SetCursorColumn(li.StartColumn + charOffset)
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
+			}
 			m.pushUndo()
 			m.swapBlocks(-1)
 			m.updateViewport()
 			return m, nil
 
 		case "alt+down":
+			// Table: at bottom line of cell, move to cell below
+			// (preserving horizontal position). Falls through to block
+			// swap when already on the last row.
+			if m.isAtLastLine() && m.table != nil && m.table.row < len(m.table.cells)-1 {
+				ta := &m.textareas[m.active]
+				charOffset := ta.LineInfo().CharOffset
+				cw := m.tableCellTAWidth()
+				m.table.syncCell(*ta)
+				m.table.row++
+				m.table.loadCell(ta, cw, false)
+				ta.SetCursorColumn(charOffset)
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
+			}
 			m.pushUndo()
 			m.swapBlocks(1)
 			m.updateViewport()
@@ -1978,7 +2034,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.openEmbedModal(m.active)
 					return m, nil
 				case block.DefinitionList:
-					m.defLookup.open(m.blocks)
+					m.defLookup.open(m.blocks, m.remoteDefinitions())
 					m.updateViewport()
 					return m, nil
 				}
@@ -2036,7 +2092,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyMsg.Code == ':' && len(keyMsg.Text) > 0 {
 				ta := &m.textareas[m.active]
 				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
-					m.defLookup.open(m.blocks)
+					m.defLookup.open(m.blocks, m.remoteDefinitions())
 					m.updateViewport()
 					return m, nil
 				}
@@ -2076,6 +2132,22 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if keyMsg.Code == tea.KeyEnter {
 					m.table.syncCell(*ta)
+
+					// Empty row → exit table and drop the row (matches the
+					// "Enter on empty block exits" pattern used elsewhere).
+					if m.table.isRowEmpty(m.table.row) {
+						m.pushUndo()
+						if len(m.table.cells) > 1 {
+							m.table.deleteRow()
+						}
+						m.blocks[m.active].Content = m.table.serialize()
+						m.textareas[m.active].SetValue(m.blocks[m.active].Content)
+						m.table = nil
+						m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
+						m.updateViewport()
+						return m, nil
+					}
+
 					m.table.row++
 					if m.table.row >= len(m.table.cells) {
 						newRow := make([]string, m.table.numCols())
@@ -2118,6 +2190,78 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
+				// Home (or Cmd+Left on macOS terminals): if cursor is
+				// already at the cell's line-start, jump to prev cell.
+				if keyMsg.Code == tea.KeyHome {
+					li := ta.LineInfo()
+					atLineStart := li.ColumnOffset == 0 && li.RowOffset == 0 && ta.Line() == 0
+					if atLineStart && (m.table.row > 0 || m.table.col > 0) {
+						m.table.syncCell(*ta)
+						m.table.prevCell()
+						m.table.loadCell(ta, cw, true)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
+				}
+
+				// End (or Cmd+Right on macOS terminals): if already at
+				// line-end of the last line, jump to next cell.
+				if keyMsg.Code == tea.KeyEnd {
+					li := ta.LineInfo()
+					lines := strings.Split(ta.Value(), "\n")
+					lineRunes := []rune{}
+					if ta.Line() < len(lines) {
+						lineRunes = []rune(lines[ta.Line()])
+					}
+					atLineEnd := m.isAtLastLine() && li.StartColumn+li.ColumnOffset >= len(lineRunes)
+					if atLineEnd && (m.table.row < len(m.table.cells)-1 || m.table.col < m.table.numCols()-1) {
+						m.table.syncCell(*ta)
+						m.table.nextCell()
+						m.table.loadCell(ta, cw, false)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
+				}
+
+				// Alt+Left / Ctrl+A at cell start: jump to previous cell.
+				// macOS terminals remap Alt+Left → Ctrl+A, so we accept
+				// all three forms. Same edge-jump as plain Left but
+				// reachable in a single keypress.
+				keyStr := keyMsg.String()
+				if keyStr == "alt+left" || keyStr == "alt+b" || keyStr == "ctrl+a" {
+					li := ta.LineInfo()
+					atStart := ta.Line() == 0 && li.ColumnOffset == 0 && li.RowOffset == 0
+					if atStart && (m.table.row > 0 || m.table.col > 0) {
+						m.table.syncCell(*ta)
+						m.table.prevCell()
+						m.table.loadCell(ta, cw, true)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
+				}
+
+				// Alt+Right / Ctrl+E at cell end: jump to next cell.
+				if keyStr == "alt+right" || keyStr == "alt+f" || keyStr == "ctrl+e" {
+					li := ta.LineInfo()
+					lines := strings.Split(ta.Value(), "\n")
+					lineRunes := []rune{}
+					if ta.Line() < len(lines) {
+						lineRunes = []rune(lines[ta.Line()])
+					}
+					atEnd := m.isAtLastLine() && li.StartColumn+li.ColumnOffset >= len(lineRunes)
+					if atEnd && (m.table.row < len(m.table.cells)-1 || m.table.col < m.table.numCols()-1) {
+						m.table.syncCell(*ta)
+						m.table.nextCell()
+						m.table.loadCell(ta, cw, false)
+						m.cursorCmd = ta.Focus()
+						m.updateViewport()
+						return m, nil
+					}
+				}
+
 				// Alt+R: insert row below.
 				if keyMsg.Code == 'r' && keyMsg.Mod.Contains(tea.ModAlt) {
 					m.pushUndo()
@@ -2142,8 +2286,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Alt+Backspace: delete current row (if more than one).
-				if keyMsg.Code == tea.KeyBackspace && keyMsg.Mod.Contains(tea.ModAlt) {
+				// Alt+Shift+Backspace: delete current row. Using a shift
+				// variant keeps plain Alt+Backspace available for
+				// word-delete, matching behavior in other blocks.
+				if keyMsg.Code == tea.KeyBackspace && keyMsg.Mod.Contains(tea.ModAlt) && keyMsg.Mod.Contains(tea.ModShift) {
 					m.pushUndo()
 					m.table.syncCell(*ta)
 					if m.table.deleteRow() {
@@ -2154,8 +2300,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Alt+D: delete current column (if more than one).
-				if keyMsg.Code == 'd' && keyMsg.Mod.Contains(tea.ModAlt) {
+				// Alt+Shift+D: delete current column. Plain Alt+D remains
+				// word-delete-forward to match other blocks.
+				if (keyMsg.Code == 'd' || keyMsg.Code == 'D') && keyMsg.Mod.Contains(tea.ModAlt) && keyMsg.Mod.Contains(tea.ModShift) {
 					m.pushUndo()
 					m.table.syncCell(*ta)
 					if m.table.deleteCol() {
@@ -2291,9 +2438,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Capture state before the textarea processes the keystroke so we
 		// can detect whether content actually changed (vs. cursor movement).
+		// Also snapshot the raw textarea value — for tables, captureState
+		// stores the serialized table in blocks[active].Content, which
+		// never equals the per-cell textarea value, so we can't compare
+		// against it to detect real edits.
 		var preState editorState
-		if !m.undoDirty {
+		var preValue string
+		preStateCaptured := false
+		if !m.undoDirty && m.active >= 0 && m.active < len(m.textareas) {
 			preState = m.captureState()
+			preValue = m.textareas[m.active].Value()
+			preStateCaptured = true
 		}
 
 		// Enforce correct width BEFORE the textarea processes the key,
@@ -2309,7 +2464,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Only push an undo entry when content actually changed, not on
 		// cursor-only movements (left, right, home, end, etc.).
-		if !m.undoDirty && m.textareas[m.active].Value() != preState.blocks[preState.active].Content {
+		if preStateCaptured && m.textareas[m.active].Value() != preValue {
 			m.undo.push(preState)
 			m.redo.clear()
 			m.undoDirty = true
@@ -2464,8 +2619,25 @@ func (m *Model) updateViewport() {
 		if scrollTarget < yOffset {
 			yOffset = scrollTarget
 		}
-		if cursorLine >= yOffset+m.viewport.Height() {
-			yOffset = cursorLine - m.viewport.Height() + 1
+
+		// In tables, also try to keep the rows + bottom border below the
+		// cursor on screen — without this the last row sits flush against
+		// the viewport bottom and the closing border gets clipped.
+		bottomTarget := cursorLine
+		if m.table != nil && m.blocks[m.active].Type == block.Table {
+			rowsBelow := len(m.table.cells) - 1 - m.table.row
+			if rowsBelow < 0 {
+				rowsBelow = 0
+			}
+			bottomTarget = cursorLine + rowsBelow*2 + 1
+		}
+		if bottomTarget >= yOffset+m.viewport.Height() {
+			candidate := bottomTarget - m.viewport.Height() + 1
+			// Never push the cursor itself off the top of the viewport.
+			if candidate > cursorLine {
+				candidate = cursorLine
+			}
+			yOffset = candidate
 		}
 		if yOffset < 0 {
 			yOffset = 0
@@ -2473,6 +2645,21 @@ func (m *Model) updateViewport() {
 
 		m.viewport.SetYOffset(yOffset)
 	}
+}
+
+// viewRange returns the [start, end) slice of m.blocks that view-mode
+// renders — leading and trailing empty paragraph blocks are skipped so
+// accidental blank space at the edges of the document doesn't bloat
+// the rendered view. Internal blanks (paragraph separators) are kept.
+func (m Model) viewRange() (int, int) {
+	start, end := 0, len(m.blocks)
+	for start < end && block.IsEmptyParagraph(m.blocks[start]) {
+		start++
+	}
+	for end > start && block.IsEmptyParagraph(m.blocks[end-1]) {
+		end--
+	}
+	return start, end
 }
 
 // computeBlockLineOffsets mirrors the spacing logic of renderViewContent to
@@ -2508,9 +2695,15 @@ func (m *Model) computeBlockLineOffsets() {
 		advance("")
 	}
 
+	// Skipped blocks keep offset -1 so blockIndexAtLine ignores them.
 	offsets := make([]int, len(m.blocks))
+	for i := range offsets {
+		offsets[i] = -1
+	}
+	vStart, vEnd := m.viewRange()
 	prevIdx := -1
-	for i, b := range m.blocks {
+	for i := vStart; i < vEnd; i++ {
+		b := m.blocks[i]
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
@@ -2553,12 +2746,16 @@ func (m *Model) computeBlockLineOffsets() {
 
 // blockIndexAtLine returns the block index that contains the given absolute
 // line number in view-mode rendered content, or -1 if no block matches.
+// Blocks skipped by viewRange have offset -1 and are ignored.
 func (m Model) blockIndexAtLine(line int) int {
 	if len(m.blockLineOffsets) == 0 {
 		return -1
 	}
 	result := -1
 	for i, offset := range m.blockLineOffsets {
+		if offset < 0 {
+			continue
+		}
 		if offset <= line {
 			result = i
 		} else {
@@ -2622,8 +2819,10 @@ func (m Model) renderViewContent() string {
 		parts = append(parts, "")
 	}
 
+	vStart, vEnd := m.viewRange()
 	prevIdx := -1
-	for i, b := range m.blocks {
+	for i := vStart; i < vEnd; i++ {
+		b := m.blocks[i]
 		content := b.Content
 		if i == m.active && i < len(m.textareas) {
 			content = m.textareas[i].Value()
@@ -2798,7 +2997,7 @@ func (m Model) blockHint() string {
 	}
 	switch m.blocks[m.active].Type {
 	case block.Table:
-		return "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u232B del row \u00B7 \u2325D del col"
+		return "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u21E7\u232B del row \u00B7 \u2325\u21E7D del col"
 	case block.Callout:
 		return "\u2303T variant"
 	case block.CodeBlock:
@@ -2936,10 +3135,24 @@ func (m *Model) renderEmbedSheetContent() {
 
 	var parts []string
 	offsets := make([]int, len(em.blocks))
+	for i := range offsets {
+		offsets[i] = -1
+	}
 	parts = append(parts, "") // top breathing room
 
+	// Trim leading/trailing empty paragraphs so embedded previews don't
+	// lead with a wall of whitespace.
+	vStart, vEnd := 0, len(em.blocks)
+	for vStart < vEnd && block.IsEmptyParagraph(em.blocks[vStart]) {
+		vStart++
+	}
+	for vEnd > vStart && block.IsEmptyParagraph(em.blocks[vEnd-1]) {
+		vEnd--
+	}
+
 	prevIdx := -1
-	for i, b := range em.blocks {
+	for i := vStart; i < vEnd; i++ {
+		b := em.blocks[i]
 		if prevIdx >= 0 {
 			prev := em.blocks[prevIdx]
 			switch {

@@ -47,7 +47,12 @@ const showcaseContent = "" +
 	"## Code Blocks\n\n" +
 	"```go\nfunc main() {\n    fmt.Println(\"Hello from notebook!\")\n}\n```\n\n" +
 	"## Tables\n\n" +
-	"| Shortcut | Action |\n| --- | --- |\n| Alt+R | Add row |\n| Alt+C | Add column |\n\n" +
+	"| Shortcut                | Action              |\n" +
+	"| ---                     | ---                 |\n" +
+	"| Alt+R / Alt+C           | Add row / column    |\n" +
+	"| Alt+Shift+Bksp / Alt+⇧D | Delete row / column |\n" +
+	"| Home / End              | Jump between cells  |\n" +
+	"| Enter on empty row      | Exit table          |\n\n" +
 	"## Quotes\n\n" +
 	"> The best way to predict the future is to invent it.\n> \u2014 Alan Kay\n\n" +
 	"## Definitions\n\n" +

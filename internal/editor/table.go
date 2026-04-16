@@ -71,6 +71,19 @@ func (ts *tableState) numCols() int {
 	return len(ts.cells[0])
 }
 
+// isRowEmpty reports whether every cell in the given row is empty.
+func (ts *tableState) isRowEmpty(row int) bool {
+	if row < 0 || row >= len(ts.cells) {
+		return false
+	}
+	for _, cell := range ts.cells[row] {
+		if cell != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // nextCell advances to the next cell. Returns true if a new row was added.
 func (ts *tableState) nextCell() bool {
 	nc := ts.numCols()

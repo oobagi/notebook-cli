@@ -20,51 +20,21 @@ const (
 // RenderInlineMarkdown applies inline markdown formatting to plain text.
 // Supports **bold**, *italic*, ~~strikethrough~~, and __underline__ with
 // correct nesting. Uses targeted ANSI SGR codes (not full resets) so that
-// outer block-level styles (e.g. heading bold) are preserved.
+// outer block-level styles (e.g. heading bold) are preserved. Delimiter
+// pairs may span newlines — useful when the caller has already
+// word-wrapped text, which can split a **foo bar** marker across lines.
 func RenderInlineMarkdown(text string) string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = renderInlineLine(line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-type delimKind int
-
-const (
-	delimBold          delimKind = iota
-	delimItalic
-	delimStrikethrough
-	delimUnderline
-)
-
-// delimPair records a matched open/close delimiter and the rune ranges it covers.
-type delimPair struct {
-	kind       delimKind
-	openStart  int // first rune of opening delimiter
-	openEnd    int // rune after opening delimiter (content starts here)
-	closeStart int // first rune of closing delimiter
-	closeEnd   int // rune after closing delimiter
-}
-
-type styleFlags struct {
-	bold, italic, strikethrough, underline bool
-}
-
-func renderInlineLine(line string) string {
-	runes := []rune(line)
+	runes := []rune(text)
 	n := len(runes)
 	if n == 0 {
 		return ""
 	}
 
-	// Pass 1: find all matched delimiter pairs.
 	pairs := findDelimiterPairs(runes)
 	if len(pairs) == 0 {
-		return line
+		return text
 	}
 
-	// Mark delimiter runes for removal.
 	skip := make([]bool, n)
 	for _, p := range pairs {
 		for j := p.openStart; j < p.openEnd; j++ {
@@ -75,7 +45,6 @@ func renderInlineLine(line string) string {
 		}
 	}
 
-	// Pass 2: emit text with targeted ANSI style transitions.
 	var buf strings.Builder
 	buf.Grow(n * 2)
 	var active styleFlags
@@ -85,7 +54,23 @@ func renderInlineLine(line string) string {
 			continue
 		}
 
-		// Determine which styles are active at this rune.
+		// Close active styles around newlines so styles don't bleed
+		// into prefixes/indents added by the caller on the next line.
+		// Reopen after the newline to continue the style visually.
+		if runes[i] == '\n' {
+			if active != (styleFlags{}) {
+				saved := active
+				emitTransition(&buf, active, styleFlags{})
+				active = styleFlags{}
+				buf.WriteRune('\n')
+				emitTransition(&buf, active, saved)
+				active = saved
+			} else {
+				buf.WriteRune('\n')
+			}
+			continue
+		}
+
 		var flags styleFlags
 		for _, p := range pairs {
 			if i >= p.openEnd && i < p.closeStart {
@@ -109,9 +94,30 @@ func renderInlineLine(line string) string {
 		buf.WriteRune(runes[i])
 	}
 
-	// Disable any styles still open.
 	emitTransition(&buf, active, styleFlags{})
 	return buf.String()
+}
+
+type delimKind int
+
+const (
+	delimBold          delimKind = iota
+	delimItalic
+	delimStrikethrough
+	delimUnderline
+)
+
+// delimPair records a matched open/close delimiter and the rune ranges it covers.
+type delimPair struct {
+	kind       delimKind
+	openStart  int // first rune of opening delimiter
+	openEnd    int // rune after opening delimiter (content starts here)
+	closeStart int // first rune of closing delimiter
+	closeEnd   int // rune after closing delimiter
+}
+
+type styleFlags struct {
+	bold, italic, strikethrough, underline bool
 }
 
 // emitTransition writes only the ANSI codes needed to move from one style set to another.

@@ -260,6 +260,37 @@ func TestSerializeTableAlignmentPreserved(t *testing.T) {
 	}
 }
 
+func TestTrimEmptyEdges(t *testing.T) {
+	blocks := []Block{
+		{Type: Paragraph, Content: ""},
+		{Type: Paragraph, Content: ""},
+		{Type: Heading1, Content: "Title"},
+		{Type: Paragraph, Content: "body"},
+		{Type: Paragraph, Content: ""},
+		{Type: Paragraph, Content: ""},
+	}
+	trimmed := TrimEmptyEdges(blocks)
+	if len(trimmed) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(trimmed))
+	}
+	if trimmed[0].Type != Heading1 || trimmed[1].Type != Paragraph {
+		t.Fatalf("wrong block types after trim: %+v", trimmed)
+	}
+}
+
+// Internal blanks must survive — they're how paragraphs get separated.
+func TestTrimEmptyEdgesPreservesInternal(t *testing.T) {
+	blocks := []Block{
+		{Type: Paragraph, Content: "one"},
+		{Type: Paragraph, Content: ""},
+		{Type: Paragraph, Content: "two"},
+	}
+	trimmed := TrimEmptyEdges(blocks)
+	if len(trimmed) != 3 {
+		t.Fatalf("expected 3 blocks, got %d", len(trimmed))
+	}
+}
+
 func TestSerializeNumberedListResets(t *testing.T) {
 	blocks := []Block{
 		{Type: NumberedList, Content: "one"},

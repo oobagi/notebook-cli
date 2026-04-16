@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/oobagi/notebook-cli/internal/block"
 	"github.com/oobagi/notebook-cli/internal/clipboard"
 	"github.com/oobagi/notebook-cli/internal/config"
 	"github.com/oobagi/notebook-cli/internal/editor"
@@ -257,6 +258,38 @@ func editNote(w io.Writer, book, note string) error {
 				}
 			}
 			return targets
+		},
+		ListAllDefinitions: func() []editor.DefinitionEntry {
+			notebooks, err := store.ListNotebooks()
+			if err != nil {
+				return nil
+			}
+			var defs []editor.DefinitionEntry
+			for _, nb := range notebooks {
+				notes, err := store.ListNotes(nb)
+				if err != nil {
+					continue
+				}
+				for _, n := range notes {
+					if nb == book && n.Name == note {
+						continue // current note's defs come from in-memory blocks
+					}
+					blocks := block.Parse(n.Content)
+					for _, b := range blocks {
+						if b.Type != block.DefinitionList {
+							continue
+						}
+						term, def := block.ExtractDefinition(b.Content)
+						defs = append(defs, editor.DefinitionEntry{
+							Term:       term,
+							Definition: def,
+							Notebook:   nb,
+							Note:       n.Name,
+						})
+					}
+				}
+			}
+			return defs
 		},
 		DismissedHints: config.LoadDismissedHints(),
 		HideChecked: cfg.HideChecked,

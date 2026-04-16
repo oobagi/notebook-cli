@@ -496,8 +496,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if s == "i" && m.level == 0 {
 			return m.startImport()
 		}
-		if s == "c" && m.level == 1 {
-			return m.copyNote()
+		if s == "c" {
+			if m.level == 0 && m.inRecentsSection() {
+				return m.copyRecentEntry()
+			}
+			if m.level == 1 {
+				return m.copyNote()
+			}
 		}
 		if s == "t" {
 			return m.startThemePicker()
@@ -1039,6 +1044,44 @@ func (m Model) copyNote() (tea.Model, tea.Cmd) {
 			return statusMsg{fmt.Sprintf("Could not copy: %s", err)}
 		}
 		return statusMsg{fmt.Sprintf("Copied %q to clipboard", storage.DisplayName(note.Name))}
+	}
+}
+
+func (m Model) copyRecentEntry() (tea.Model, tea.Cmd) {
+	if len(m.filteredRecent) == 0 {
+		return m, nil
+	}
+	_, localIdx := m.cursorSection()
+	if localIdx >= len(m.filteredRecent) {
+		return m, nil
+	}
+	idx := m.filteredRecent[localIdx]
+	entry := m.recentEntries[idx]
+
+	return m, func() tea.Msg {
+		var content, label string
+		switch entry.Type {
+		case recents.TypeStore:
+			n, err := m.store.GetNote(entry.Notebook, entry.Name)
+			if err != nil {
+				return statusMsg{fmt.Sprintf("Could not load: %s", err)}
+			}
+			content = n.Content
+			label = storage.DisplayName(entry.Name)
+		case recents.TypeExternal:
+			data, err := os.ReadFile(entry.Path)
+			if err != nil {
+				return statusMsg{fmt.Sprintf("Could not read: %s", err)}
+			}
+			content = string(data)
+			label = filepath.Base(entry.Path)
+		default:
+			return statusMsg{"Unknown recent entry type"}
+		}
+		if err := clipboard.Copy(content); err != nil {
+			return statusMsg{fmt.Sprintf("Could not copy: %s", err)}
+		}
+		return statusMsg{fmt.Sprintf("Copied %q to clipboard", label)}
 	}
 }
 

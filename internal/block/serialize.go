@@ -112,6 +112,28 @@ func Serialize(blocks []Block) string {
 	return strings.Join(lines, "\n")
 }
 
+// IsEmptyParagraph reports whether a block is a blank paragraph — the
+// shape that Parse produces for a bare newline in the source file.
+func IsEmptyParagraph(b Block) bool {
+	return b.Type == Paragraph && b.Content == ""
+}
+
+// TrimEmptyEdges drops leading and trailing empty-paragraph blocks.
+// Blank lines in the middle of the document are preserved. View-mode
+// rendering uses this to hide accidental top/bottom whitespace without
+// mutating the file on disk.
+func TrimEmptyEdges(blocks []Block) []Block {
+	start := 0
+	for start < len(blocks) && IsEmptyParagraph(blocks[start]) {
+		start++
+	}
+	end := len(blocks)
+	for end > start && IsEmptyParagraph(blocks[end-1]) {
+		end--
+	}
+	return blocks[start:end]
+}
+
 // isSeparatorCell reports whether a trimmed cell is a GFM separator
 // (e.g. "---", ":---", "---:", ":---:").
 func isSeparatorCell(s string) bool {

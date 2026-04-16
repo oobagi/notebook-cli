@@ -70,7 +70,7 @@ notebook path/to/file.md
 ## Features
 
 - **Block editor** — 14 block types: paragraphs, headings (3 levels), bullet lists, numbered lists, checklists, code blocks, tables, quotes, definitions, callouts, dividers, and embeds. Press **/** to switch types.
-- **Tables** — Pipe-delimited GFM tables with per-column widths. Alt+R/C to add rows/columns, Alt+Backspace/D to delete.
+- **Tables** — Pipe-delimited GFM tables with per-column widths. Alt+R/C to add rows/columns, Alt+Shift+Backspace/Alt+Shift+D to delete. Press Enter on an empty row to exit the table and drop the row.
 - **Callouts** — Five admonition variants (Note, Tip, Important, Warning, Caution). Ctrl+T to cycle.
 - **Definitions** — Term/definition pairs. Press **:** to search and jump to definitions.
 - **Embeds** — Reference other notes inline with `![[notebook/note]]`. Click in view mode to expand.
