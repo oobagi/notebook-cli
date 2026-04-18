@@ -189,13 +189,33 @@ func searchInBook(w io.Writer, book, query string) error {
 // --- Note-scoped operations ---
 
 func editNote(w io.Writer, book, note string) error {
+	for {
+		jumpTo, err := runEditorOnce(w, book, note)
+		if err != nil {
+			return err
+		}
+		if jumpTo == "" {
+			return nil
+		}
+		parts := strings.SplitN(jumpTo, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil
+		}
+		book, note = parts[0], parts[1]
+	}
+}
+
+// runEditorOnce runs the block editor on a single note. Returns the
+// "notebook/note" path the editor was asked to jump to on quit (empty when
+// the user quit normally).
+func runEditorOnce(w io.Writer, book, note string) (string, error) {
 	n, err := store.GetNote(book, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such file or directory") {
 			printError(w, fmt.Sprintf("Note %q not found in %q. Run notebook %s list to see your notes.", note, book, book))
-			return nil
+			return "", nil
 		}
-		return fmt.Errorf("edit note %q/%q: %w", book, note, err)
+		return "", fmt.Errorf("edit note %q/%q: %w", book, note, err)
 	}
 
 	var fileSize int64
@@ -299,10 +319,14 @@ func editNote(w io.Writer, book, note string) error {
 
 	m := editor.New(editorCfg)
 	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("run editor: %w", err)
+	final, err := p.Run()
+	if err != nil {
+		return "", fmt.Errorf("run editor: %w", err)
 	}
-	return nil
+	if em, ok := final.(editor.Model); ok {
+		return em.JumpTarget(), nil
+	}
+	return "", nil
 }
 
 func copyNote(w io.Writer, book, note string) error {
