@@ -1,11 +1,30 @@
 package editor
 
 import (
+	"strings"
+
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook-cli/internal/block"
 	"github.com/oobagi/notebook-cli/internal/theme"
 	"github.com/oobagi/notebook-cli/internal/ui"
 )
+
+// flattenDef collapses multi-line definition content into a single visual
+// line so picker rows stay a predictable height. Embedded newlines become
+// " \u00B7 " separators so split definitions still read coherently.
+func flattenDef(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	parts := strings.Split(s, "\n")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return strings.Join(out, " \u00B7 ")
+}
 
 // defLookup is a searchable panel that lists all definition list blocks
 // in the current document, allowing the user to filter by term and jump
@@ -44,7 +63,7 @@ func (d defItem) RenderRow(selected bool, width int) string {
 		location = d.Notebook + "/" + d.Note
 	}
 
-	def := d.Definition
+	def := flattenDef(d.Definition)
 	overhead := len(term) + 8
 	if location != "" {
 		overhead += len(location) + 3

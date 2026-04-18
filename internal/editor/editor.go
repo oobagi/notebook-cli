@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/clipboard"
 	"github.com/oobagi/notebook-cli/internal/config"
 	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/oobagi/notebook-cli/internal/theme"
@@ -114,6 +115,40 @@ type Model struct {
 	embedModal    embedModalState // overlay for viewing embedded note references
 	embedPicker   embedPicker       // note picker for embed block insertion
 	table         *tableState // active table cell state (non-nil when editing a Table block)
+	defPreview    defPreviewState // focused preview for a single cross-note definition
+	jumpTarget    string      // "notebook/note" to open after editor quits; read via JumpTarget()
+	pendingJump   string      // jump requested but current note is modified — set alongside quitPrompt
+}
+
+// defPreviewState holds a focused preview of one cross-note definition.
+// Renders as a compact auto-height footer pane above the status bar, sized
+// to the wrapped content (not full-screen).
+type defPreviewState struct {
+	visible    bool
+	term       string
+	definition string
+	path       string // "notebook/note" for the Enter-to-open keybind
+}
+
+func (d *defPreviewState) open(term, definition, path string) {
+	d.visible = true
+	d.term = term
+	d.definition = definition
+	d.path = path
+}
+
+func (d *defPreviewState) close() {
+	d.visible = false
+	d.term = ""
+	d.definition = ""
+	d.path = ""
+}
+
+// JumpTarget returns the "notebook/note" path the editor was asked to open
+// before quitting, or "". Non-empty means the host should re-launch the
+// editor on that path instead of exiting normally.
+func (m Model) JumpTarget() string {
+	return m.jumpTarget
 }
 
 type statusKind int
@@ -1288,6 +1323,30 @@ func (m *Model) cutBlock() {
 	m.cursorCmd = m.textareas[m.active].Focus()
 }
 
+// copyActiveBlockContents copies the current block's text to the system
+// clipboard. Table blocks return the serialized markdown grid; all others
+// return the live textarea value so partial edits copy too. Returns a
+// status message describing the result.
+func (m *Model) copyActiveBlockContents() (string, statusKind) {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return "Nothing to copy", statusWarning
+	}
+	var content string
+	if m.blocks[m.active].Type == block.Table && m.table != nil {
+		m.table.syncCell(m.textareas[m.active])
+		content = m.table.serialize()
+	} else {
+		content = m.textareas[m.active].Value()
+	}
+	if content == "" {
+		return "Block is empty", statusWarning
+	}
+	if err := clipboard.Copy(content); err != nil {
+		return fmt.Sprintf("Could not copy: %s", err), statusError
+	}
+	return "Block copied to clipboard", statusSuccess
+}
+
 // applyPaletteSelection changes the active block's type to the selected
 // palette item type. Special handling is applied for dividers and code blocks.
 func (m *Model) applyPaletteSelection(bt block.BlockType) {
@@ -1374,7 +1433,13 @@ func (m *Model) handlePickerSelect() {
 		m.embedPicker.Close()
 
 	case m.defLookup.Visible:
-		if sel := m.defLookup.selected(); sel != nil && sel.BlockIdx >= 0 {
+		sel := m.defLookup.selected()
+		m.defLookup.close()
+		if sel == nil {
+			return
+		}
+		if sel.BlockIdx >= 0 {
+			// Local definition: focus the block directly.
 			if m.viewMode {
 				m.active = sel.BlockIdx
 				if sel.BlockIdx < len(m.blockLineOffsets) {
@@ -1383,8 +1448,11 @@ func (m *Model) handlePickerSelect() {
 			} else {
 				m.focusBlock(sel.BlockIdx)
 			}
+			return
 		}
-		m.defLookup.close()
+		// Remote definition: show a focused preview of just this
+		// definition. Enter inside the preview jumps to the source note.
+		m.openDefPreview(sel.Notebook, sel.Note, sel.Term, sel.Definition)
 	}
 }
 
@@ -1627,6 +1695,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "y", "Y", "enter":
 				m.quitPrompt = false
+				if m.pendingJump != "" {
+					m.jumpTarget = m.pendingJump
+					m.pendingJump = ""
+				}
 				if m.config.Save != nil {
 					content := m.Content()
 					return m, func() tea.Msg {
@@ -1639,10 +1711,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.quitting = true
 				return m, tea.Quit
 			case "n", "N", "ctrl+c":
+				if m.pendingJump != "" {
+					m.jumpTarget = m.pendingJump
+					m.pendingJump = ""
+				}
 				m.quitting = true
 				return m, tea.Quit
 			case "esc":
 				m.quitPrompt = false
+				m.pendingJump = ""
 				m.status = ""
 				m.statusStyle = statusNone
 				return m, nil
@@ -1688,6 +1765,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "q":
 				m.embedModal.close()
 				m.updateViewport()
+			case "enter":
+				// Jump to the previewed note. If current note has unsaved
+				// changes, trigger the save-prompt flow with pendingJump set
+				// so the "Y" path routes to save-then-jump instead of quit.
+				target := m.embedModal.path
+				if target == "" {
+					return m, nil
+				}
+				m.embedModal.close()
+				if m.modified() {
+					m.pendingJump = target
+					m.quitPrompt = true
+					m.status = "Save before opening? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.jumpTarget = target
+				m.quitting = true
+				return m, tea.Quit
 			case "up", "k":
 				if m.embedModal.scroll > 0 {
 					m.embedModal.scroll--
@@ -1711,6 +1807,34 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.statusStyle = statusWarning
 					return m, nil
 				}
+				m.quitting = true
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Definition preview: focused pane for a single remote definition.
+		if m.defPreview.visible {
+			switch msg.String() {
+			case "esc", "q":
+				m.defPreview.close()
+				m.updateViewport()
+				return m, nil
+			case "enter":
+				target := m.defPreview.path
+				m.defPreview.close()
+				if target == "" {
+					m.updateViewport()
+					return m, nil
+				}
+				if m.modified() {
+					m.pendingJump = target
+					m.quitPrompt = true
+					m.status = "Save before opening? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.jumpTarget = target
 				m.quitting = true
 				return m, tea.Quit
 			}
@@ -1847,6 +1971,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cutBlock()
 			m.updateViewport()
 			return m, nil
+
+		case "alt+k":
+			m.status, m.statusStyle = m.copyActiveBlockContents()
+			return m, m.scheduleStatusDismiss()
 
 		case "ctrl+s":
 			if m.config.Save != nil {
@@ -2054,6 +2182,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 				m.updateViewport()
 				return m, cmd
+			}
+			// Shift+Enter on single-line blocks (headings, lists) falls
+			// through to regular Enter so users don't have to release Shift.
+			// Ctrl+J stays a no-op here to preserve the "soft newline only"
+			// contract it carries in other text editors.
+			if msg.String() == "shift+enter" && m.active >= 0 && m.active < len(m.blocks) {
+				m.pushUndo()
+				m.handleEnter()
+				m.updateViewport()
+				return m, nil
 			}
 			return m, nil
 		}
@@ -2346,6 +2484,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.updateViewport()
 						return m, nil
 					}
+				}
+				// The textarea's backspace binding is an exact-match on
+				// "backspace"; "shift+backspace" gets dropped. Rewrite so a
+				// held Shift doesn't swallow the delete.
+				if keyMsg.Mod.Contains(tea.ModShift) {
+					msg = tea.KeyPressMsg{Code: tea.KeyBackspace}
 				}
 			}
 
@@ -2921,6 +3065,7 @@ func (m Model) renderHelpFooter() string {
 		{Key: "⇧Enter", Desc: "Newline"},
 		{Key: "Bksp", Desc: "Delete / merge"},
 		{Key: "⌃K", Desc: "Cut block"},
+		{Key: "⌥K", Desc: "Copy block"},
 		{Key: "⌃Z/⌃Y", Desc: "Undo / redo"},
 		{Key: "⌥↑/⌥↓", Desc: "Move block"},
 		{Key: "/", Desc: "Block type"},
@@ -2948,6 +3093,9 @@ func (m Model) renderPickerFooter() string {
 	if m.defLookup.Visible {
 		return m.defLookup.RenderFooter(m.width)
 	}
+	if m.defPreview.visible {
+		return m.defPreview.RenderFooter(m.width)
+	}
 	return ""
 }
 
@@ -2964,6 +3112,9 @@ func (m Model) footerHeight() int {
 	}
 	if m.defLookup.Visible {
 		return m.defLookup.Height()
+	}
+	if m.defPreview.visible {
+		return m.defPreview.Height(m.width)
 	}
 	return 0
 }
@@ -3037,6 +3188,16 @@ func (m Model) renderStatusBar() string {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
 		right = ": defs \u00B7 \u2303R edit \u00B7 Esc quit"
+	} else if m.embedModal.visible {
+		right = "\u21B5 open \u00B7 \u2191\u2193 scroll \u00B7 Esc close"
+	} else if m.defPreview.visible {
+		right = "\u21B5 open note \u00B7 Esc close"
+	} else if m.palette.Visible {
+		right = "\u21B5 select \u00B7 \u2191\u2193 move \u00B7 Esc close"
+	} else if m.embedPicker.Visible {
+		right = "\u21B5 insert \u00B7 \u2191\u2193 move \u00B7 Esc close"
+	} else if m.defLookup.Visible {
+		right = "\u21B5 preview \u00B7 \u2191\u2193 move \u00B7 Esc close"
 	} else {
 		// Build right-side hints: block-specific hints + contextual shortcuts.
 		bh := m.blockHint()
@@ -3113,6 +3274,14 @@ func (m *Model) openEmbedModal(idx int) {
 	refBlocks := block.Parse(content)
 	m.embedModal.open(title, path, refBlocks)
 	m.renderEmbedSheetContent()
+}
+
+// openDefPreview shows the focused definition preview for a remote def.
+// The preview is an auto-sized footer, not a fullscreen sheet. Enter inside
+// it jumps to the source note via jumpTarget.
+func (m *Model) openDefPreview(notebook, note, term, definition string) {
+	path := notebook + "/" + note
+	m.defPreview.open(term, definition, path)
 }
 
 // renderEmbedSheetContent pre-renders the embed sheet blocks into lines
@@ -3256,7 +3425,7 @@ func (m Model) renderEmbedSheet() string {
 	}
 
 	// Status bar.
-	statusRight := "Esc close \u00B7 \u2191\u2193 scroll"
+	statusRight := "\u21B5 open \u00B7 \u2191\u2193 scroll \u00B7 Esc close"
 	statusLeft := ""
 	if len(lines) > contentH {
 		pct := 0
