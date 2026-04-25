@@ -31,14 +31,15 @@
 
 ---
 
-Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor supporting 14 block types, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
-
-Everything runs in your terminal. No account, no sync, no config required.
 <p align="center">
   <img src="assets/hero.gif" alt="notebook demo" width="1010">
   <br>
   <sub><i>Recorded on v1.0.0</i></sub>
 </p>
+
+Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor supporting 14 block types, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
+
+Everything runs in your terminal. No account, no sync, no config required.
 
 ## Install
 
