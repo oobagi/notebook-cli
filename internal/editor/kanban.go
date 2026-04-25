@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/clipboard"
 	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/oobagi/notebook-cli/internal/theme"
 )
@@ -941,6 +942,28 @@ func (m *Model) handleKanbanKey(msg tea.KeyPressMsg) (handled bool, cmd tea.Cmd)
 			m.kanban.sortByPriority()
 		}
 		return true, nil
+	case "alt+k":
+		// Copy selected card text to clipboard. Mirrors block-level Opt+K
+		// but scopes to the focused card instead of the whole board.
+		c := m.kanban.selectedCard()
+		if c == nil {
+			m.status = "No card to copy"
+			m.statusStyle = statusWarning
+			return true, m.scheduleStatusDismiss()
+		}
+		if c.Text == "" {
+			m.status = "Card is empty"
+			m.statusStyle = statusWarning
+			return true, m.scheduleStatusDismiss()
+		}
+		if err := clipboard.Copy(c.Text); err != nil {
+			m.status = "Could not copy: " + err.Error()
+			m.statusStyle = statusError
+		} else {
+			m.status = "Card copied to clipboard"
+			m.statusStyle = statusSuccess
+		}
+		return true, m.scheduleStatusDismiss()
 	case "backspace", "delete":
 		if m.kanban.selectedCard() != nil {
 			m.pushUndo()

@@ -190,6 +190,40 @@ func TestKanbanAddCard(t *testing.T) {
 	}
 }
 
+func TestKanbanCopyCardToClipboard(t *testing.T) {
+	m := newKanbanEditor(t)
+	c := m.kanban.selectedCard()
+	if c == nil || c.Text == "" {
+		t.Fatalf("expected a non-empty card selected, got %+v", c)
+	}
+	out, cmd := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModAlt})
+	m = out.(Model)
+	if cmd == nil {
+		t.Errorf("expected status-dismiss cmd, got nil")
+	}
+	// Copy succeeds via OSC52 even when pbcopy/xclip aren't available, so
+	// the status should be the success message regardless of CI host.
+	if m.status != "Card copied to clipboard" {
+		t.Errorf("status = %q, want %q", m.status, "Card copied to clipboard")
+	}
+}
+
+func TestKanbanCopyCardOnEmptyColumn(t *testing.T) {
+	// Move into "Doing" then delete its only card so the column is empty
+	// and no card is selected — alt+k should report nothing to copy.
+	m := newKanbanEditor(t)
+	m = pressKey(m, "right")
+	m = pressKey(m, "backspace")
+	if m.kanban.selectedCard() != nil {
+		t.Fatalf("expected no card selected after deleting last card")
+	}
+	out, _ := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModAlt})
+	m = out.(Model)
+	if m.status != "No card to copy" {
+		t.Errorf("status = %q, want %q", m.status, "No card to copy")
+	}
+}
+
 func TestKanbanDeleteCard(t *testing.T) {
 	m := newKanbanEditor(t)
 	before := len(m.kanban.cols[0].Cards)
