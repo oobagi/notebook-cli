@@ -312,9 +312,10 @@ func runEditorOnce(w io.Writer, book, note string) (string, error) {
 			return defs
 		},
 		DismissedHints: config.LoadDismissedHints(),
-		HideChecked: cfg.HideChecked,
-		CascadeChecks: cfg.CascadeChecks,
-		WordWrap:       cfg.WordWrap,
+		HideChecked:      cfg.HideChecked,
+		CascadeChecks:    cfg.CascadeChecks,
+		WordWrap:         cfg.WordWrap,
+		KanbanSortByPrio: cfg.KanbanSortByPrio,
 	}
 
 	m := editor.New(editorCfg)

@@ -200,6 +200,40 @@ func TestRenderInlineMarkdown_ItalicWithStrikethrough(t *testing.T) {
 	}
 }
 
+func TestStripControlChars(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain", "hello world", "hello world"},
+		{"keeps newline tab CR", "a\nb\tc\rd", "a\nb\tc\rd"},
+		{"strips ESC and BEL", "title\x1b]0;EVIL\x07rest", "title]0;EVILrest"},
+		{"strips C0", "\x01\x02hello\x03", "hello"},
+		{"strips DEL", "abc\x7fdef", "abcdef"},
+		{"keeps utf8 multibyte", "héllo", "héllo"},
+		{"empty", "", ""},
+	}
+	for _, tc := range cases {
+		got := StripControlChars(tc.in)
+		if got != tc.want {
+			t.Errorf("%s: StripControlChars(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRenderInlineMarkdown_StripsControlChars(t *testing.T) {
+	// An OSC sequence in untrusted card text must not pass through.
+	in := "card\x1b]0;EVIL\x07text"
+	got := RenderInlineMarkdown(in)
+	if strings.Contains(got, "\x1b]") {
+		t.Errorf("output should not contain OSC introducer: %q", got)
+	}
+	if strings.Contains(got, "\x07") {
+		t.Errorf("output should not contain BEL: %q", got)
+	}
+}
+
 func TestRenderInlineMarkdown_NoFullReset(t *testing.T) {
 	// The key property: output must never contain \x1b[0m (full reset)
 	// which would kill outer block-level styles like heading bold.

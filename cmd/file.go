@@ -94,9 +94,10 @@ func openFile(path string) error {
 			}
 			return defs
 		},
-		HideChecked: cfg.HideChecked,
-		CascadeChecks: cfg.CascadeChecks,
-		WordWrap:       cfg.WordWrap,
+		HideChecked:      cfg.HideChecked,
+		CascadeChecks:    cfg.CascadeChecks,
+		WordWrap:         cfg.WordWrap,
+		KanbanSortByPrio: cfg.KanbanSortByPrio,
 	}
 
 	m := editor.New(editorCfg)

@@ -79,6 +79,7 @@ var paletteItemDefs = []struct {
 	{"\u2610", "Checklist", block.Checklist},
 	{"``", "Code Block", block.CodeBlock},
 	{"\u229e", "Table", block.Table},
+	{"\u25a6", "Kanban", block.Kanban},
 	{">", "Quote", block.Quote},
 	{":", "Definition", block.DefinitionList},
 	{"!", "Callout", block.Callout},

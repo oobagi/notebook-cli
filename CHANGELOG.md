@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Kanban block**: new visual board block type. Adds via `/` command palette, ships with four default columns (Backlog / Todo / In Progress / Done) and a starter card in Backlog. Arrow keys navigate cards, Shift+arrows move them between/within columns, Enter edits the selected card (or inserts a paragraph below the board when no card is selected), `n` creates a new card, `p` cycles priority, `s` toggles auto-sort by priority, Backspace deletes the selected card (and deletes the whole board when pressed on an empty column). Done state derives from the column titled "Done". Round-trips as a `\`\`\`kanban` fenced block in the markdown file so notes stay portable.
 - Tables: Home/End now jump between cells when already at the cell's line start/end.
 - Tables: Alt+Left/Right jump to the previous/next cell when the cursor is at the cell's start/end (previously only plain Left/Right did this — Alt variants now skip the walk-to-edge step).
 - Tables: Alt+Up/Down move the focused cell up/down within the table when the cursor is on the first/last line of the cell, falling through to block-swap only on the top/bottom row.

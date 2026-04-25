@@ -17,13 +17,59 @@ const (
 	strikethroughOff = "\x1b[29m"
 )
 
+// StripControlChars removes C0 (0x00–0x1F except \n \r \t) and DEL (0x7F)
+// from the input. This defangs terminal escape injection (OSC title
+// rewrites, DCS, palette resets, hyperlinks) — all of which start with
+// ESC (0x1B) on modern terminals — coming from untrusted markdown
+// bodies before the renderer composes its own SGR codes around the text.
+//
+// Operates byte-by-byte so 0x80–0xBF UTF-8 continuation bytes pass through
+// untouched. Bare 8-bit C1 controls are not stripped.
+func StripControlChars(s string) string {
+	if !needsStrip(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\n' || c == '\r' || c == '\t':
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7F:
+			// drop C0 + DEL
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func needsStrip(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\n' || c == '\r' || c == '\t' {
+			continue
+		}
+		if c < 0x20 || c == 0x7F {
+			return true
+		}
+	}
+	return false
+}
+
 // RenderInlineMarkdown applies inline markdown formatting to plain text.
 // Supports **bold**, *italic*, ~~strikethrough~~, and __underline__ with
 // correct nesting. Uses targeted ANSI SGR codes (not full resets) so that
 // outer block-level styles (e.g. heading bold) are preserved. Delimiter
 // pairs may span newlines — useful when the caller has already
 // word-wrapped text, which can split a **foo bar** marker across lines.
+//
+// Control characters (C0/C1) in the input are stripped first to defang
+// terminal escape injection from untrusted markdown content (e.g. a
+// pasted card body containing OSC sequences that retitle the terminal).
 func RenderInlineMarkdown(text string) string {
+	text = StripControlChars(text)
 	runes := []rune(text)
 	n := len(runes)
 	if n == 0 {
@@ -101,7 +147,7 @@ func RenderInlineMarkdown(text string) string {
 type delimKind int
 
 const (
-	delimBold          delimKind = iota
+	delimBold delimKind = iota
 	delimItalic
 	delimStrikethrough
 	delimUnderline

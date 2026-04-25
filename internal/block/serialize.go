@@ -47,10 +47,14 @@ func Serialize(blocks []Block) string {
 			lines = append(lines, pad+fmt.Sprintf("%d. %s", seq, b.Content))
 
 		case Checklist:
+			marker := ""
+			if m := b.Priority.Marker(); m != "" {
+				marker = m + " "
+			}
 			if b.Checked {
-				lines = append(lines, pad+"- [x] "+b.Content)
+				lines = append(lines, pad+"- [x] "+marker+b.Content)
 			} else {
-				lines = append(lines, pad+"- [ ] "+b.Content)
+				lines = append(lines, pad+"- [ ] "+marker+b.Content)
 			}
 
 		case CodeBlock:
@@ -101,6 +105,13 @@ func Serialize(blocks []Block) string {
 
 		case Table:
 			lines = append(lines, serializeTable(b.Content)...)
+
+		case Kanban:
+			lines = append(lines, "```kanban")
+			if b.Content != "" {
+				lines = append(lines, strings.Split(b.Content, "\n")...)
+			}
+			lines = append(lines, "```")
 
 		default:
 			if b.Content != "" {

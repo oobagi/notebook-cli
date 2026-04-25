@@ -26,6 +26,7 @@ const (
 	Embed                         // ![[path]] embedded note reference
 	Callout                       // > [!NOTE] callout/admonition
 	Table                         // GFM pipe table
+	Kanban                        // ```kanban``` fenced kanban board
 )
 
 // String returns the human-readable name of a BlockType.
@@ -59,6 +60,8 @@ func (bt BlockType) String() string {
 		return "Callout"
 	case Table:
 		return "Table"
+	case Kanban:
+		return "Kanban"
 	default:
 		return "Unknown"
 	}
@@ -105,6 +108,8 @@ func (bt BlockType) Short() string {
 		return "co"
 	case Table:
 		return "tb"
+	case Kanban:
+		return "kb"
 	default:
 		return "?"
 	}
@@ -165,11 +170,76 @@ func ParseCalloutVariant(s string) (CalloutVariant, bool) {
 
 // Block holds a single parsed content block.
 type Block struct {
-	Type    BlockType      // kind of block
-	Content string         // text content without markdown prefix
-	Checked bool           // whether checklist item is checked (Checklist only)
-	Indent  int            // nesting level for list items (0 = top level)
-	Variant CalloutVariant // admonition variant (Callout only)
+	Type     BlockType      // kind of block
+	Content  string         // text content without markdown prefix
+	Checked  bool           // whether checklist item is checked (Checklist only)
+	Indent   int            // nesting level for list items (0 = top level)
+	Variant  CalloutVariant // admonition variant (Callout only)
+	Priority Priority       // priority label (Checklist only)
+}
+
+// Priority enumerates the priority labels available to checklist items.
+// These let checklists serve as kanban-style cards: items can be tagged
+// with a priority and moved between heading-defined "sections".
+type Priority int
+
+const (
+	PriorityNone Priority = iota // no priority label
+	PriorityLow                  // ! marker
+	PriorityMed                  // !! marker
+	PriorityHigh                 // !!! marker
+)
+
+// String returns the uppercase short label of a Priority.
+func (p Priority) String() string {
+	switch p {
+	case PriorityLow:
+		return "LOW"
+	case PriorityMed:
+		return "MED"
+	case PriorityHigh:
+		return "HIGH"
+	default:
+		return ""
+	}
+}
+
+// Marker returns the inline markdown marker for a Priority (e.g. "!!").
+// Returns "" for PriorityNone.
+func (p Priority) Marker() string {
+	switch p {
+	case PriorityLow:
+		return "!"
+	case PriorityMed:
+		return "!!"
+	case PriorityHigh:
+		return "!!!"
+	default:
+		return ""
+	}
+}
+
+// Next cycles to the next priority: None → Low → Med → High → None.
+func (p Priority) Next() Priority {
+	return (p + 1) % (PriorityHigh + 1)
+}
+
+// ParsePriorityMarker reads an optional leading "!", "!!", or "!!!" marker
+// (followed by a space) from content and returns the priority and the
+// remaining text. If no marker is present, returns PriorityNone and the
+// original string. The marker is recognized only when followed by a space
+// so plain "!" exclamations don't accidentally tag items.
+func ParsePriorityMarker(content string) (Priority, string) {
+	if strings.HasPrefix(content, "!!! ") {
+		return PriorityHigh, content[4:]
+	}
+	if strings.HasPrefix(content, "!! ") {
+		return PriorityMed, content[3:]
+	}
+	if strings.HasPrefix(content, "! ") {
+		return PriorityLow, content[2:]
+	}
+	return PriorityNone, content
 }
 
 // CountNumberedPosition returns the 1-based position of a numbered list block
