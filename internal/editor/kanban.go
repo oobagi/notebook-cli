@@ -880,19 +880,43 @@ func (m *Model) handleKanbanKey(msg tea.KeyPressMsg) (handled bool, cmd tea.Cmd)
 	case "shift+left":
 		m.pushUndo()
 		m.kanban.moveCard(-1, 0)
+		// Cross-column move: the destination column may need re-sorting
+		// when auto-sort is on. Within-column moves don't reorder via
+		// this branch (dCol != 0), but we sort defensively for parity
+		// with shift+up/down so the post-state is always consistent.
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
 		m.kanbanAnchorTop = true
 		return true, nil
 	case "shift+right":
 		m.pushUndo()
 		m.kanban.moveCard(1, 0)
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
 		m.kanbanAnchorTop = true
 		return true, nil
 	case "shift+up":
+		// Within-column reorder. When auto-sort is on, manual reordering
+		// is meaningless — the sort will run after and undo the move.
+		// Block the move with a status hint so the list doesn't appear
+		// to "snap back" mysteriously.
+		if m.kanbanSortByPrio {
+			m.status = "Manual reorder disabled while sort by priority is on (s to toggle)"
+			m.statusStyle = statusWarning
+			return true, m.scheduleStatusDismiss()
+		}
 		m.pushUndo()
 		m.kanban.moveCard(0, -1)
 		m.kanbanAnchorTop = true
 		return true, nil
 	case "shift+down":
+		if m.kanbanSortByPrio {
+			m.status = "Manual reorder disabled while sort by priority is on (s to toggle)"
+			m.statusStyle = statusWarning
+			return true, m.scheduleStatusDismiss()
+		}
 		m.pushUndo()
 		m.kanban.moveCard(0, 1)
 		m.kanbanAnchorTop = true

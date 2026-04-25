@@ -358,6 +358,42 @@ func TestKanbanCancelEditAfterAddRestoresSelection(t *testing.T) {
 	}
 }
 
+func TestKanbanShiftUpDownBlockedWhileAutoSort(t *testing.T) {
+	// When auto-sort is on, manual within-column reorder is blocked
+	// so the list doesn't appear to snap back mysteriously after the
+	// next sort runs.
+	md := "```kanban\n## Todo\n- !!! high\n- ! low\n- !! mid\n```"
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = out.(Model)
+	if m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+	// Turn on sort.
+	m = pressKey(m, "s")
+	if !m.kanbanSortByPrio {
+		t.Fatalf("s should enable sort")
+	}
+	// After sort, order is high, mid, low. Select first card (high).
+	if c := m.kanban.cols[0].Cards[0]; c.Priority != block.PriorityHigh {
+		t.Fatalf("first card should be high after sort, got %v", c.Priority)
+	}
+	beforeOrder := []block.Priority{}
+	for _, c := range m.kanban.cols[0].Cards {
+		beforeOrder = append(beforeOrder, c.Priority)
+	}
+	// Try shift+down — should be a no-op (status hint set instead).
+	m = pressKey(m, "shift+down")
+	for i, c := range m.kanban.cols[0].Cards {
+		if c.Priority != beforeOrder[i] {
+			t.Errorf("shift+down should be blocked while sort on; order changed at %d", i)
+		}
+	}
+	if m.status == "" {
+		t.Errorf("expected a status hint explaining the block")
+	}
+}
+
 func TestKanbanPasteIntoCardEdit(t *testing.T) {
 	// Bracketed-paste arrives as tea.PasteMsg. While editing a card,
 	// the pasted content must land in the card's editTA, not be dropped.
