@@ -358,6 +358,30 @@ func TestKanbanCancelEditAfterAddRestoresSelection(t *testing.T) {
 	}
 }
 
+func TestKanbanPasteIntoCardEdit(t *testing.T) {
+	// Bracketed-paste arrives as tea.PasteMsg. While editing a card,
+	// the pasted content must land in the card's editTA, not be dropped.
+	m := newKanbanEditor(t)
+	m.kanban.col = 0
+	m.kanban.card = 0
+	m = pressKey(m, "enter") // enter edit mode
+	if !m.kanban.edit {
+		t.Fatalf("enter should put us in edit mode")
+	}
+	// Send a paste message.
+	out, _ := m.Update(tea.PasteMsg{Content: "PASTED"})
+	m = out.(Model)
+	got := m.kanban.editTA.Value()
+	if !strings.Contains(got, "PASTED") {
+		t.Errorf("paste content not in editTA: %q", got)
+	}
+	// Commit and verify the card text picked up the paste.
+	m = pressKey(m, "enter")
+	if c := m.kanban.selectedCard(); c == nil || !strings.Contains(c.Text, "PASTED") {
+		t.Errorf("after commit, card text = %+v, want it to contain PASTED", c)
+	}
+}
+
 func TestKanbanSwallowsPlainPrintableKeys(t *testing.T) {
 	// In selection mode, typing a plain printable character (one with no
 	// modifier) must NOT mutate the underlying textarea — that would

@@ -1816,6 +1816,32 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.PasteMsg:
+		// Bracketed-paste content. Route to whatever text widget is
+		// currently accepting input so multi-line clipboards land in
+		// one shot instead of being swallowed.
+		if m.viewMode || m.showHelp || m.quitPrompt || m.palette.Visible ||
+			m.embedPicker.Visible || m.embedModal.visible || m.defLookup.Visible ||
+			m.defPreview.visible {
+			return m, nil
+		}
+		if m.kanban != nil && m.kanban.edit {
+			var c tea.Cmd
+			m.kanban.editTA, c = m.kanban.editTA.Update(msg)
+			m.kanban.editTA.SetHeight(m.kanban.editTA.VisualLineCount())
+			m.updateViewport()
+			return m, c
+		}
+		if m.active >= 0 && m.active < len(m.textareas) {
+			m.pushUndo()
+			var c tea.Cmd
+			m.textareas[m.active], c = m.textareas[m.active].Update(msg)
+			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+			m.updateViewport()
+			return m, c
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		// When help overlay is showing, Ctrl+G/Esc close it, Ctrl+C quits.
 		if m.showHelp {
