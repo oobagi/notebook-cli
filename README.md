@@ -74,7 +74,7 @@ notebook path/to/file.md
 
 - **Block editor** — 15 block types: paragraphs, headings (3 levels), bullet lists, numbered lists, checklists, code blocks, tables, quotes, definitions, callouts, dividers, embeds, and kanban boards. Press **/** to switch types.
 - **Tables** — Pipe-delimited GFM tables with per-column widths. Alt+R/C to add rows/columns, Alt+Shift+Backspace/Alt+Shift+D to delete. Press Enter on an empty row to exit the table and drop the row.
-- **Kanban boards** — Visual boards with priority cards. Arrows navigate, Shift+arrows move cards, **n** new card, **p** cycle priority, **s** toggle auto-sort. Round-trips as a `kanban` fenced block.
+- **Kanban boards** — Visual boards with priority cards. Arrows navigate, Shift+arrows move cards, **n** new card, **Opt+K** copy card, **p** cycle priority, **s** toggle auto-sort. Round-trips as a `kanban` fenced block.
 - **Callouts** — Five admonition variants (Note, Tip, Important, Warning, Caution). Ctrl+T to cycle.
 - **Definitions** — Term/definition pairs. Press **:** to search and jump to definitions.
 - **Embeds** — Reference other notes inline with `![[notebook/note]]`. Click in view mode to expand.
