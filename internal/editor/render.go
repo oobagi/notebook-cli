@@ -52,6 +52,36 @@ func resolveColor(color, fallback string) string {
 	return color
 }
 
+// priorityColor returns the theme color for a priority level.
+// HIGH → Error (red), MED → Warning (yellow), LOW → Muted (gray).
+func priorityColor(p block.Priority, th theme.Theme) string {
+	switch p {
+	case block.PriorityHigh:
+		return th.Error
+	case block.PriorityMed:
+		return th.Warning
+	case block.PriorityLow:
+		return th.Muted
+	default:
+		return ""
+	}
+}
+
+// renderPriorityBadge returns the colored priority badge, or "" for None.
+// Format: "[!!!] " (HIGH bold red), "[!!] " (MED yellow), "[!] " (LOW dim).
+// Trailing space included so it can be appended to a prefix directly.
+func renderPriorityBadge(p block.Priority, th theme.Theme) string {
+	if p == block.PriorityNone {
+		return ""
+	}
+	color := priorityColor(p, th)
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	if p == block.PriorityHigh {
+		style = style.Bold(true)
+	}
+	return style.Render(p.Marker()) + " "
+}
+
 // renderHeader builds the header bar displayed at the top of the editor.
 // It shows the title on the left and file path + size on the right.
 func (m Model) renderHeader() string {
@@ -134,7 +164,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	th := theme.Current()
 
 	// Content width for this block type.
-	contentWidth := m.width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
+	contentWidth := m.width - gutterWidth - blockPrefixWidth(b)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -253,13 +283,14 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	case block.Checklist:
 		bs := th.Blocks.Checklist
 		indent := listIndent(b)
+		badge := renderPriorityBadge(b.Priority, th)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := indent + style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked) + badge
 			text := taView
 			if bs.CheckedTextFaint {
 				text = styleAroundCursor(taView, lipgloss.NewStyle().Faint(true), cursorByteOffset, cursorLen, cursorVisIdx)
@@ -267,7 +298,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			rendered = prefixFirstLine(prefix, text)
 		} else {
 			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
-			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked) + badge
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
@@ -277,7 +308,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		if !m.wordWrap {
 			// In no-wrap mode contentWidth is 1000; size the box border to
 			// the terminal instead so it doesn't overflow every line.
-			boxWidth = m.width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
+			boxWidth = m.width - gutterWidth - blockPrefixWidth(b)
 			if boxWidth < 10 {
 				boxWidth = 10
 			}
@@ -417,6 +448,9 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		// Table rendering is handled entirely by renderActiveTableFull.
 		return m.renderActiveTableFull(idx, b)
 
+	case block.Kanban:
+		return m.renderActiveKanban(idx, b)
+
 	default:
 		rendered = taView
 	}
@@ -459,7 +493,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == adjustedCursor)
 		}
 	} else {
-		cursorCol := gutterWidth + blockPrefixWidth(b.Type, b.Indent) + cursorColInWrap
+		cursorCol := gutterWidth + blockPrefixWidth(b) + cursorColInWrap
 		for i, l := range lines {
 			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
 		}
@@ -673,7 +707,7 @@ func highlightCode(code, language string) string {
 // renderInactiveBlock renders a block as styled static text (no cursor).
 func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int) string {
 	// Compute the available content width, matching the active block's calculation.
-	contentWidth := width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
+	contentWidth := width - gutterWidth - blockPrefixWidth(b)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -725,13 +759,14 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 	case block.Checklist:
 		bs := th.Blocks.Checklist
 		indent := listIndent(b)
+		badge := renderPriorityBadge(b.Priority, th)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := indent + style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked) + badge
 			text := wrapped
 			if bs.CheckedTextFaint {
 				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
@@ -739,7 +774,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 			rendered = prefixFirstLine(prefix, text)
 		} else {
 			uncheckedColor := resolveColor(bs.UncheckedColor, th.Muted)
-			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked) + badge
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
@@ -868,6 +903,13 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		}
 		rendered = renderTableGrid(content, tableWidth, th.Border, th.Blocks.Table.HeaderBold, wordWrap)
 
+	case block.Kanban:
+		boardWidth := width - gutterWidth
+		if boardWidth < 30 {
+			boardWidth = 30
+		}
+		rendered = renderInactiveKanbanBoard(content, boardWidth, 0, th)
+
 	default:
 		rendered = wrapped
 	}
@@ -900,9 +942,9 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 
 // renderViewBlock renders a block for view mode: styled static text without
 // the gutter, centered in a constrained content column for clean reading.
-func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool) string {
+func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool, kanbanOffset int) string {
 	// Width here is the content column width (already constrained to viewMaxWidth).
-	contentWidth := width - blockPrefixWidth(b.Type, b.Indent)
+	contentWidth := width - blockPrefixWidth(b)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -951,13 +993,14 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 	case block.Checklist:
 		bs := th.Blocks.Checklist
 		indent := listIndent(b)
+		badge := renderPriorityBadge(b.Priority, th)
 		if b.Checked {
 			checkedColor := resolveColor(bs.CheckedColor, th.Accent)
 			style := lipgloss.NewStyle().Foreground(lipgloss.Color(checkedColor))
 			if bs.CheckedBold {
 				style = style.Bold(true)
 			}
-			prefix := indent + style.Render(bs.Checked)
+			prefix := indent + style.Render(bs.Checked) + badge
 			text := wrapped
 			if bs.CheckedTextFaint {
 				text = lipgloss.NewStyle().Faint(true).Render(wrapped)
@@ -968,7 +1011,7 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			if hovered {
 				uncheckedColor = th.Accent
 			}
-			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked)
+			prefix := indent + lipgloss.NewStyle().Foreground(lipgloss.Color(uncheckedColor)).Render(bs.Unchecked) + badge
 			rendered = prefixFirstLine(prefix, wrapped)
 		}
 
@@ -1079,6 +1122,9 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 
 	case block.Table:
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)
+
+	case block.Kanban:
+		rendered = renderInactiveKanbanBoard(content, contentWidth, kanbanOffset, th)
 
 	default:
 		rendered = wrapped

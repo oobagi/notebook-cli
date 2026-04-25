@@ -39,6 +39,8 @@ type Config struct {
 	CascadeChecks *bool
 	// WordWrap from config; nil = default (true).
 	WordWrap *bool
+	// KanbanSortByPrio sorts kanban cards by priority desc within each column.
+	KanbanSortByPrio *bool
 	// ResolveEmbed resolves an embed path (e.g. "notebook/note") to its title
 	// and content. Returns an error if the note doesn't exist.
 	ResolveEmbed func(path string) (title, content string, err error)
@@ -87,19 +89,19 @@ type Model struct {
 	active    int              // index of focused block
 	viewport  viewport.Model   // scrollable container
 
-	config      Config
-	initial     string
-	width       int
-	height      int
-	status      string
-	statusStyle statusKind
-	quitPrompt  bool
-	quitting    bool
-	showHelp    bool
-	blockClip   *block.Block // block-level clipboard for Ctrl+K block cut
-	statusGen   int    // generation counter for status auto-dismiss
-	palette     palette      // "/" command palette for block type insertion
-	defLookup   defLookup    // ":" definition lookup palette
+	config           Config
+	initial          string
+	width            int
+	height           int
+	status           string
+	statusStyle      statusKind
+	quitPrompt       bool
+	quitting         bool
+	showHelp         bool
+	blockClip        *block.Block    // block-level clipboard for Ctrl+K block cut
+	statusGen        int             // generation counter for status auto-dismiss
+	palette          palette         // "/" command palette for block type insertion
+	defLookup        defLookup       // ":" definition lookup palette
 	wordWrap         bool            // when true, text wraps at terminal width
 	viewMode         bool            // when true, read-only rendering with no cursor
 	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
@@ -107,17 +109,22 @@ type Model struct {
 	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
 	blockLineCounts  []int           // per-block rendered line counts from renderAllBlocks
 	dismissedHints   map[string]bool // tracks which onboarding hints the user has dismissed
-	undo        undoStack       // undo history
-	redo        undoStack       // redo history
-	undoDirty   bool            // true when textarea content changed since last snapshot
-	sortChecked   bool // sort checked checklist items to bottom of each group
-	cascadeChecks bool // checking parent also checks/unchecks children
-	embedModal    embedModalState // overlay for viewing embedded note references
-	embedPicker   embedPicker       // note picker for embed block insertion
-	table         *tableState // active table cell state (non-nil when editing a Table block)
-	defPreview    defPreviewState // focused preview for a single cross-note definition
-	jumpTarget    string      // "notebook/note" to open after editor quits; read via JumpTarget()
-	pendingJump   string      // jump requested but current note is modified — set alongside quitPrompt
+	undo             undoStack       // undo history
+	redo             undoStack       // redo history
+	undoDirty        bool            // true when textarea content changed since last snapshot
+	sortChecked      bool            // sort checked checklist items to bottom of each group
+	cascadeChecks    bool            // checking parent also checks/unchecks children
+	kanbanSortByPrio bool            // sort kanban cards by priority desc within each column
+	embedModal       embedModalState // overlay for viewing embedded note references
+	embedPicker      embedPicker     // note picker for embed block insertion
+	table            *tableState     // active table cell state (non-nil when editing a Table block)
+	kanban           *kanbanState    // active kanban board state (non-nil when editing a Kanban block)
+	viewKanbanOffset int             // horizontal scroll for kanban blocks in view mode
+	kanbanOffsets    map[int]int     // saved colOffset per block index, restored when refocusing
+	kanbanAnchorTop  bool            // one-shot: next viewport update anchors to kanban title row
+	defPreview       defPreviewState // focused preview for a single cross-note definition
+	jumpTarget       string          // "notebook/note" to open after editor quits; read via JumpTarget()
+	pendingJump      string          // jump requested but current note is modified — set alongside quitPrompt
 }
 
 // defPreviewState holds a focused preview of one cross-note definition.
@@ -163,14 +170,14 @@ const (
 // embedModalState holds the state for the embedded note bottom sheet.
 type embedModalState struct {
 	visible          bool
-	title            string         // display title for the sheet header
-	path             string         // original embed path for save-back
-	blocks           []block.Block  // parsed blocks of the referenced note
-	scroll           int            // scroll offset (line index)
-	lines            []string       // pre-split rendered lines
-	blockLineOffsets []int          // starting line of each block within lines
-	hoverBlock       int            // block under mouse cursor (-1 = none)
-	sheetStartY      int            // Y line where the sheet content begins
+	title            string        // display title for the sheet header
+	path             string        // original embed path for save-back
+	blocks           []block.Block // parsed blocks of the referenced note
+	scroll           int           // scroll offset (line index)
+	lines            []string      // pre-split rendered lines
+	blockLineOffsets []int         // starting line of each block within lines
+	hoverBlock       int           // block under mouse cursor (-1 = none)
+	sheetStartY      int           // Y line where the sheet content begins
 }
 
 // open prepares the sheet with parsed blocks and resets state.
@@ -233,16 +240,19 @@ const noWrapWidth = 1000
 // (e.g. bullet markers, numbered list prefixes, checkbox markers).
 const gutterWidth = 5
 
-func blockPrefixWidth(bt block.BlockType, indent int) int {
+func blockPrefixWidth(b block.Block) int {
 	th := theme.Current()
 	base := 0
-	switch bt {
+	switch b.Type {
 	case block.BulletList:
 		base = lipgloss.Width(th.Blocks.Bullet.Marker)
 	case block.NumberedList:
 		base = lipgloss.Width(fmt.Sprintf(th.Blocks.Numbered.Format, 1))
 	case block.Checklist:
 		base = lipgloss.Width(th.Blocks.Checklist.Unchecked)
+		if m := b.Priority.Marker(); m != "" {
+			base += len(m) + 1 // marker + trailing space
+		}
 	case block.Quote, block.Callout:
 		base = lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
@@ -258,7 +268,7 @@ func blockPrefixWidth(bt block.BlockType, indent int) int {
 	case block.Table:
 		base = 0
 	}
-	return indent*4 + base
+	return b.Indent*4 + base
 }
 
 // contentWidth returns the effective textarea width for a block, accounting
@@ -268,7 +278,7 @@ func (m Model) contentWidth(b block.Block) int {
 	if mw <= 0 {
 		mw = defaultWidth
 	}
-	w := mw - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
+	w := mw - gutterWidth - blockPrefixWidth(b)
 	if w < 1 {
 		w = 1
 	}
@@ -331,22 +341,24 @@ func New(cfg Config) Model {
 	}
 
 	m := Model{
-		blocks:         blocks,
-		textareas:      textareas,
-		active:         0,
-		viewport:       vp,
-		config:         cfg,
-		initial:        cfg.Content,
-		width:          defaultWidth,
-		height:         defaultHeight,
-		palette:        newPalette(),
-		defLookup:      newDefLookup(),
-		embedPicker:    newEmbedPicker(),
-		wordWrap:       config.BoolVal(cfg.WordWrap, true),
-		dismissedHints: dismissed,
-		hoverBlock:     -1,
-		sortChecked:   config.BoolVal(cfg.HideChecked, false),
-		cascadeChecks: config.BoolVal(cfg.CascadeChecks, true),
+		blocks:           blocks,
+		textareas:        textareas,
+		active:           0,
+		viewport:         vp,
+		config:           cfg,
+		initial:          cfg.Content,
+		width:            defaultWidth,
+		height:           defaultHeight,
+		palette:          newPalette(),
+		defLookup:        newDefLookup(),
+		embedPicker:      newEmbedPicker(),
+		wordWrap:         config.BoolVal(cfg.WordWrap, true),
+		dismissedHints:   dismissed,
+		hoverBlock:       -1,
+		sortChecked:      config.BoolVal(cfg.HideChecked, false),
+		cascadeChecks:    config.BoolVal(cfg.CascadeChecks, true),
+		kanbanSortByPrio: config.BoolVal(cfg.KanbanSortByPrio, false),
+		kanbanOffsets:    map[int]int{},
 	}
 
 	// If first block is a Table, init table state.
@@ -355,6 +367,16 @@ func New(cfg Config) Model {
 		cw := m.tableCellTAWidth()
 		m.table.loadCell(&m.textareas[0], cw, false)
 		m.cursorCmd = m.textareas[0].Focus()
+	}
+	// If first block is a Kanban, init kanban state. Offset starts at 0
+	// for fresh editor sessions; the offset map persists across focus
+	// changes within the same session.
+	if len(m.blocks) > 0 && m.blocks[0].Type == block.Kanban {
+		m.kanban = newKanbanState(m.blocks[0].Content)
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
+		m.textareas[0].Blur()
 	}
 
 	return m
@@ -367,7 +389,7 @@ func newTextareaForBlock(b block.Block, width int) textarea.Model {
 	ta.ShowLineNumbers = false
 	// Set width BEFORE value so the textarea's internal state (viewport
 	// scroll, wrap cache) is initialized with the correct dimensions.
-	taWidth := width - gutterWidth - blockPrefixWidth(b.Type, b.Indent)
+	taWidth := width - gutterWidth - blockPrefixWidth(b)
 	if taWidth < 1 {
 		taWidth = 1
 	}
@@ -411,6 +433,18 @@ func (m Model) syncBlocks() []block.Block {
 				ts := *m.table // copy to avoid mutating receiver
 				ts.syncCell(m.textareas[i])
 				result[i].Content = ts.serialize()
+			} else if m.kanban != nil && i == m.active && m.blocks[i].Type == block.Kanban {
+				// For the active kanban, serialize state. If mid-edit, fold
+				// the textarea value into the selected card's text in a
+				// deep copy so the live state isn't mutated by a save.
+				cols := cloneKanbanCols(m.kanban.cols)
+				if m.kanban.edit && m.kanban.col >= 0 && m.kanban.col < len(cols) {
+					col := &cols[m.kanban.col]
+					if m.kanban.card >= 0 && m.kanban.card < len(col.Cards) {
+						col.Cards[m.kanban.card].Text = strings.TrimRight(m.kanban.editTA.Value(), "\n")
+					}
+				}
+				result[i].Content = block.SerializeKanban(cols)
 			} else {
 				result[i].Content = m.textareas[i].Value()
 			}
@@ -539,6 +573,13 @@ func (m *Model) persistSortChecked() {
 	}
 }
 
+// persistKanbanSort saves the kanban sort-by-priority toggle to global config.
+func (m *Model) persistKanbanSort() {
+	if globalCfg, err := config.Load(); err == nil {
+		globalCfg.KanbanSortByPrio = config.BoolPtr(m.kanbanSortByPrio)
+		_ = config.Save(globalCfg)
+	}
+}
 
 // toggleChecklist toggles the checked state of the block at idx. When
 // cascadeChecks is enabled, indented checklist children are also toggled.
@@ -632,6 +673,21 @@ func (m *Model) focusBlock(idx int) {
 		m.textareas[m.active].SetValue(serialized)
 		m.table = nil
 	}
+	// Leaving a kanban: serialize state back to block content and remember
+	// the horizontal scroll offset for when we focus this block again.
+	if m.kanban != nil && m.active >= 0 && m.active < len(m.textareas) {
+		if m.kanban.edit {
+			m.kanban.commitEdit()
+		}
+		if m.kanbanOffsets == nil {
+			m.kanbanOffsets = map[int]int{}
+		}
+		m.kanbanOffsets[m.active] = m.kanban.colOffset
+		serialized := m.kanban.serialize()
+		m.blocks[m.active].Content = serialized
+		m.textareas[m.active].SetValue(serialized)
+		m.kanban = nil
+	}
 
 	if m.active >= 0 && m.active < len(m.textareas) {
 		m.blocks[m.active].Content = m.textareas[m.active].Value()
@@ -646,6 +702,18 @@ func (m *Model) focusBlock(idx int) {
 		cw := m.tableCellTAWidth()
 		m.table.loadCell(&m.textareas[idx], cw, false)
 		m.cursorCmd = m.textareas[idx].Focus()
+	}
+	// Entering a kanban: init kanban state from block content and restore
+	// the saved horizontal scroll offset (if any).
+	if m.blocks[idx].Type == block.Kanban {
+		m.kanban = newKanbanState(m.blocks[idx].Content)
+		if m.kanbanOffsets != nil {
+			m.kanban.colOffset = m.kanbanOffsets[idx]
+		}
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
+		m.textareas[idx].Blur()
 	}
 }
 
@@ -672,6 +740,13 @@ func (m *Model) navigateUp() {
 		m.cursorCmd = ta.Focus()
 		return
 	}
+	// Entering a kanban from below: land on the last card of the
+	// leftmost non-empty column. Mirrors table behavior, which always
+	// enters at column 0 regardless of direction.
+	if m.kanban != nil {
+		m.kanban.enterFromBelow()
+		return
+	}
 
 	ta := &m.textareas[m.active]
 	ta.MoveToEnd()
@@ -692,6 +767,12 @@ func (m *Model) navigateDown() {
 		ta := &m.textareas[m.active]
 		ta.SetCursorColumn(charOffset)
 		m.cursorCmd = ta.Focus()
+		return
+	}
+	// Entering a kanban from above: land on the first card of the
+	// leftmost non-empty column. Symmetric with navigateUp's entry.
+	if m.kanban != nil {
+		m.kanban.enterFromAbove()
 		return
 	}
 
@@ -725,6 +806,19 @@ func (m *Model) insertBlockBefore(idx int, b block.Block) {
 	newTAs = append(newTAs, m.textareas[idx:]...)
 	m.textareas = newTAs
 
+	// Shift m.active forward so focusBlock's "leaving the previously-active
+	// block" logic (e.g. serializing kanban/table state back into the block
+	// it came from) writes to the correct, post-shift index. Without this,
+	// the leaving kanban's serialized content gets written into the new
+	// paragraph at idx.
+	if m.active >= idx {
+		m.active++
+	}
+
+	// Shift kanbanOffsets keys >= idx forward by one so saved horizontal
+	// scroll positions stay attached to the right Kanban block.
+	m.shiftKanbanOffsets(idx, +1)
+
 	m.focusBlock(idx)
 }
 
@@ -750,6 +844,10 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	newTAs = append(newTAs, m.textareas[insertAt+1:]...)
 	m.textareas = newTAs
 
+	// Shift kanbanOffsets keys > insertAt forward by one so saved
+	// horizontal scroll positions stay attached to the right Kanban.
+	m.shiftKanbanOffsets(insertAt+1, +1)
+
 	m.focusBlock(insertAt + 1)
 }
 
@@ -768,6 +866,13 @@ func (m *Model) deleteBlock(idx int) {
 	m.blocks = append(m.blocks[:idx], m.blocks[idx+1:]...)
 	m.textareas = append(m.textareas[:idx], m.textareas[idx+1:]...)
 
+	// Drop the deleted block's saved kanban offset (if any) and shift
+	// later keys back by one to keep them aligned.
+	if m.kanbanOffsets != nil {
+		delete(m.kanbanOffsets, idx)
+	}
+	m.shiftKanbanOffsets(idx+1, -1)
+
 	// Adjust active index.
 	if idx >= len(m.blocks) {
 		m.active = len(m.blocks) - 1
@@ -778,6 +883,56 @@ func (m *Model) deleteBlock(idx int) {
 	}
 
 	m.cursorCmd = m.textareas[m.active].Focus()
+
+	// If the new active block is a Table or Kanban, init its state so the
+	// renderer doesn't fall back to a collapsed single-line view.
+	m.initActiveContainerState()
+}
+
+// shiftKanbanOffsets remaps kanbanOffsets keys at or above `from` by `delta`.
+// Used by insertBlockBefore/After (delta=+1) and deleteBlock (delta=-1) so
+// that per-block horizontal scroll positions stay attached to the right
+// Kanban as block indexes shift around them.
+func (m *Model) shiftKanbanOffsets(from, delta int) {
+	if len(m.kanbanOffsets) == 0 || delta == 0 {
+		return
+	}
+	next := make(map[int]int, len(m.kanbanOffsets))
+	for k, v := range m.kanbanOffsets {
+		if k >= from {
+			next[k+delta] = v
+		} else {
+			next[k] = v
+		}
+	}
+	m.kanbanOffsets = next
+}
+
+// initActiveContainerState initializes table/kanban state when the active
+// block is one of those types and the corresponding state is nil. Used by
+// deleteBlock and other paths that change m.active without going through
+// focusBlock (which has its own init logic).
+func (m *Model) initActiveContainerState() {
+	if m.active < 0 || m.active >= len(m.blocks) {
+		return
+	}
+	bt := m.blocks[m.active].Type
+	if bt == block.Table && m.table == nil {
+		m.table = initTable(m.blocks[m.active].Content)
+		cw := m.tableCellTAWidth()
+		m.table.loadCell(&m.textareas[m.active], cw, false)
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
+	if bt == block.Kanban && m.kanban == nil {
+		m.kanban = newKanbanState(m.blocks[m.active].Content)
+		if m.kanbanOffsets != nil {
+			m.kanban.colOffset = m.kanbanOffsets[m.active]
+		}
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
+		m.textareas[m.active].Blur()
+	}
 }
 
 // mergeBlockUp merges block at idx into block at idx-1. The merged block
@@ -827,7 +982,6 @@ func (m *Model) mergeBlockUp(idx int) {
 	}
 	m.textareas[m.active].SetCursorColumn(len([]rune(prevLines[mergeRow])))
 }
-
 
 // blockBundle returns the range [start, end) of the bundle rooted at idx.
 // For list items, this includes all consecutive deeper-indented children.
@@ -1257,7 +1411,7 @@ func (m *Model) handleBackspace() bool {
 
 	// Don't merge into multi-line container blocks.
 	prev := m.blocks[m.active-1].Type
-	if prev == block.CodeBlock || prev == block.Quote || prev == block.DefinitionList || prev == block.Callout || prev == block.Table {
+	if prev == block.CodeBlock || prev == block.Quote || prev == block.DefinitionList || prev == block.Callout || prev == block.Table || prev == block.Kanban {
 		return false
 	}
 
@@ -1397,6 +1551,13 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		cw := m.tableCellTAWidth()
 		m.table.loadCell(&m.textareas[m.active], cw, false)
 		m.cursorCmd = m.textareas[m.active].Focus()
+	}
+	// Kanban: insert default board and enter card-selection mode.
+	if bt == block.Kanban {
+		m.blocks[m.active].Content = block.DefaultKanbanContent
+		m.textareas[m.active].SetValue(block.DefaultKanbanContent)
+		m.textareas[m.active].Blur()
+		m.kanban = newKanbanState(m.blocks[m.active].Content)
 	}
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
@@ -1914,6 +2075,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "pgdown":
 				m.viewport.HalfPageDown()
 				return m, nil
+			case "left":
+				if m.viewKanbanOffset > 0 {
+					m.viewKanbanOffset--
+					m.updateViewport()
+				}
+				return m, nil
+			case "right":
+				maxOff := m.maxViewKanbanOffset()
+				if m.viewKanbanOffset < maxOff {
+					m.viewKanbanOffset++
+					m.updateViewport()
+				}
+				return m, nil
 			default:
 				if msg.Code == ':' {
 					m.defLookup.open(m.blocks, m.remoteDefinitions())
@@ -1925,6 +2099,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Kanban-block intercept: consumes most keys when a kanban is active.
+		// Save/quit/help/view-mode still work via the main switch below.
+		if m.kanban != nil && m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Kanban {
+			handled, kanbanCmd := m.handleKanbanKey(msg)
+			if handled {
+				m.updateViewport()
+				return m, kanbanCmd
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+r":
 			m.viewMode = true
@@ -1934,6 +2118,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.table != nil && m.blocks[m.active].Type == block.Table {
 					m.table.syncCell(m.textareas[m.active])
 					m.blocks[m.active].Content = m.table.serialize()
+					m.textareas[m.active].SetValue(m.blocks[m.active].Content)
+				} else if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+					if m.kanban.edit {
+						m.kanban.commitEdit()
+					}
+					m.blocks[m.active].Content = m.kanban.serialize()
 					m.textareas[m.active].SetValue(m.blocks[m.active].Content)
 				} else {
 					m.blocks[m.active].Content = m.textareas[m.active].Value()
@@ -2720,13 +2910,19 @@ func (m *Model) updateViewport() {
 		cursorRawLine := ta.Line()
 		visualLine := cursorRawLine
 
-		if m.table != nil && m.blocks[m.active].Type == block.Table {
+		if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+			// For kanban, the textarea cursor doesn't move — track the
+			// selected card's row range instead so vertical navigation
+			// keeps the focused card in view.
+			top, _ := m.selectedCardLineRange()
+			visualLine = top
+		} else if m.table != nil && m.blocks[m.active].Type == block.Table {
 			// For tables, compute cursor line within the grid.
 			// Each row before the active row contributes: 1 content line + 1 separator.
 			// (Simplified: assume 1 visual line per cell for scroll purposes.)
 			visualLine = m.table.row*2 + cursorRawLine
 		} else if m.wordWrap {
-			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active].Type, m.blocks[m.active].Indent)
+			contentWidth := m.width - gutterWidth - blockPrefixWidth(m.blocks[m.active])
 			if contentWidth < 1 {
 				contentWidth = 1
 			}
@@ -2751,22 +2947,8 @@ func (m *Model) updateViewport() {
 
 		cursorLine := lineOffset + chromeLines + visualLine
 
-		// Always ensure the cursor line is visible. Prefer keeping the
-		// current scroll position when the cursor is already on screen.
-		// When cursor is on the first content line, also show the block's
-		// chrome (borders, labels) above it.
-		yOffset := m.viewport.YOffset()
-		scrollTarget := cursorLine
-		if cursorRawLine == 0 && chromeLines > 0 {
-			scrollTarget = lineOffset // show from block start
-		}
-		if scrollTarget < yOffset {
-			yOffset = scrollTarget
-		}
-
-		// In tables, also try to keep the rows + bottom border below the
-		// cursor on screen — without this the last row sits flush against
-		// the viewport bottom and the closing border gets clipped.
+		// Resolve cursorLine / bottomTarget overrides before computing the
+		// scroll target so block-specific anchoring (kanban, table) wins.
 		bottomTarget := cursorLine
 		if m.table != nil && m.blocks[m.active].Type == block.Table {
 			rowsBelow := len(m.table.cells) - 1 - m.table.row
@@ -2774,6 +2956,34 @@ func (m *Model) updateViewport() {
 				rowsBelow = 0
 			}
 			bottomTarget = cursorLine + rowsBelow*2 + 1
+		}
+		// Pre-compute scrollTarget after any block-specific cursorLine override.
+		yOffset := m.viewport.YOffset()
+		scrollTarget := cursorLine
+		if cursorRawLine == 0 && chromeLines > 0 {
+			scrollTarget = lineOffset // show from block start
+		}
+
+		if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+			top, bot := m.selectedCardLineRange()
+			bottomTarget = lineOffset + chromeLines + bot
+			cursorLine = lineOffset + chromeLines + top
+			kanbanTop := lineOffset + chromeLines
+			// Anchor to the title row only when the user just changed
+			// columns — otherwise navigating into the kanban from below
+			// would snap to top instead of landing near the entry point.
+			if m.kanbanAnchorTop && bottomTarget-kanbanTop+1 <= m.viewport.Height() {
+				scrollTarget = kanbanTop
+			} else {
+				scrollTarget = cursorLine
+			}
+			m.kanbanAnchorTop = false
+		}
+
+		// Always ensure the cursor line is visible. Prefer keeping the
+		// current scroll position when the cursor is already on screen.
+		if scrollTarget < yOffset {
+			yOffset = scrollTarget
 		}
 		if bottomTarget >= yOffset+m.viewport.Height() {
 			candidate := bottomTarget - m.viewport.Height() + 1
@@ -2880,7 +3090,7 @@ func (m *Model) computeBlockLineOffsets() {
 		}
 
 		offsets[i] = nextLine
-		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false)
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false, m.viewKanbanOffset)
 		advance(rendered)
 		prevIdx = i
 	}
@@ -2973,7 +3183,7 @@ func (m Model) renderViewContent() string {
 		}
 
 		hovered := i == m.hoverBlock
-		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered)
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered, m.viewKanbanOffset)
 
 		// Add vertical spacing before certain block types.
 		if prevIdx >= 0 {
@@ -3155,6 +3365,11 @@ func (m Model) blockHint() string {
 		return "line 1 sets language"
 	case block.Checklist:
 		return "\u2303X toggle"
+	case block.Kanban:
+		if m.kanban != nil && m.kanban.edit {
+			return "\u23ce save \u00b7 \u21e7\u23ce newline \u00b7 esc cancel"
+		}
+		return "\u2190\u2192 col \u00b7 \u2191\u2193 card \u00b7 \u21e7+arrows move \u00b7 n new \u00b7 \u23ce edit \u00b7 p prio \u00b7 s sort \u00b7 bksp del (board if col empty)"
 	case block.Embed:
 		return "\u2303X open \u00B7 Tab pick"
 	case block.DefinitionList:
@@ -3348,7 +3563,7 @@ func (m *Model) renderEmbedSheetContent() {
 
 		offsets[i] = len(parts)
 		hovered := i == em.hoverBlock
-		rendered := renderViewBlock(b, b.Content, contentWidth, true, em.blocks, i, hovered)
+		rendered := renderViewBlock(b, b.Content, contentWidth, true, em.blocks, i, hovered, 0)
 		for _, l := range strings.Split(rendered, "\n") {
 			parts = append(parts, padStr+l)
 		}

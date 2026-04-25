@@ -11,27 +11,29 @@ import (
 
 // Config holds all user-configurable settings.
 type Config struct {
-	StorageDir    string `toml:"storage_dir"`
-	Editor        string `toml:"editor"`
-	Theme         string `toml:"theme"`                          // any preset name
-	DateFormat    string `toml:"date_format"`                    // "relative" or Go time format
-	HideChecked   *bool  `toml:"hide_checked,omitempty"`         // sort checked to bottom
-	CascadeChecks *bool  `toml:"cascade_checks,omitempty"`       // check parent → check children
-	ShowPreview   *bool  `toml:"show_preview,omitempty"`         // browser preview pane
-	WordWrap      *bool  `toml:"word_wrap,omitempty"`            // editor word wrap
+	StorageDir       string `toml:"storage_dir"`
+	Editor           string `toml:"editor"`
+	Theme            string `toml:"theme"`                             // any preset name
+	DateFormat       string `toml:"date_format"`                       // "relative" or Go time format
+	HideChecked      *bool  `toml:"hide_checked,omitempty"`            // sort checked to bottom
+	CascadeChecks    *bool  `toml:"cascade_checks,omitempty"`          // check parent → check children
+	ShowPreview      *bool  `toml:"show_preview,omitempty"`            // browser preview pane
+	WordWrap         *bool  `toml:"word_wrap,omitempty"`               // editor word wrap
+	KanbanSortByPrio *bool  `toml:"kanban_sort_by_priority,omitempty"` // sort kanban cards by priority desc
 }
 
 // rawConfig mirrors Config but uses any for hide_checked to handle
 // legacy string values ("on"/"off") during migration.
 type rawConfig struct {
-	StorageDir    string `toml:"storage_dir"`
-	Editor        string `toml:"editor"`
-	Theme         string `toml:"theme"`
-	DateFormat    string `toml:"date_format"`
-	HideChecked   any    `toml:"hide_checked,omitempty"`
-	CascadeChecks *bool  `toml:"cascade_checks,omitempty"`
-	ShowPreview   *bool  `toml:"show_preview,omitempty"`
-	WordWrap      *bool  `toml:"word_wrap,omitempty"`
+	StorageDir       string `toml:"storage_dir"`
+	Editor           string `toml:"editor"`
+	Theme            string `toml:"theme"`
+	DateFormat       string `toml:"date_format"`
+	HideChecked      any    `toml:"hide_checked,omitempty"`
+	CascadeChecks    *bool  `toml:"cascade_checks,omitempty"`
+	ShowPreview      *bool  `toml:"show_preview,omitempty"`
+	WordWrap         *bool  `toml:"word_wrap,omitempty"`
+	KanbanSortByPrio *bool  `toml:"kanban_sort_by_priority,omitempty"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -62,9 +64,9 @@ var ValidKeys = map[string]bool{
 	"theme":          true,
 	"date_format":    true,
 	"show_hints":     true,
-	"hide_checked":    true,
-	"cascade_checks":  true,
-	"show_preview":    true,
+	"hide_checked":   true,
+	"cascade_checks": true,
+	"show_preview":   true,
 	"word_wrap":      true,
 }
 
@@ -118,6 +120,7 @@ func LoadFrom(path string) (Config, error) {
 	cfg.CascadeChecks = raw.CascadeChecks
 	cfg.ShowPreview = raw.ShowPreview
 	cfg.WordWrap = raw.WordWrap
+	cfg.KanbanSortByPrio = raw.KanbanSortByPrio
 
 	// Convert hide_checked: legacy "on"/"off" strings → bool.
 	switch v := raw.HideChecked.(type) {

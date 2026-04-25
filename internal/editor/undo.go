@@ -58,6 +58,8 @@ func (m *Model) captureState() editorState {
 			ts := *m.table
 			ts.syncCell(m.textareas[m.active])
 			blocks[m.active].Content = ts.serialize()
+		} else if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+			blocks[m.active].Content = m.kanban.serialize()
 		} else {
 			blocks[m.active].Content = m.textareas[m.active].Value()
 		}
@@ -107,6 +109,7 @@ func (m *Model) restoreState(state editorState) {
 	m.palette.close()
 	m.undoDirty = false
 	m.table = nil
+	m.kanban = nil
 	m.resizeTextareas()
 
 	// If active block is a Table, init table state.
@@ -115,6 +118,17 @@ func (m *Model) restoreState(state editorState) {
 		cw := m.tableCellTAWidth()
 		m.table.loadCell(&m.textareas[active], cw, false)
 		m.cursorCmd = m.textareas[active].Focus()
+	}
+	// If active block is a Kanban, init kanban state.
+	if active < len(m.blocks) && m.blocks[active].Type == block.Kanban {
+		m.kanban = newKanbanState(m.blocks[active].Content)
+		if m.kanbanOffsets != nil {
+			m.kanban.colOffset = m.kanbanOffsets[active]
+		}
+		if m.kanbanSortByPrio {
+			m.kanban.sortByPriority()
+		}
+		m.textareas[active].Blur()
 	}
 }
 
@@ -128,6 +142,8 @@ func (m *Model) performUndo() bool {
 		if m.table != nil && m.blocks[m.active].Type == block.Table {
 			m.table.syncCell(m.textareas[m.active])
 			m.blocks[m.active].Content = m.table.serialize()
+		} else if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+			m.blocks[m.active].Content = m.kanban.serialize()
 		} else {
 			m.blocks[m.active].Content = m.textareas[m.active].Value()
 		}
@@ -147,6 +163,8 @@ func (m *Model) performRedo() bool {
 		if m.table != nil && m.blocks[m.active].Type == block.Table {
 			m.table.syncCell(m.textareas[m.active])
 			m.blocks[m.active].Content = m.table.serialize()
+		} else if m.kanban != nil && m.blocks[m.active].Type == block.Kanban {
+			m.blocks[m.active].Content = m.kanban.serialize()
 		} else {
 			m.blocks[m.active].Content = m.textareas[m.active].Value()
 		}

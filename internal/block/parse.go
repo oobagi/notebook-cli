@@ -47,6 +47,16 @@ func Parse(markdown string) []Block {
 				i++
 			}
 			content := strings.Join(contentLines, "\n")
+
+			// Special-case kanban fence: own block type, content stored verbatim.
+			if strings.EqualFold(lang, "kanban") {
+				blocks = append(blocks, Block{
+					Type:    Kanban,
+					Content: content,
+				})
+				continue
+			}
+
 			if lang != "" {
 				if content == "" {
 					content = lang
@@ -123,12 +133,14 @@ func Parse(markdown string) []Block {
 		indent, stripped := stripListIndent(line)
 
 		if strings.HasPrefix(stripped, "- [x] ") || strings.HasPrefix(stripped, "- [X] ") {
-			blocks = append(blocks, Block{Type: Checklist, Content: stripped[6:], Checked: true, Indent: indent})
+			prio, body := ParsePriorityMarker(stripped[6:])
+			blocks = append(blocks, Block{Type: Checklist, Content: body, Checked: true, Indent: indent, Priority: prio})
 			i++
 			continue
 		}
 		if strings.HasPrefix(stripped, "- [ ] ") {
-			blocks = append(blocks, Block{Type: Checklist, Content: stripped[6:], Checked: false, Indent: indent})
+			prio, body := ParsePriorityMarker(stripped[6:])
+			blocks = append(blocks, Block{Type: Checklist, Content: body, Checked: false, Indent: indent, Priority: prio})
 			i++
 			continue
 		}
