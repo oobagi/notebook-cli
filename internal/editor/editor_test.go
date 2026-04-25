@@ -2030,5 +2030,46 @@ func TestBlockIndexAtLineReturnsCorrectBlock(t *testing.T) {
 	}
 }
 
+func TestMouseClickInLeftMarginDoesNotToggle(t *testing.T) {
+	content := "- [ ] buy milk"
+	m := New(Config{Title: "test", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if !m.viewMode {
+		t.Fatal("expected view mode")
+	}
+
+	// width=80, contentWidth=72, leftPad=4 — X=1 falls in the left margin.
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset()
+	updated, _ = m.Update(tea.MouseClickMsg{X: 1, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+
+	if m.blocks[0].Checked {
+		t.Fatal("click in left margin should not toggle checklist")
+	}
+}
+
+func TestMouseClickInRightMarginDoesNotToggle(t *testing.T) {
+	content := "- [ ] buy milk"
+	m := New(Config{Title: "test", Content: content})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	// leftPad=4, contentWidth=72 → content range [4,76). X=78 is right margin.
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset()
+	updated, _ = m.Update(tea.MouseClickMsg{X: 78, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+
+	if m.blocks[0].Checked {
+		t.Fatal("click in right margin should not toggle checklist")
+	}
+}
+
 // Verify strings import is used.
 var _ = strings.Contains

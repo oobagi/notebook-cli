@@ -1709,10 +1709,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.viewMode {
-			// Track hover state for checklist/embed visual feedback.
-			hoverY := m.viewport.YOffset() + msg.Y
-			idx := m.blockIndexAtLine(hoverY)
+			// Track hover state for checklist/embed visual feedback. Drop
+			// hover when the cursor is in the centered-column margin so
+			// the highlight matches click activation bounds.
+			leftPad, contentWidth := m.viewContentXRange()
 			oldHover := m.hoverBlock
+			idx := -1
+			if msg.X >= leftPad && msg.X < leftPad+contentWidth {
+				hoverY := m.viewport.YOffset() + msg.Y
+				idx = m.blockIndexAtLine(hoverY)
+			}
 			m.hoverBlock = idx
 
 			// Re-render if hovering over a different interactive block.
@@ -1765,6 +1771,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.viewMode {
+			// Reject clicks that land in the centered-column margin so
+			// stray clicks outside the rendered block content don't fire
+			// checklist toggles or embed opens.
+			leftPad, contentWidth := m.viewContentXRange()
+			if msg.X < leftPad || msg.X >= leftPad+contentWidth {
+				m.hoverBlock = -1
+				return m, nil
+			}
 			// Track hover state for checklist visual feedback.
 			hoverY := m.viewport.YOffset() + msg.Y
 			idx := m.blockIndexAtLine(hoverY)
@@ -3164,22 +3178,28 @@ func (m *Model) renderAllBlocks() string {
 	return strings.Join(parts, "\n")
 }
 
-// renderViewContent builds the full view-mode content: centered, max-width,
-// with generous spacing for a clean reading experience.
-func (m Model) renderViewContent() string {
-	contentWidth := viewMaxWidth
+// viewContentXRange returns the [leftPad, leftPad+contentWidth) X range of
+// the centered view-mode content column. Click and hover handlers use this
+// to reject coordinates that fall in the surrounding margin.
+func (m Model) viewContentXRange() (leftPad, contentWidth int) {
+	contentWidth = viewMaxWidth
 	if m.width < contentWidth {
-		contentWidth = m.width - 4 // leave some margin even on small terms
+		contentWidth = m.width - 4
 		if contentWidth < 20 {
 			contentWidth = 20
 		}
 	}
-
-	// Horizontal padding to center the content column.
-	leftPad := (m.width - contentWidth) / 2
+	leftPad = (m.width - contentWidth) / 2
 	if leftPad < 0 {
 		leftPad = 0
 	}
+	return leftPad, contentWidth
+}
+
+// renderViewContent builds the full view-mode content: centered, max-width,
+// with generous spacing for a clean reading experience.
+func (m Model) renderViewContent() string {
+	leftPad, contentWidth := m.viewContentXRange()
 	padStr := strings.Repeat(" ", leftPad)
 
 	var parts []string
