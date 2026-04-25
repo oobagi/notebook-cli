@@ -36,6 +36,8 @@ Notebook is a TUI note manager that organizes markdown notes into notebooks. It 
 Everything runs in your terminal. No account, no sync, no config required.
 <p align="center">
   <img src="assets/hero.gif" alt="notebook demo" width="1010">
+  <br>
+  <sub><i>Recorded on v1.0.0</i></sub>
 </p>
 
 ## Install
