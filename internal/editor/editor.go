@@ -1192,6 +1192,12 @@ func (m *Model) handleEnter() {
 			m.textareas[m.active] = newTA
 			return
 		}
+		// Enter at the very start of the title pushes the link down by
+		// inserting a new paragraph above.
+		if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+			m.insertBlockBefore(m.active, block.Block{Type: block.Paragraph})
+			return
+		}
 		if ta.Line() == 0 {
 			lines := strings.Split(content, "\n")
 			if len(lines) < 2 {
@@ -2308,10 +2314,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Link blocks: up always navigates to the previous block,
 			// never swaps between title and URL slots.
 			if m.blocks[m.active].Type == block.Link {
-				if m.active > 0 {
-					m.navigateUp()
+				if m.active == 0 {
+					m.pushUndo()
+					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
 					m.updateViewport()
+					return m, nil
 				}
+				m.navigateUp()
+				m.updateViewport()
 				return m, nil
 			}
 			// Table: move to cell above, preserving horizontal position.
