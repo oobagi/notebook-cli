@@ -783,7 +783,7 @@ func (m *Model) navigateDown() {
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table || bt == block.Bookmark
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -1169,6 +1169,33 @@ func (m *Model) handleEnter() {
 		}
 	}
 
+	// Bookmark: two-line internal structure (title on line 0, URL on line 1).
+	// Enter on the title line moves the cursor to the URL line.
+	// Enter on the URL line exits the block to a new paragraph below.
+	if bt == block.Bookmark {
+		trimmed := strings.TrimSpace(strings.ReplaceAll(content, "\n", ""))
+		if trimmed == "" || trimmed == "https://" || trimmed == "http://" {
+			m.blocks[m.active].Type = block.Paragraph
+			m.blocks[m.active].Content = ""
+			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
+			m.cursorCmd = newTA.Focus()
+			m.textareas[m.active] = newTA
+			return
+		}
+		if ta.Line() == 0 {
+			lines := strings.Split(content, "\n")
+			if len(lines) < 2 {
+				ta.SetValue(content + "\n")
+			}
+			ta.CursorDown()
+			ta.CursorEnd()
+			m.cursorCmd = ta.Focus()
+			return
+		}
+		m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
+		return
+	}
+
 	// Code block / Quote / Callout: Enter inserts a newline within the block.
 	// On an empty last line, exit the block by trimming the empty line
 	// and inserting a new paragraph below.
@@ -1528,6 +1555,13 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	// Place cursor on the term line so the user types the term first.
 	if bt == block.DefinitionList && !strings.Contains(m.textareas[m.active].Value(), "\n") {
 		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
+		m.textareas[m.active].MoveToBegin()
+		m.cursorCmd = m.textareas[m.active].Focus()
+	}
+	// Bookmark: seed with "Title\nhttps://" so the user types the title
+	// first then arrows down to fill in the URL.
+	if bt == block.Bookmark && !strings.Contains(m.textareas[m.active].Value(), "\n") {
+		m.textareas[m.active].SetValue("\nhttps://")
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}

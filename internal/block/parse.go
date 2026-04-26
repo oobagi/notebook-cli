@@ -1,6 +1,27 @@
 package block
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var (
+	bookmarkLinkRe = regexp.MustCompile(`^\[([^\]]*)\]\((https?://[^\s)]+)\)\s*$`)
+	bookmarkBareRe = regexp.MustCompile(`^(https?://\S+)\s*$`)
+)
+
+// ParseBookmark reports whether a single line is a bookmark — either a
+// titled markdown link `[title](url)` or a bare http(s) URL — and returns
+// the extracted title (may be empty) and URL.
+func ParseBookmark(line string) (title, url string, ok bool) {
+	if m := bookmarkLinkRe.FindStringSubmatch(line); m != nil {
+		return m[1], m[2], true
+	}
+	if m := bookmarkBareRe.FindStringSubmatch(line); m != nil {
+		return "", m[1], true
+	}
+	return "", "", false
+}
 
 // stripListIndent counts leading 4-space groups on a line.
 func stripListIndent(line string) (indent int, stripped string) {
@@ -200,6 +221,17 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
+		// --- Bookmark ([title](url) or bare URL on its own line) ---
+		if title, url, ok := ParseBookmark(line); ok {
+			content := url
+			if title != "" {
+				content = title + "\n" + url
+			}
+			blocks = append(blocks, Block{Type: Bookmark, Content: content})
+			i++
+			continue
+		}
+
 		// --- Definition (term followed by one or more ": definition" lines) ---
 		if i+1 < len(lines) && !isBlockStart(line) && isDefinitionLine(lines[i+1]) {
 			term := line
@@ -266,6 +298,9 @@ func isBlockStart(line string) bool {
 		return true
 	}
 	if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
+		return true
+	}
+	if _, _, ok := ParseBookmark(line); ok {
 		return true
 	}
 	return isDivider(line)
