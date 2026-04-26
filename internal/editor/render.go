@@ -425,6 +425,39 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
+	case block.Bookmark:
+		bs := th.Blocks.Bookmark
+		titleColor := resolveColor(bs.TitleColor, th.Accent)
+		urlColor := resolveColor(bs.URLColor, th.Muted)
+		titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(titleColor))
+		urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(urlColor)).Underline(true)
+		rawLines := strings.Split(ta.Value(), "\n")
+		title := ""
+		url := ""
+		if len(rawLines) > 0 {
+			title = rawLines[0]
+		}
+		if len(rawLines) > 1 {
+			url = rawLines[1]
+		}
+		cursorOnTitle := ta.Line() == 0
+		var titleLine, urlLine string
+		if title == "" {
+			titleLine = renderPlaceholder("Bookmark title", cursorOnTitle)
+		} else if cursorOnTitle {
+			titleLine = renderLabelCursor(title, ta.LineInfo().ColumnOffset, titleStyle)
+		} else {
+			titleLine = titleStyle.Render(title)
+		}
+		if url == "" {
+			urlLine = renderPlaceholder("https://", !cursorOnTitle)
+		} else if !cursorOnTitle {
+			urlLine = renderLabelCursor(url, ta.LineInfo().ColumnOffset, urlStyle)
+		} else {
+			urlLine = urlStyle.Render(url)
+		}
+		rendered = titleLine + "\n" + urlLine
+
 	case block.Callout:
 		cs := th.Blocks.Callout
 		variantColor := calloutVariantColor(cs, b.Variant)
@@ -500,6 +533,63 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderBookmarkCard renders a bookmark as a bordered card with title on
+// top and URL below. width is the content column width.
+func renderBookmarkCard(content string, width int, hovered bool) string {
+	th := theme.Current()
+	bs := th.Blocks.Bookmark
+	borderColor := resolveColor(bs.Border, th.Border)
+	titleColor := resolveColor(bs.TitleColor, th.Accent)
+	urlColor := resolveColor(bs.URLColor, th.Muted)
+
+	title, url := block.ExtractBookmark(content)
+	if title == "" && url == "" {
+		title = "Bookmark"
+	}
+	if title == "" {
+		title = url
+	}
+
+	innerW := width - 4
+	if innerW < 10 {
+		innerW = 10
+	}
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(titleColor))
+	urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(urlColor))
+	if hovered {
+		urlStyle = urlStyle.Underline(true)
+		titleStyle = titleStyle.Underline(true)
+	}
+	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
+
+	titleR := []rune(title)
+	if len(titleR) > innerW {
+		titleR = append(titleR[:innerW-1], '…')
+	}
+	urlR := []rune(url)
+	if len(urlR) > innerW {
+		urlR = append(urlR[:innerW-1], '…')
+	}
+	titleLine := titleStyle.Render(string(titleR))
+	urlLine := urlStyle.Render(string(urlR))
+
+	titlePad := innerW - len([]rune(string(titleR)))
+	if titlePad < 0 {
+		titlePad = 0
+	}
+	urlPad := innerW - len([]rune(string(urlR)))
+	if urlPad < 0 {
+		urlPad = 0
+	}
+
+	top := bc.Render("╭" + strings.Repeat("─", innerW+2) + "╮")
+	bottom := bc.Render("╰" + strings.Repeat("─", innerW+2) + "╯")
+	bar := bc.Render("│")
+	titleRow := bar + " " + titleLine + strings.Repeat(" ", titlePad) + " " + bar
+	urlRow := bar + " " + urlLine + strings.Repeat(" ", urlPad) + " " + bar
+	return strings.Join([]string{top, titleRow, urlRow, bottom}, "\n")
 }
 
 // renderCodeBox renders code in a bordered box with the label always in the
@@ -896,6 +986,9 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 				Render(icon + wrapped)
 		}
 
+	case block.Bookmark:
+		rendered = renderBookmarkCard(content, contentWidth, false)
+
 	case block.Table:
 		tableWidth := width - gutterWidth
 		if tableWidth < 10 {
@@ -1119,6 +1212,9 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			}
 			rendered = style.Render(icon + wrapped)
 		}
+
+	case block.Bookmark:
+		rendered = renderBookmarkCard(content, contentWidth, hovered)
 
 	case block.Table:
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)

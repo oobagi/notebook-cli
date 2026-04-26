@@ -85,6 +85,7 @@ var paletteItemDefs = []struct {
 	{"!", "Callout", block.Callout},
 	{"\u2014", "Divider", block.Divider},
 	{"\u2197", "Embed", block.Embed},
+	{"\u29c9", "Bookmark", block.Bookmark},
 }
 
 // defaultPaletteItems returns the full list of block-type entries.

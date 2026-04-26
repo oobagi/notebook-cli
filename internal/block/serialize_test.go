@@ -165,6 +165,18 @@ func TestSerializeRoundTrip(t *testing.T) {
 			name: "table with no body rows",
 			md:   "| Name | Age |\n| ---- | --- |",
 		},
+		{
+			name: "bookmark titled link",
+			md:   "[Example](https://example.com)",
+		},
+		{
+			name: "bookmark bare url",
+			md:   "https://example.com",
+		},
+		{
+			name: "bookmark between paragraphs",
+			md:   "above\n\n[Site](https://site.io)\n\nbelow",
+		},
 	}
 
 	for _, tt := range tests {
@@ -195,6 +207,9 @@ func TestSerializeIdempotent(t *testing.T) {
 		"API\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
 		"![[notebook/note]]",
 		"text\n\n![[ref]]\n\nmore text",
+		"[Example](https://example.com)",
+		"https://example.com",
+		"text\n\n[Docs](https://docs.io)\n\nmore",
 		"| A   | B   |\n| --- | --- |\n| 1   | 2   |",
 		"| Left | Center | Right |\n| :--- | :----: | ----: |\n| a    | b      | c     |",
 	}

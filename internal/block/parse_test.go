@@ -312,6 +312,52 @@ func TestParse(t *testing.T) {
 				{Type: Paragraph, Content: "Some text"},
 			},
 		},
+		{
+			name:  "bookmark titled link",
+			input: "[Example](https://example.com)",
+			expect: []Block{
+				{Type: Bookmark, Content: "Example\nhttps://example.com"},
+			},
+		},
+		{
+			name:  "bookmark bare url",
+			input: "https://example.com",
+			expect: []Block{
+				{Type: Bookmark, Content: "https://example.com"},
+			},
+		},
+		{
+			name:  "bookmark http url",
+			input: "http://example.com/path?q=1",
+			expect: []Block{
+				{Type: Bookmark, Content: "http://example.com/path?q=1"},
+			},
+		},
+		{
+			name:  "bookmark between paragraphs",
+			input: "above\n\n[Site](https://site.io)\n\nbelow",
+			expect: []Block{
+				{Type: Paragraph, Content: "above"},
+				{Type: Paragraph, Content: ""},
+				{Type: Bookmark, Content: "Site\nhttps://site.io"},
+				{Type: Paragraph, Content: ""},
+				{Type: Paragraph, Content: "below"},
+			},
+		},
+		{
+			name:  "bookmark titled link with empty title",
+			input: "[](https://example.com)",
+			expect: []Block{
+				{Type: Bookmark, Content: "https://example.com"},
+			},
+		},
+		{
+			name:  "inline link in paragraph not parsed as bookmark",
+			input: "see [docs](https://example.com) for details",
+			expect: []Block{
+				{Type: Paragraph, Content: "see [docs](https://example.com) for details"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -371,6 +417,8 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("Embed")
 		case Table:
 			b.WriteString("Table")
+		case Bookmark:
+			b.WriteString("Bookmark")
 		}
 		if bl.Content != "" {
 			b.WriteString(" " + bl.Content)

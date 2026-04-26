@@ -103,6 +103,14 @@ func Serialize(blocks []Block) string {
 		case Embed:
 			lines = append(lines, "![["+b.Content+"]]")
 
+		case Bookmark:
+			title, url := ExtractBookmark(b.Content)
+			if title == "" {
+				lines = append(lines, url)
+			} else {
+				lines = append(lines, "["+title+"]("+url+")")
+			}
+
 		case Table:
 			lines = append(lines, serializeTable(b.Content)...)
 
