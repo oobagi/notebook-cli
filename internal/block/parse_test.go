@@ -313,46 +313,46 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:  "bookmark titled link",
+			name:  "link titled link",
 			input: "[Example](https://example.com)",
 			expect: []Block{
-				{Type: Bookmark, Content: "Example\nhttps://example.com"},
+				{Type: Link, Content: "Example\nhttps://example.com"},
 			},
 		},
 		{
-			name:  "bookmark bare url",
+			name:  "link bare url",
 			input: "https://example.com",
 			expect: []Block{
-				{Type: Bookmark, Content: "https://example.com"},
+				{Type: Link, Content: "https://example.com"},
 			},
 		},
 		{
-			name:  "bookmark http url",
+			name:  "link http url",
 			input: "http://example.com/path?q=1",
 			expect: []Block{
-				{Type: Bookmark, Content: "http://example.com/path?q=1"},
+				{Type: Link, Content: "http://example.com/path?q=1"},
 			},
 		},
 		{
-			name:  "bookmark between paragraphs",
+			name:  "link between paragraphs",
 			input: "above\n\n[Site](https://site.io)\n\nbelow",
 			expect: []Block{
 				{Type: Paragraph, Content: "above"},
 				{Type: Paragraph, Content: ""},
-				{Type: Bookmark, Content: "Site\nhttps://site.io"},
+				{Type: Link, Content: "Site\nhttps://site.io"},
 				{Type: Paragraph, Content: ""},
 				{Type: Paragraph, Content: "below"},
 			},
 		},
 		{
-			name:  "bookmark titled link with empty title",
+			name:  "link titled link with empty title",
 			input: "[](https://example.com)",
 			expect: []Block{
-				{Type: Bookmark, Content: "https://example.com"},
+				{Type: Link, Content: "https://example.com"},
 			},
 		},
 		{
-			name:  "inline link in paragraph not parsed as bookmark",
+			name:  "inline link in paragraph not parsed as link",
 			input: "see [docs](https://example.com) for details",
 			expect: []Block{
 				{Type: Paragraph, Content: "see [docs](https://example.com) for details"},
@@ -417,8 +417,8 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("Embed")
 		case Table:
 			b.WriteString("Table")
-		case Bookmark:
-			b.WriteString("Bookmark")
+		case Link:
+			b.WriteString("Link")
 		}
 		if bl.Content != "" {
 			b.WriteString(" " + bl.Content)

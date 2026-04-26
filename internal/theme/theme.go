@@ -118,8 +118,8 @@ type TableStyle struct {
 	HeaderBold bool // whether header row is rendered bold
 }
 
-// BookmarkStyle controls bookmark card rendering.
-type BookmarkStyle struct {
+// LinkStyle controls link card rendering.
+type LinkStyle struct {
 	Border     string // hex border color; "" means theme.Border
 	TitleColor string // hex title color; "" means theme.Accent
 	URLColor   string // hex url color; "" means theme.Muted
@@ -140,7 +140,7 @@ type BlockStyles struct {
 	Definition DefinitionStyle
 	Embed      EmbedStyle
 	Table      TableStyle
-	Bookmark   BookmarkStyle
+	Link   LinkStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original

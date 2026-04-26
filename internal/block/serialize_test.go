@@ -166,15 +166,15 @@ func TestSerializeRoundTrip(t *testing.T) {
 			md:   "| Name | Age |\n| ---- | --- |",
 		},
 		{
-			name: "bookmark titled link",
+			name: "link titled link",
 			md:   "[Example](https://example.com)",
 		},
 		{
-			name: "bookmark bare url",
+			name: "link bare url",
 			md:   "https://example.com",
 		},
 		{
-			name: "bookmark between paragraphs",
+			name: "link between paragraphs",
 			md:   "above\n\n[Site](https://site.io)\n\nbelow",
 		},
 	}

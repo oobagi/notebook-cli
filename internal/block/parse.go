@@ -6,18 +6,18 @@ import (
 )
 
 var (
-	bookmarkLinkRe = regexp.MustCompile(`^\[([^\]]*)\]\((https?://[^\s)]+)\)\s*$`)
-	bookmarkBareRe = regexp.MustCompile(`^(https?://\S+)\s*$`)
+	linkLinkRe = regexp.MustCompile(`^\[([^\]]*)\]\((https?://[^\s)]+)\)\s*$`)
+	linkBareRe = regexp.MustCompile(`^(https?://\S+)\s*$`)
 )
 
-// ParseBookmark reports whether a single line is a bookmark — either a
+// ParseLink reports whether a single line is a link — either a
 // titled markdown link `[title](url)` or a bare http(s) URL — and returns
 // the extracted title (may be empty) and URL.
-func ParseBookmark(line string) (title, url string, ok bool) {
-	if m := bookmarkLinkRe.FindStringSubmatch(line); m != nil {
+func ParseLink(line string) (title, url string, ok bool) {
+	if m := linkLinkRe.FindStringSubmatch(line); m != nil {
 		return m[1], m[2], true
 	}
-	if m := bookmarkBareRe.FindStringSubmatch(line); m != nil {
+	if m := linkBareRe.FindStringSubmatch(line); m != nil {
 		return "", m[1], true
 	}
 	return "", "", false
@@ -221,13 +221,13 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
-		// --- Bookmark ([title](url) or bare URL on its own line) ---
-		if title, url, ok := ParseBookmark(line); ok {
+		// --- Link ([title](url) or bare URL on its own line) ---
+		if title, url, ok := ParseLink(line); ok {
 			content := url
 			if title != "" {
 				content = title + "\n" + url
 			}
-			blocks = append(blocks, Block{Type: Bookmark, Content: content})
+			blocks = append(blocks, Block{Type: Link, Content: content})
 			i++
 			continue
 		}
@@ -300,7 +300,7 @@ func isBlockStart(line string) bool {
 	if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
 		return true
 	}
-	if _, _, ok := ParseBookmark(line); ok {
+	if _, _, ok := ParseLink(line); ok {
 		return true
 	}
 	return isDivider(line)

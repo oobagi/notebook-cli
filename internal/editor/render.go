@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"fmt"
+	neturl "net/url"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -425,12 +426,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			rendered = prefixFirstLine(prefix, taView)
 		}
 
-	case block.Bookmark:
-		bs := th.Blocks.Bookmark
-		titleColor := resolveColor(bs.TitleColor, th.Accent)
-		urlColor := resolveColor(bs.URLColor, th.Muted)
-		titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(titleColor))
-		urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(urlColor)).Underline(true)
+	case block.Link:
 		rawLines := strings.Split(ta.Value(), "\n")
 		title := ""
 		url := ""
@@ -441,22 +437,11 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 			url = rawLines[1]
 		}
 		cursorOnTitle := ta.Line() == 0
-		var titleLine, urlLine string
-		if title == "" {
-			titleLine = renderPlaceholder("Bookmark title", cursorOnTitle)
-		} else if cursorOnTitle {
-			titleLine = renderLabelCursor(title, ta.LineInfo().ColumnOffset, titleStyle)
-		} else {
-			titleLine = titleStyle.Render(title)
-		}
-		if url == "" {
-			urlLine = renderPlaceholder("https://", !cursorOnTitle)
-		} else if !cursorOnTitle {
-			urlLine = renderLabelCursor(url, ta.LineInfo().ColumnOffset, urlStyle)
-		} else {
-			urlLine = urlStyle.Render(url)
-		}
-		rendered = titleLine + "\n" + urlLine
+		col := ta.LineInfo().ColumnOffset
+		chip, vCol := renderLinkChipActive(title, url, cursorOnTitle, col)
+		rendered = chip
+		cursorVisIdx = 0
+		cursorColInWrap = vCol - blockPrefixWidth(b)
 
 	case block.Callout:
 		cs := th.Blocks.Callout
@@ -505,7 +490,12 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	// Truncate or horizontally scroll lines that exceed terminal width.
-	if m.wordWrap {
+	if b.Type == block.Link {
+		cursorCol := gutterWidth + blockPrefixWidth(b) + cursorColInWrap
+		for i, l := range lines {
+			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
+		}
+	} else if m.wordWrap {
 		for i, l := range lines {
 			if lipgloss.Width(l) > m.width {
 				lines[i] = ansi.Truncate(l, m.width, "")
@@ -535,61 +525,136 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderBookmarkCard renders a bookmark as a bordered card with title on
-// top and URL below. width is the content column width.
-func renderBookmarkCard(content string, width int, hovered bool) string {
+func linkStyles() (icon, title, host lipgloss.Style) {
 	th := theme.Current()
-	bs := th.Blocks.Bookmark
-	borderColor := resolveColor(bs.Border, th.Border)
+	bs := th.Blocks.Link
 	titleColor := resolveColor(bs.TitleColor, th.Accent)
 	urlColor := resolveColor(bs.URLColor, th.Muted)
+	icon = lipgloss.NewStyle().Foreground(lipgloss.Color(titleColor))
+	title = lipgloss.NewStyle().Foreground(lipgloss.Color(titleColor))
+	host = lipgloss.NewStyle().Foreground(lipgloss.Color(urlColor)).Faint(true)
+	return
+}
 
-	title, url := block.ExtractBookmark(content)
-	if title == "" && url == "" {
-		title = "Bookmark"
-	}
-	if title == "" {
-		title = url
-	}
+const linkIcon = "↗ "
+const linkSep = "  "
 
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = 10
-	}
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(titleColor))
-	urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(urlColor))
+func renderLinkCard(content string, width int, hovered bool) string {
+	iconStyle, titleStyle, hostStyle := linkStyles()
 	if hovered {
-		urlStyle = urlStyle.Underline(true)
 		titleStyle = titleStyle.Underline(true)
 	}
-	bc := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
 
-	titleR := []rune(title)
-	if len(titleR) > innerW {
-		titleR = append(titleR[:innerW-1], '…')
-	}
-	urlR := []rune(url)
-	if len(urlR) > innerW {
-		urlR = append(urlR[:innerW-1], '…')
-	}
-	titleLine := titleStyle.Render(string(titleR))
-	urlLine := urlStyle.Render(string(urlR))
+	title, url := block.ExtractLink(content)
 
-	titlePad := innerW - len([]rune(string(titleR)))
-	if titlePad < 0 {
-		titlePad = 0
-	}
-	urlPad := innerW - len([]rune(string(urlR)))
-	if urlPad < 0 {
-		urlPad = 0
+	if title == "" && url == "" {
+		return iconStyle.Render(linkIcon) + renderPlaceholder("Link title", false)
 	}
 
-	top := bc.Render("╭" + strings.Repeat("─", innerW+2) + "╮")
-	bottom := bc.Render("╰" + strings.Repeat("─", innerW+2) + "╯")
-	bar := bc.Render("│")
-	titleRow := bar + " " + titleLine + strings.Repeat(" ", titlePad) + " " + bar
-	urlRow := bar + " " + urlLine + strings.Repeat(" ", urlPad) + " " + bar
-	return strings.Join([]string{top, titleRow, urlRow, bottom}, "\n")
+	display := title
+	showHost := true
+	if display == "" {
+		display = url
+		showHost = false
+	}
+
+	host := ""
+	if showHost && url != "" {
+		host = linkHost(url)
+	}
+
+	iconW := lipgloss.Width(linkIcon)
+	sepW := lipgloss.Width(linkSep)
+	hostW := lipgloss.Width(host)
+
+	if width > 0 {
+		avail := width - iconW
+		if host != "" {
+			avail -= sepW + hostW
+		}
+		if avail < 4 {
+			avail = 4
+			host = ""
+		}
+		if lipgloss.Width(display) > avail {
+			display = ansi.Truncate(display, avail, "…")
+		}
+	}
+
+	titleRendered := titleStyle.Render(display)
+	if url != "" {
+		titleRendered = osc8Wrap(url, titleRendered)
+	}
+
+	out := iconStyle.Render(linkIcon) + titleRendered
+	if host != "" {
+		out += linkSep + hostStyle.Render(host)
+	}
+	return out
+}
+
+// renderLinkChipActive renders the link chip while editing. It returns the
+// chip text and the visual cursor column (relative to the start of the
+// rendered chip, including the icon) so the surrounding scroll math can
+// keep the cursor in view.
+func renderLinkChipActive(title, url string, cursorOnTitle bool, cursorCol int) (string, int) {
+	iconStyle, titleStyle, hostStyle := linkStyles()
+	urlEditStyle := hostStyle.Underline(false)
+
+	var titleSlot string
+	var titleSlotPlain string
+	if title == "" {
+		titleSlot = renderPlaceholder("Link title", cursorOnTitle)
+		titleSlotPlain = "Link title"
+	} else if cursorOnTitle {
+		titleSlot = renderLabelCursor(title, cursorCol, titleStyle)
+		titleSlotPlain = title
+	} else {
+		titleSlot = titleStyle.Render(title)
+		titleSlotPlain = title
+	}
+
+	var urlSlot string
+	if url == "" {
+		urlSlot = renderPlaceholder("https://", !cursorOnTitle)
+	} else if !cursorOnTitle {
+		urlSlot = renderLabelCursor(url, cursorCol, urlEditStyle)
+	} else {
+		host := linkHost(url)
+		if host == "" {
+			host = url
+		}
+		urlSlot = hostStyle.Render(host)
+	}
+
+	chip := iconStyle.Render(linkIcon) + titleSlot + linkSep + urlSlot
+
+	iconW := lipgloss.Width(linkIcon)
+	titleW := lipgloss.Width(titleSlotPlain)
+	if title == "" {
+		titleW = lipgloss.Width("Link title")
+	}
+	sepW := lipgloss.Width(linkSep)
+
+	var vCol int
+	if cursorOnTitle {
+		vCol = iconW + cursorCol
+	} else {
+		vCol = iconW + titleW + sepW + cursorCol
+	}
+	return chip, vCol
+}
+
+func linkHost(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return u.Host
+}
+
+func osc8Wrap(url, text string) string {
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
 // renderCodeBox renders code in a bordered box with the label always in the
@@ -986,8 +1051,8 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 				Render(icon + wrapped)
 		}
 
-	case block.Bookmark:
-		rendered = renderBookmarkCard(content, contentWidth, false)
+	case block.Link:
+		rendered = renderLinkCard(content, contentWidth, false)
 
 	case block.Table:
 		tableWidth := width - gutterWidth
@@ -1213,8 +1278,8 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			rendered = style.Render(icon + wrapped)
 		}
 
-	case block.Bookmark:
-		rendered = renderBookmarkCard(content, contentWidth, hovered)
+	case block.Link:
+		rendered = renderLinkCard(content, contentWidth, hovered)
 
 	case block.Table:
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)
