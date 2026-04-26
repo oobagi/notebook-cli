@@ -1416,6 +1416,12 @@ func (m *Model) handleBackspace() bool {
 		case block.DefinitionList:
 			// Keep only the term line.
 			keepContent, _ = block.ExtractDefinition(content)
+		case block.Link:
+			title, url := block.ExtractLink(content)
+			keepContent = title
+			if keepContent == "" {
+				keepContent = url
+			}
 		}
 		m.convertToParagraph(keepContent)
 		return true
