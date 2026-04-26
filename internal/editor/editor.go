@@ -749,6 +749,11 @@ func (m *Model) navigateUp() {
 	}
 
 	ta := &m.textareas[m.active]
+	if m.blocks[m.active].Type == block.Link {
+		ta.MoveToBegin()
+		ta.CursorEnd()
+		return
+	}
 	ta.MoveToEnd()
 	li := ta.LineInfo()
 	ta.SetCursorColumn(li.StartColumn + charOffset)
@@ -777,13 +782,18 @@ func (m *Model) navigateDown() {
 	}
 
 	ta := &m.textareas[m.active]
+	if m.blocks[m.active].Type == block.Link {
+		ta.MoveToBegin()
+		ta.CursorEnd()
+		return
+	}
 	ta.MoveToBegin()
 	ta.SetCursorColumn(charOffset)
 }
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table || bt == block.Bookmark
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table || bt == block.Link
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -1169,17 +1179,23 @@ func (m *Model) handleEnter() {
 		}
 	}
 
-	// Bookmark: two-line internal structure (title on line 0, URL on line 1).
+	// Link: two-line internal structure (title on line 0, URL on line 1).
 	// Enter on the title line moves the cursor to the URL line.
 	// Enter on the URL line exits the block to a new paragraph below.
-	if bt == block.Bookmark {
+	if bt == block.Link {
 		trimmed := strings.TrimSpace(strings.ReplaceAll(content, "\n", ""))
-		if trimmed == "" || trimmed == "https://" || trimmed == "http://" {
+		if trimmed == "" {
 			m.blocks[m.active].Type = block.Paragraph
 			m.blocks[m.active].Content = ""
 			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
 			m.cursorCmd = newTA.Focus()
 			m.textareas[m.active] = newTA
+			return
+		}
+		// Enter at the very start of the title pushes the link down by
+		// inserting a new paragraph above.
+		if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
+			m.insertBlockBefore(m.active, block.Block{Type: block.Paragraph})
 			return
 		}
 		if ta.Line() == 0 {
@@ -1406,6 +1422,12 @@ func (m *Model) handleBackspace() bool {
 		case block.DefinitionList:
 			// Keep only the term line.
 			keepContent, _ = block.ExtractDefinition(content)
+		case block.Link:
+			title, url := block.ExtractLink(content)
+			keepContent = title
+			if keepContent == "" {
+				keepContent = url
+			}
 		}
 		m.convertToParagraph(keepContent)
 		return true
@@ -1558,10 +1580,8 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
-	// Bookmark: seed with "Title\nhttps://" so the user types the title
-	// first then arrows down to fill in the URL.
-	if bt == block.Bookmark && !strings.Contains(m.textareas[m.active].Value(), "\n") {
-		m.textareas[m.active].SetValue("\nhttps://")
+	if bt == block.Link && !strings.Contains(m.textareas[m.active].Value(), "\n") {
+		m.textareas[m.active].SetValue("\n")
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
@@ -1837,6 +1857,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.openEmbedModal(idx)
 					return m, nil
 				}
+				if m.blocks[idx].Type == block.Link {
+					_, u := block.ExtractLink(m.blocks[idx].Content)
+					if u != "" {
+						if err := openURL(u); err == nil {
+							m.status = "Opened: " + u
+							m.statusStyle = statusSuccess
+						} else {
+							m.status = "Open failed: " + err.Error()
+							m.statusStyle = statusError
+						}
+						return m, m.scheduleStatusDismiss()
+					}
+					return m, nil
+				}
 			}
 		} else {
 			m.hoverBlock = -1
@@ -2107,7 +2141,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.updateViewport()
 				return m, nil
-			case "esc", "ctrl+c":
+			case "esc":
+				m.viewMode = false
+				m.hoverBlock = -1
+				if m.active >= 0 && m.active < len(m.textareas) {
+					m.cursorCmd = m.textareas[m.active].Focus()
+					if m.blocks[m.active].Type == block.Table {
+						m.table = initTable(m.blocks[m.active].Content)
+						cw := m.tableCellTAWidth()
+						m.table.loadCell(&m.textareas[m.active], cw, false)
+						m.cursorCmd = m.textareas[m.active].Focus()
+					}
+				}
+				m.updateViewport()
+				return m, nil
+			case "ctrl+c":
 				if m.modified() {
 					m.quitPrompt = true
 					m.status = "Save before quitting? [Y/n/Esc]"
@@ -2263,6 +2311,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up":
+			// Link blocks: up always navigates to the previous block,
+			// never swaps between title and URL slots.
+			if m.blocks[m.active].Type == block.Link {
+				if m.active == 0 {
+					m.pushUndo()
+					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+					m.updateViewport()
+					return m, nil
+				}
+				m.navigateUp()
+				m.updateViewport()
+				return m, nil
+			}
 			// Table: move to cell above, preserving horizontal position.
 			if m.isAtFirstLine() && m.table != nil && m.table.row > 0 {
 				ta := &m.textareas[m.active]
@@ -2290,6 +2351,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
+			// Link blocks: down always navigates to the next block,
+			// never swaps between title and URL slots.
+			if m.blocks[m.active].Type == block.Link {
+				if m.active < len(m.textareas)-1 {
+					m.navigateDown()
+					m.updateViewport()
+				}
+				return m, nil
+			}
 			// Table: move to cell below, preserving horizontal position.
 			if m.isAtLastLine() && m.table != nil && m.table.row < len(m.table.cells)-1 {
 				ta := &m.textareas[m.active]
@@ -2429,6 +2499,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.defLookup.open(m.blocks, m.remoteDefinitions())
 					m.updateViewport()
 					return m, nil
+				case block.Link:
+					content := m.blocks[m.active].Content
+					if m.active < len(m.textareas) {
+						content = m.textareas[m.active].Value()
+					}
+					_, u := block.ExtractLink(content)
+					if u == "" {
+						m.status = "No URL to open"
+						m.statusStyle = statusWarning
+						return m, m.scheduleStatusDismiss()
+					}
+					if err := openURL(u); err != nil {
+						m.status = "Open failed: " + err.Error()
+						m.statusStyle = statusError
+					} else {
+						m.status = "Opened: " + u
+						m.statusStyle = statusSuccess
+					}
+					return m, m.scheduleStatusDismiss()
 				}
 			}
 
@@ -2498,6 +2587,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateViewport()
 					return m, nil
 				}
+			}
+
+			// On Link blocks, Tab/Shift+Tab jumps between title and URL slots.
+			if keyMsg.Code == tea.KeyTab && m.blocks[m.active].Type == block.Link {
+				ta := &m.textareas[m.active]
+				content := ta.Value()
+				if !strings.Contains(content, "\n") {
+					ta.SetValue(content + "\n")
+				}
+				if keyMsg.Mod.Contains(tea.ModShift) {
+					ta.MoveToBegin()
+					ta.CursorEnd()
+				} else {
+					ta.MoveToBegin()
+					ta.CursorDown()
+					ta.CursorEnd()
+				}
+				m.cursorCmd = ta.Focus()
+				m.updateViewport()
+				return m, nil
 			}
 
 			// On Embed blocks, Tab opens the note picker.
@@ -3452,6 +3561,8 @@ func (m Model) blockHint() string {
 		return "\u2190\u2192 col \u00b7 \u2191\u2193 card \u00b7 \u21e7+arrows move \u00b7 n new \u00b7 \u23ce edit \u00b7 p prio \u00b7 s sort \u00b7 bksp del (board if col empty)"
 	case block.Embed:
 		return "\u2303X open \u00B7 Tab pick"
+	case block.Link:
+		return "\u2303X open \u00B7 Tab url"
 	case block.DefinitionList:
 		return "\u2303X search"
 	default:

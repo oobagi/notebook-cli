@@ -27,7 +27,7 @@ const (
 	Callout                       // > [!NOTE] callout/admonition
 	Table                         // GFM pipe table
 	Kanban                        // ```kanban``` fenced kanban board
-	Bookmark                      // [title](url) link card
+	Link                      // [title](url) link card
 )
 
 // String returns the human-readable name of a BlockType.
@@ -63,8 +63,8 @@ func (bt BlockType) String() string {
 		return "Table"
 	case Kanban:
 		return "Kanban"
-	case Bookmark:
-		return "Bookmark"
+	case Link:
+		return "Link"
 	default:
 		return "Unknown"
 	}
@@ -113,8 +113,8 @@ func (bt BlockType) Short() string {
 		return "tb"
 	case Kanban:
 		return "kb"
-	case Bookmark:
-		return "bm"
+	case Link:
+		return "ln"
 	default:
 		return "?"
 	}
@@ -278,10 +278,10 @@ func ExtractDefinition(content string) (term, definition string) {
 	return first, ""
 }
 
-// ExtractBookmark splits a bookmark block's content into its title line
+// ExtractLink splits a link block's content into its title line
 // (first line) and URL (second line). When only a URL is stored, title
 // is empty.
-func ExtractBookmark(content string) (title, url string) {
+func ExtractLink(content string) (title, url string) {
 	first, rest, found := strings.Cut(content, "\n")
 	if found {
 		return first, rest
