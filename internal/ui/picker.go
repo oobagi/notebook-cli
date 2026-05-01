@@ -9,7 +9,7 @@ import (
 
 // PickerItem is the interface that picker entries must satisfy.
 type PickerItem interface {
-	FilterValue() string                      // text matched against the filter
+	FilterValue() string                       // text matched against the filter
 	RenderRow(selected bool, width int) string // render one row
 }
 
@@ -87,6 +87,12 @@ func (p *Picker) Refilter() {
 // AddFilterRune appends a rune to the filter and refilters.
 func (p *Picker) AddFilterRune(r rune) {
 	p.filter += string(r)
+	p.Refilter()
+}
+
+// AddFilterText appends text to the filter and refilters.
+func (p *Picker) AddFilterText(text string) {
+	p.filter += SanitizeSingleLinePaste(text)
 	p.Refilter()
 }
 

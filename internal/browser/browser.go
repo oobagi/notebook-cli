@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/cursor"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/oobagi/notebook-cli/internal/clipboard"
 	"github.com/oobagi/notebook-cli/internal/config"
@@ -27,7 +27,7 @@ type Config struct {
 	InitialBook    string     // if set, start at L1 in this notebook
 	RestoreSel     *Selection // if set, reposition cursor to this item after load
 	DismissedHints map[string]bool
-	ShowPreview    *bool      // from config; nil = default (true)
+	ShowPreview    *bool // from config; nil = default (true)
 }
 
 // Selection represents a note the user chose to open.
@@ -40,22 +40,22 @@ type Selection struct {
 
 // Model is the Bubble Tea model for the notebook/note browser.
 type Model struct {
-	store       *storage.Store
-	level       int    // 0=notebooks, 1=notes
-	notebooks   []notebookItem
-	notes       []model.Note
-	currentBook string // selected notebook name
-	cursor      int    // current selection index
+	store        *storage.Store
+	level        int // 0=notebooks, 1=notes
+	notebooks    []notebookItem
+	notes        []model.Note
+	currentBook  string // selected notebook name
+	cursor       int    // current selection index
 	filter       string // fuzzy search filter text
 	filtering    bool   // whether filter mode is active
 	filterCursor int    // cursor position within filter
-	filtered    []int // indices into notebooks/notes after filtering
-	width       int
-	height      int
-	showHelp    bool   // help overlay visible
-	quitting    bool
-	selected    *Selection // set when user picks a note to edit
-	err         error
+	filtered     []int  // indices into notebooks/notes after filtering
+	width        int
+	height       int
+	showHelp     bool // help overlay visible
+	quitting     bool
+	selected     *Selection // set when user picks a note to edit
+	err          error
 
 	// Input mode fields (used by create, rename, delete type-to-confirm).
 	inputMode   bool
@@ -293,8 +293,20 @@ type statusMsg struct{ text string }
 // only the most recent status message is cleared.
 type statusTimeoutMsg struct{ generation int }
 
+type clipboardReadErrMsg struct{ err error }
+
 // statusTimeout is the delay before auto-dismissing a transient status message.
 const statusTimeout = 4 * time.Second
+
+func readClipboardCmd() tea.Cmd {
+	return func() tea.Msg {
+		text, err := clipboard.Read()
+		if err != nil {
+			return clipboardReadErrMsg{err: err}
+		}
+		return tea.PasteMsg{Content: text}
+	}
+}
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -359,9 +371,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case clipboardReadErrMsg:
+		m.statusText = "Paste failed: " + msg.err.Error()
+		return m, m.scheduleStatusDismiss()
+
 	case errMsg:
 		m.err = msg.err
 		return m, nil
+
+	case tea.PasteMsg:
+		return m.handlePaste(msg.Content)
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -374,6 +393,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	return m, nil
+}
+
+func (m Model) handlePaste(text string) (tea.Model, tea.Cmd) {
+	if m.showSettings && m.settingsEditing {
+		m.inputCur.IsBlinked = false
+		m.inputValue, m.inputCursor = ui.InsertLineText(m.inputValue, m.inputCursor, text)
+		return m, nil
+	}
+	if m.inputMode {
+		m.inputCur.IsBlinked = false
+		m.inputValue, m.inputCursor = ui.InsertLineText(m.inputValue, m.inputCursor, text)
+		return m, nil
+	}
+	if m.filtering {
+		m.inputCur.IsBlinked = false
+		m.filter, m.filterCursor = ui.InsertLineText(m.filter, m.filterCursor, text)
+		m.applyFilter()
+		return m, nil
+	}
 	return m, nil
 }
 
@@ -530,87 +569,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// lineEdit handles common single-line text editing keys (movement, deletion,
-// insertion) on a (string, cursor) pair. Returns the updated string, cursor,
-// and whether the key was consumed. Callers handle mode-specific keys (esc,
-// enter, tab, up/down) before calling this.
-func lineEdit(s string, cursor int, key string, text string) (string, int, bool) {
-	switch key {
-	case "left":
-		if cursor > 0 {
-			cursor--
-		}
-	case "right":
-		if cursor < len(s) {
-			cursor++
-		}
-	case "alt+left", "alt+b":
-		cursor = wordLeft(s, cursor)
-	case "alt+right", "alt+f":
-		cursor = wordRight(s, cursor)
-	case "home", "ctrl+a":
-		cursor = 0
-	case "end", "ctrl+e":
-		cursor = len(s)
-	case "backspace":
-		if cursor > 0 {
-			s = s[:cursor-1] + s[cursor:]
-			cursor--
-		}
-	case "alt+backspace", "ctrl+w":
-		newPos := wordLeft(s, cursor)
-		s = s[:newPos] + s[cursor:]
-		cursor = newPos
-	case "ctrl+u":
-		s = s[cursor:]
-		cursor = 0
-	case "ctrl+k":
-		s = s[:cursor]
-	case "space":
-		s = s[:cursor] + " " + s[cursor:]
-		cursor++
-	default:
-		if len(text) > 0 {
-			s = s[:cursor] + text + s[cursor:]
-			cursor += len(text)
-		} else {
-			return s, cursor, false
-		}
-	}
-	return s, cursor, true
-}
-
-// wordLeft returns the cursor position of the start of the previous word.
-func wordLeft(s string, cursor int) int {
-	if cursor <= 0 {
-		return 0
-	}
-	i := cursor - 1
-	for i > 0 && s[i] == ' ' {
-		i--
-	}
-	for i > 0 && s[i-1] != ' ' {
-		i--
-	}
-	return i
-}
-
-// wordRight returns the cursor position past the end of the next word.
-func wordRight(s string, cursor int) int {
-	n := len(s)
-	if cursor >= n {
-		return n
-	}
-	i := cursor
-	for i < n && s[i] != ' ' {
-		i++
-	}
-	for i < n && s[i] == ' ' {
-		i++
-	}
-	return i
-}
-
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.inputCur.IsBlinked = false
 	// "/" with empty filter dismisses search (toggle behavior).
@@ -649,9 +607,11 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 		return m, nil
+	case "ctrl+v":
+		return m, readClipboardCmd()
 	default:
 		prev := m.filter
-		m.filter, m.filterCursor, _ = lineEdit(m.filter, m.filterCursor, msg.String(), msg.Text)
+		m.filter, m.filterCursor, _ = ui.EditLine(m.filter, m.filterCursor, msg)
 		if m.filter != prev {
 			m.applyFilter()
 		}
@@ -683,8 +643,10 @@ func (m Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, action(value)
 		}
 		return m, nil
+	case "ctrl+v":
+		return m, readClipboardCmd()
 	default:
-		m.inputValue, m.inputCursor, _ = lineEdit(m.inputValue, m.inputCursor, msg.String(), msg.Text)
+		m.inputValue, m.inputCursor, _ = ui.EditLine(m.inputValue, m.inputCursor, msg)
 	}
 	return m, nil
 }
@@ -713,8 +675,10 @@ func (m Model) handleSettingsInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			return m, action(value)
 		}
 		return m, nil
+	case "ctrl+v":
+		return m, readClipboardCmd()
 	default:
-		m.inputValue, m.inputCursor, _ = lineEdit(m.inputValue, m.inputCursor, msg.String(), msg.Text)
+		m.inputValue, m.inputCursor, _ = ui.EditLine(m.inputValue, m.inputCursor, msg)
 	}
 	return m, nil
 }
@@ -2380,14 +2344,35 @@ func (m Model) renderStatusBar() string {
 
 	if m.inputMode && m.showSettings {
 		// Settings text edit: use input bar without border (settings footer provides its own).
-		return format.StatusBarInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
+		input := ui.NewTextInput(m.inputValue)
+		input.SetCursor(m.inputCursor)
+		return input.RenderStatus(ui.TextInputProps{
+			Prompt:        m.inputPrompt,
+			Hints:         "Enter confirm \u00B7 Esc cancel",
+			Width:         width,
+			CursorVisible: !m.inputCur.IsBlinked,
+		})
 	}
 	if m.inputMode {
-		return format.FooterInput(m.inputPrompt, m.inputValue, m.inputCursor, "Enter confirm \u00B7 Esc cancel", width, !m.inputCur.IsBlinked)
+		input := ui.NewTextInput(m.inputValue)
+		input.SetCursor(m.inputCursor)
+		return input.RenderFooter(ui.TextInputProps{
+			Prompt:        m.inputPrompt,
+			Hints:         "Enter confirm \u00B7 Esc cancel",
+			Width:         width,
+			CursorVisible: !m.inputCur.IsBlinked,
+		})
 	}
 
 	if m.filtering {
-		return format.FooterInput("Search:", m.filter, m.filterCursor, "Esc clear \u00B7 Enter select", width, !m.inputCur.IsBlinked)
+		input := ui.NewTextInput(m.filter)
+		input.SetCursor(m.filterCursor)
+		return input.RenderFooter(ui.TextInputProps{
+			Prompt:        "Search:",
+			Hints:         "Esc clear \u00B7 Enter select",
+			Width:         width,
+			CursorVisible: !m.inputCur.IsBlinked,
+		})
 	}
 
 	left := " "

@@ -278,13 +278,13 @@ func ExtractDefinition(content string) (term, definition string) {
 	return first, ""
 }
 
-// ExtractLink splits a link block's content into its title line
-// (first line) and URL (second line). When only a URL is stored, title
-// is empty.
+// ExtractLink splits a link block's content into its URL line (first line)
+// and title (second line). The URL is stored first so the active edit form
+// presents it before the title. When only a URL is stored, title is empty.
 func ExtractLink(content string) (title, url string) {
 	first, rest, found := strings.Cut(content, "\n")
 	if found {
-		return first, rest
+		return rest, first
 	}
 	return "", first
 }

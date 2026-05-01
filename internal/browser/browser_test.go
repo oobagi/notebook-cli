@@ -57,7 +57,7 @@ func initModel(t *testing.T, s *storage.Store) Model {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	m := New(Config{
-		Store:    s,
+		Store: s,
 	})
 
 	// Run Init and process the resulting messages (including batches).
@@ -197,6 +197,26 @@ func TestBrowserFilterReducesList(t *testing.T) {
 	}
 	if m.searchResults[0].note != "pasta" {
 		t.Errorf("expected 'pasta', got %q", m.searchResults[0].note)
+	}
+}
+
+func TestBrowserFilterAcceptsPaste(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{
+		"work": {"todo"},
+		"home": {"pasta"},
+	})
+
+	m := initModel(t, s)
+	m = sendRune(t, m, '/')
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "pas\n"})
+	m = updated.(Model)
+
+	if m.filter != "pas" {
+		t.Fatalf("filter = %q, want pasted text", m.filter)
+	}
+	if len(m.searchResults) != 1 || m.searchResults[0].note != "pasta" {
+		t.Fatalf("search results = %+v, want pasted filter to apply", m.searchResults)
 	}
 }
 
@@ -368,7 +388,6 @@ func TestBrowserFilterClearOnEsc(t *testing.T) {
 		t.Errorf("expected 0 search results after Esc, got %d", len(m.searchResults))
 	}
 }
-
 
 func TestBrowserHelpToggle(t *testing.T) {
 	s := setupTestStore(t, map[string][]string{
@@ -797,6 +816,40 @@ func TestBrowserRenameNotebook(t *testing.T) {
 		if m.notebooks[idx].name != "new-name" {
 			t.Errorf("expected cursor on 'new-name', got %q", m.notebooks[idx].name)
 		}
+	}
+}
+
+func TestBrowserInputAcceptsPaste(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+	m := initModel(t, s)
+
+	m = sendRune(t, m, 'n')
+	if !m.inputMode {
+		t.Fatal("expected input mode after starting create")
+	}
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "new notebook\n"})
+	m = updated.(Model)
+
+	if m.inputValue != "new notebook" {
+		t.Fatalf("input value = %q, want pasted text", m.inputValue)
+	}
+}
+
+func TestBrowserSettingsInputAcceptsPaste(t *testing.T) {
+	s := setupTestStore(t, map[string][]string{})
+	m := initModel(t, s)
+	m.showSettings = true
+	m.settingsEditing = true
+	m.inputMode = true
+	m.inputValue = "ab"
+	m.inputCursor = 1
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "x\ny"})
+	m = updated.(Model)
+
+	if m.inputValue != "ax yb" {
+		t.Fatalf("settings input value = %q, want sanitized pasted text inserted at cursor", m.inputValue)
 	}
 }
 
