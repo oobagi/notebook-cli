@@ -452,6 +452,32 @@ func TestKanbanPasteIntoCardEdit(t *testing.T) {
 	}
 }
 
+func TestKanbanCardBlankLineSurvivesFocusAwayAndBack(t *testing.T) {
+	md := sampleKanbanMD + "\n\nbelow"
+	m := New(Config{Title: "test", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = out.(Model)
+
+	idx := firstKanban(m)
+	if idx < 0 || m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+	m.kanban.col = 0
+	m.kanban.card = 0
+	m = pressKey(m, "enter")
+	if !m.kanban.edit {
+		t.Fatalf("enter should put us in edit mode")
+	}
+	m.kanban.editTA.SetValue("First line\n\nThird line")
+
+	m.focusBlock(idx + 1)
+	m.focusBlock(idx)
+
+	if c := m.kanban.selectedCard(); c == nil || c.Text != "First line\n\nThird line" {
+		t.Fatalf("card text after focus round-trip = %+v", c)
+	}
+}
+
 func TestKanbanSwallowsPlainPrintableKeys(t *testing.T) {
 	// In selection mode, typing a plain printable character (one with no
 	// modifier) must NOT mutate the underlying textarea — that would
