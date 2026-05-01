@@ -427,21 +427,10 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 
 	case block.Link:
-		rawLines := strings.Split(ta.Value(), "\n")
-		title := ""
-		url := ""
-		if len(rawLines) > 0 {
-			title = rawLines[0]
-		}
-		if len(rawLines) > 1 {
-			url = rawLines[1]
-		}
-		cursorOnTitle := ta.Line() == 0
-		col := ta.LineInfo().ColumnOffset
-		chip, vCol := renderLinkChipActive(title, url, cursorOnTitle, col)
-		rendered = chip
-		cursorVisIdx = 0
-		cursorColInWrap = vCol - blockPrefixWidth(b)
+		// Link blocks are edited via the bottom-sheet modal, not inline. The
+		// active state just renders the styled card so focus is still visible
+		// (gutter label) but no inline cursor or form is shown.
+		rendered = renderLinkCard(content, contentWidth, true, m.wordWrap)
 
 	case block.Callout:
 		cs := th.Blocks.Callout
@@ -490,12 +479,7 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 	}
 
 	// Truncate or horizontally scroll lines that exceed terminal width.
-	if b.Type == block.Link {
-		cursorCol := gutterWidth + blockPrefixWidth(b) + cursorColInWrap
-		for i, l := range lines {
-			lines[i] = scrollOrTruncate(l, m.width, cursorCol, i == cursorVisIdx)
-		}
-	} else if m.wordWrap {
+	if m.wordWrap {
 		for i, l := range lines {
 			if lipgloss.Width(l) > m.width {
 				lines[i] = ansi.Truncate(l, m.width, "")
@@ -539,7 +523,8 @@ func linkStyles() (icon, title, host lipgloss.Style) {
 const linkIcon = "↗ "
 const linkSep = "  "
 
-func renderLinkCard(content string, width int, hovered bool) string {
+
+func renderLinkCard(content string, width int, hovered, wordWrap bool) string {
 	iconStyle, titleStyle, hostStyle := linkStyles()
 	if hovered {
 		titleStyle = titleStyle.Underline(true)
@@ -563,12 +548,13 @@ func renderLinkCard(content string, width int, hovered bool) string {
 		host = linkHost(url)
 	}
 
-	iconW := lipgloss.Width(linkIcon)
 	sepW := lipgloss.Width(linkSep)
 	hostW := lipgloss.Width(host)
 
+	// width is the title's available space; the icon is added externally
+	// via blockPrefixWidth so the gutter math lines up.
 	if width > 0 {
-		avail := width - iconW
+		avail := width
 		if host != "" {
 			avail -= sepW + hostW
 		}
@@ -577,6 +563,9 @@ func renderLinkCard(content string, width int, hovered bool) string {
 			host = ""
 		}
 		if lipgloss.Width(display) > avail {
+			if wordWrap {
+				return renderLinkCardWrapped(display, host, url, width, iconStyle, titleStyle, hostStyle)
+			}
 			display = ansi.Truncate(display, avail, "…")
 		}
 	}
@@ -593,56 +582,45 @@ func renderLinkCard(content string, width int, hovered bool) string {
 	return out
 }
 
-// renderLinkChipActive renders the link chip while editing. It returns the
-// chip text and the visual cursor column (relative to the start of the
-// rendered chip, including the icon) so the surrounding scroll math can
-// keep the cursor in view.
-func renderLinkChipActive(title, url string, cursorOnTitle bool, cursorCol int) (string, int) {
-	iconStyle, titleStyle, hostStyle := linkStyles()
-	urlEditStyle := hostStyle.Underline(false)
-
-	var titleSlot string
-	var titleSlotPlain string
-	if title == "" {
-		titleSlot = renderPlaceholder("Link title", cursorOnTitle)
-		titleSlotPlain = "Link title"
-	} else if cursorOnTitle {
-		titleSlot = renderLabelCursor(title, cursorCol, titleStyle)
-		titleSlotPlain = title
-	} else {
-		titleSlot = titleStyle.Render(title)
-		titleSlotPlain = title
-	}
-
-	var urlSlot string
-	if url == "" {
-		urlSlot = renderPlaceholder("https://", !cursorOnTitle)
-	} else if !cursorOnTitle {
-		urlSlot = renderLabelCursor(url, cursorCol, urlEditStyle)
-	} else {
-		host := linkHost(url)
-		if host == "" {
-			host = url
-		}
-		urlSlot = hostStyle.Render(host)
-	}
-
-	chip := iconStyle.Render(linkIcon) + titleSlot + linkSep + urlSlot
-
+// renderLinkCardWrapped wraps an overflowing title across multiple lines,
+// indenting continuation lines under the title (past the icon). The host
+// is appended to the last title line if it fits, otherwise to its own line.
+func renderLinkCardWrapped(display, host, url string, width int, iconStyle, titleStyle, hostStyle lipgloss.Style) string {
 	iconW := lipgloss.Width(linkIcon)
-	titleW := lipgloss.Width(titleSlotPlain)
-	if title == "" {
-		titleW = lipgloss.Width("Link title")
-	}
 	sepW := lipgloss.Width(linkSep)
+	hostW := lipgloss.Width(host)
 
-	var vCol int
-	if cursorOnTitle {
-		vCol = iconW + cursorCol
-	} else {
-		vCol = iconW + titleW + sepW + cursorCol
+	titleAvail := width
+	if titleAvail < 1 {
+		titleAvail = 1
 	}
-	return chip, vCol
+	titleLines := strings.Split(wrapText(display, titleAvail), "\n")
+	indent := strings.Repeat(" ", iconW)
+
+	lines := make([]string, 0, len(titleLines)+1)
+	for i, l := range titleLines {
+		rl := titleStyle.Render(l)
+		if url != "" {
+			rl = osc8Wrap(url, rl)
+		}
+		if i == 0 {
+			lines = append(lines, iconStyle.Render(linkIcon)+rl)
+		} else {
+			lines = append(lines, indent+rl)
+		}
+	}
+
+	if host != "" {
+		last := lines[len(lines)-1]
+		// Total visible width = icon/indent (iconW) + title text; we have
+		// iconW + width total to play with.
+		if lipgloss.Width(last)+sepW+hostW <= iconW+width {
+			lines[len(lines)-1] = last + linkSep + hostStyle.Render(host)
+		} else {
+			lines = append(lines, indent+hostStyle.Render(host))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func linkHost(raw string) string {
@@ -1052,7 +1030,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		}
 
 	case block.Link:
-		rendered = renderLinkCard(content, contentWidth, false)
+		rendered = renderLinkCard(content, contentWidth, false, wordWrap)
 
 	case block.Table:
 		tableWidth := width - gutterWidth
@@ -1279,7 +1257,7 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		}
 
 	case block.Link:
-		rendered = renderLinkCard(content, contentWidth, hovered)
+		rendered = renderLinkCard(content, contentWidth, hovered, true)
 
 	case block.Table:
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)

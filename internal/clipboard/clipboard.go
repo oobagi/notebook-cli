@@ -20,6 +20,11 @@ func Copy(text string) error {
 	return copyOSC52(text, os.Stdout)
 }
 
+// Read returns text from the system clipboard.
+func Read() (string, error) {
+	return readSystem()
+}
+
 // copyOSC52 writes an OSC 52 escape sequence to w.
 // Format: \x1b]52;c;<base64>\x07
 func copyOSC52(text string, w io.Writer) error {
@@ -44,4 +49,25 @@ func copySystem(text string) error {
 
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
+}
+
+// readSystem uses platform-specific commands to read text from the clipboard.
+// macOS: pbpaste
+// Linux: xclip -selection clipboard -o
+func readSystem() (string, error) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbpaste")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "clipboard", "-o")
+	default:
+		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

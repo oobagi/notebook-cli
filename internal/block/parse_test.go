@@ -316,7 +316,7 @@ func TestParse(t *testing.T) {
 			name:  "link titled link",
 			input: "[Example](https://example.com)",
 			expect: []Block{
-				{Type: Link, Content: "Example\nhttps://example.com"},
+				{Type: Link, Content: "https://example.com\nExample"},
 			},
 		},
 		{
@@ -339,7 +339,7 @@ func TestParse(t *testing.T) {
 			expect: []Block{
 				{Type: Paragraph, Content: "above"},
 				{Type: Paragraph, Content: ""},
-				{Type: Link, Content: "Site\nhttps://site.io"},
+				{Type: Link, Content: "https://site.io\nSite"},
 				{Type: Paragraph, Content: ""},
 				{Type: Paragraph, Content: "below"},
 			},

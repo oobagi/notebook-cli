@@ -82,6 +82,18 @@ type statusTimeoutMsg struct{ generation int }
 // statusTimeout is the delay before auto-dismissing a transient status message.
 const statusTimeout = 4 * time.Second
 
+type clipboardReadErrMsg struct{ err error }
+
+func readClipboardCmd() tea.Cmd {
+	return func() tea.Msg {
+		text, err := clipboard.Read()
+		if err != nil {
+			return clipboardReadErrMsg{err: err}
+		}
+		return tea.PasteMsg{Content: text}
+	}
+}
+
 // Model is the Bubble Tea model for the block-based editor.
 type Model struct {
 	blocks    []block.Block    // the data model
@@ -116,6 +128,7 @@ type Model struct {
 	cascadeChecks    bool            // checking parent also checks/unchecks children
 	kanbanSortByPrio bool            // sort kanban cards by priority desc within each column
 	embedModal       embedModalState // overlay for viewing embedded note references
+	linkPrompt       linkPromptState // bottom-of-screen input for editing a link's URL or title
 	embedPicker      embedPicker     // note picker for embed block insertion
 	table            *tableState     // active table cell state (non-nil when editing a Table block)
 	kanban           *kanbanState    // active kanban board state (non-nil when editing a Kanban block)
@@ -265,6 +278,10 @@ func blockPrefixWidth(b block.Block) int {
 			icon = "\u2197 "
 		}
 		base = lipgloss.Width(icon)
+	case block.Link:
+		// Link card prefixes the title with the link icon; editing happens
+		// in the bottom-sheet modal, not inline.
+		base = lipgloss.Width(linkIcon)
 	case block.Table:
 		base = 0
 	}
@@ -1179,36 +1196,12 @@ func (m *Model) handleEnter() {
 		}
 	}
 
-	// Link: two-line internal structure (title on line 0, URL on line 1).
-	// Enter on the title line moves the cursor to the URL line.
-	// Enter on the URL line exits the block to a new paragraph below.
+	// Link: Enter opens the URL prompt. The textarea is just storage; edits
+	// happen in the bottom prompt, not inline.
 	if bt == block.Link {
-		trimmed := strings.TrimSpace(strings.ReplaceAll(content, "\n", ""))
-		if trimmed == "" {
-			m.blocks[m.active].Type = block.Paragraph
-			m.blocks[m.active].Content = ""
-			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-			m.cursorCmd = newTA.Focus()
-			m.textareas[m.active] = newTA
-			return
-		}
-		// Enter at the very start of the title pushes the link down by
-		// inserting a new paragraph above.
-		if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
-			m.insertBlockBefore(m.active, block.Block{Type: block.Paragraph})
-			return
-		}
-		if ta.Line() == 0 {
-			lines := strings.Split(content, "\n")
-			if len(lines) < 2 {
-				ta.SetValue(content + "\n")
-			}
-			ta.CursorDown()
-			ta.CursorEnd()
-			m.cursorCmd = ta.Focus()
-			return
-		}
-		m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
+		ta.Blur()
+		_, url := block.ExtractLink(content)
+		m.linkPrompt.open(m.active, linkPromptURL, url, false)
 		return
 	}
 
@@ -1360,6 +1353,17 @@ func (m *Model) handleBackspace() bool {
 		return false
 	}
 
+	bt := m.blocks[m.active].Type
+
+	// Divider and Link cards are selected as a unit. Their textarea cursor is
+	// hidden storage, so deletion must not depend on its current position.
+	if bt == block.Divider || bt == block.Link {
+		m.pushUndo()
+		m.deleteBlock(m.active)
+		m.textareas[m.active].MoveToEnd()
+		return true
+	}
+
 	ta := &m.textareas[m.active]
 
 	// Check if cursor is at position 0 (line 0, column 0).
@@ -1372,7 +1376,6 @@ func (m *Model) handleBackspace() bool {
 	}
 
 	content := ta.Value()
-	bt := m.blocks[m.active].Type
 
 	// Table: at cell (0,0) convert to paragraph; otherwise no-op.
 	if bt == block.Table {
@@ -1384,14 +1387,6 @@ func (m *Model) handleBackspace() bool {
 		keepContent := m.table.cells[0][0]
 		m.table = nil
 		m.convertToParagraph(keepContent)
-		return true
-	}
-
-	// Divider: delete the block.
-	if bt == block.Divider {
-		m.pushUndo()
-		m.deleteBlock(m.active)
-		m.textareas[m.active].MoveToEnd()
 		return true
 	}
 
@@ -1422,12 +1417,6 @@ func (m *Model) handleBackspace() bool {
 		case block.DefinitionList:
 			// Keep only the term line.
 			keepContent, _ = block.ExtractDefinition(content)
-		case block.Link:
-			title, url := block.ExtractLink(content)
-			keepContent = title
-			if keepContent == "" {
-				keepContent = url
-			}
 		}
 		m.convertToParagraph(keepContent)
 		return true
@@ -1580,10 +1569,16 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
 	}
-	if bt == block.Link && !strings.Contains(m.textareas[m.active].Value(), "\n") {
-		m.textareas[m.active].SetValue("\n")
-		m.textareas[m.active].MoveToBegin()
-		m.cursorCmd = m.textareas[m.active].Focus()
+	if bt == block.Link {
+		if !strings.Contains(m.textareas[m.active].Value(), "\n") {
+			m.textareas[m.active].SetValue("\n")
+			m.textareas[m.active].MoveToBegin()
+		}
+		m.textareas[m.active].Blur()
+		// Sequential wizard: prompt for URL first; on commit, chain to title.
+		title, url := block.ExtractLink(m.textareas[m.active].Value())
+		_ = title
+		m.linkPrompt.open(m.active, linkPromptURL, url, true)
 	}
 	// Open the note picker for embed blocks so the user can browse targets.
 	if bt == block.Embed && m.config.ListEmbedTargets != nil {
@@ -1733,6 +1728,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case clipboardReadErrMsg:
+		m.status = "Paste failed: " + msg.err.Error()
+		m.statusStyle = statusError
+		return m, m.scheduleStatusDismiss()
+
 	case tea.MouseMotionMsg:
 		if m.embedModal.visible {
 			contentStartY := m.embedModal.sheetStartY + 2
@@ -1859,17 +1859,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.blocks[idx].Type == block.Link {
 					_, u := block.ExtractLink(m.blocks[idx].Content)
-					if u != "" {
-						if err := openURL(u); err == nil {
-							m.status = "Opened: " + u
-							m.statusStyle = statusSuccess
-						} else {
-							m.status = "Open failed: " + err.Error()
-							m.statusStyle = statusError
+					if u == "" {
+						// No URL yet — open the URL prompt so the user can fill it in.
+						if idx < len(m.textareas) {
+							m.textareas[idx].Blur()
 						}
-						return m, m.scheduleStatusDismiss()
+						m.linkPrompt.open(idx, linkPromptURL, u, false)
+						m.updateViewport()
+						return m, nil
 					}
-					return m, nil
+					if err := openURL(u); err == nil {
+						m.status = "Opened: " + u
+						m.statusStyle = statusSuccess
+					} else {
+						m.status = "Open failed: " + err.Error()
+						m.statusStyle = statusError
+					}
+					return m, m.scheduleStatusDismiss()
 				}
 			}
 		} else {
@@ -1902,8 +1908,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Bracketed-paste content. Route to whatever text widget is
 		// currently accepting input so multi-line clipboards land in
 		// one shot instead of being swallowed.
-		if m.viewMode || m.showHelp || m.quitPrompt || m.palette.Visible ||
-			m.embedPicker.Visible || m.embedModal.visible || m.defLookup.Visible ||
+		if m.linkPrompt.visible {
+			m.linkPrompt.input.InsertText(msg.Content)
+			m.updateViewport()
+			return m, nil
+		}
+		if picker := m.activePicker(); picker != nil {
+			picker.AddFilterText(msg.Content)
+			m.updateViewport()
+			return m, nil
+		}
+		if m.viewMode || m.showHelp || m.quitPrompt || m.embedModal.visible ||
 			m.defPreview.visible {
 			return m, nil
 		}
@@ -1998,6 +2013,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Unified picker key handling: palette, embed picker, or def lookup.
 		if picker := m.activePicker(); picker != nil {
+			if msg.String() == "ctrl+v" {
+				return m, readClipboardCmd()
+			}
 			// Check trigger-key-closes before generic handling:
 			// "/" re-typed closes palette, ":" re-typed closes deflookup.
 			if m.palette.Visible && msg.Code == '/' {
@@ -2026,6 +2044,62 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.statusStyle == statusSuccess {
 			m.status = ""
 			m.statusStyle = statusNone
+		}
+
+		// Link prompt: single-field input footer (URL or title).
+		if m.linkPrompt.visible {
+			key := msg.String()
+			switch {
+			case key == "ctrl+v":
+				return m, readClipboardCmd()
+			case key == "esc":
+				m.linkPrompt.close()
+				m.updateViewport()
+				return m, nil
+			case key == "ctrl+c":
+				m.linkPrompt.close()
+				if m.modified() {
+					m.quitPrompt = true
+					m.status = "Save before quitting? [Y/n/Esc]"
+					m.statusStyle = statusWarning
+					return m, nil
+				}
+				m.quitting = true
+				return m, tea.Quit
+			case key == "enter":
+				idx := m.linkPrompt.blockIdx
+				value := m.linkPrompt.input.Value()
+				field := m.linkPrompt.field
+				chain := m.linkPrompt.chain
+				m.linkPrompt.close()
+				if idx >= 0 && idx < len(m.blocks) {
+					title, url := block.ExtractLink(m.blocks[idx].Content)
+					if field == linkPromptURL {
+						url = value
+					} else {
+						title = value
+					}
+					m.pushUndo()
+					content := url
+					if title != "" {
+						content = url + "\n" + title
+					}
+					m.blocks[idx].Content = content
+					if idx < len(m.textareas) {
+						m.textareas[idx].SetValue(content)
+						m.textareas[idx].SetHeight(m.textareas[idx].VisualLineCount())
+					}
+					if field == linkPromptURL && chain {
+						m.linkPrompt.open(idx, linkPromptTitle, title, false)
+					}
+				}
+				m.updateViewport()
+				return m, nil
+			}
+			if m.linkPrompt.input.HandleKey(msg) {
+				return m, nil
+			}
+			return m, nil
 		}
 
 		// Embed modal: intercept keys when overlay is showing.
@@ -2312,7 +2386,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up":
 			// Link blocks: up always navigates to the previous block,
-			// never swaps between title and URL slots.
+			// never swaps between URL and title slots.
 			if m.blocks[m.active].Type == block.Link {
 				if m.active == 0 {
 					m.pushUndo()
@@ -2352,7 +2426,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down":
 			// Link blocks: down always navigates to the next block,
-			// never swaps between title and URL slots.
+			// never swaps between URL and title slots.
 			if m.blocks[m.active].Type == block.Link {
 				if m.active < len(m.textareas)-1 {
 					m.navigateDown()
@@ -2589,22 +2663,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// On Link blocks, Tab/Shift+Tab jumps between title and URL slots.
+			// On Link blocks, Tab opens the bottom-sheet editor for URL + title.
+			// Tab → edit URL; Shift+Tab → edit title.
 			if keyMsg.Code == tea.KeyTab && m.blocks[m.active].Type == block.Link {
 				ta := &m.textareas[m.active]
-				content := ta.Value()
-				if !strings.Contains(content, "\n") {
-					ta.SetValue(content + "\n")
-				}
+				ta.Blur()
+				title, url := block.ExtractLink(ta.Value())
 				if keyMsg.Mod.Contains(tea.ModShift) {
-					ta.MoveToBegin()
-					ta.CursorEnd()
+					m.linkPrompt.open(m.active, linkPromptTitle, title, false)
 				} else {
-					ta.MoveToBegin()
-					ta.CursorDown()
-					ta.CursorEnd()
+					m.linkPrompt.open(m.active, linkPromptURL, url, false)
 				}
-				m.cursorCmd = ta.Focus()
 				m.updateViewport()
 				return m, nil
 			}
@@ -2865,6 +2934,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					msg = tea.KeyPressMsg{Code: tea.KeyBackspace}
 				}
 			}
+			if keyMsg.Code == tea.KeyDelete && (m.blocks[m.active].Type == block.Divider || m.blocks[m.active].Type == block.Link) {
+				m.pushUndo()
+				m.deleteBlock(m.active)
+				m.textareas[m.active].MoveToEnd()
+				m.updateViewport()
+				return m, nil
+			}
 
 			// Divider: selected as a unit — no text input forwarded.
 			// Enter and Backspace are handled above; everything else is ignored.
@@ -2974,6 +3050,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cw := m.tableCellTAWidth()
 			m.textareas[m.active].SetWidth(cw)
 			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
+		}
+
+		// Link blocks are edited via the bottom-sheet modal, so the textarea
+		// is just storage — don't forward keys to it (would otherwise let the
+		// user mutate the URL/title inline by typing while focused).
+		if m.active >= 0 && m.active < len(m.blocks) && m.blocks[m.active].Type == block.Link {
+			return m, nil
 		}
 
 		var cmd tea.Cmd
@@ -3495,6 +3578,9 @@ func (m Model) renderPickerFooter() string {
 	if m.defPreview.visible {
 		return m.defPreview.RenderFooter(m.width)
 	}
+	if m.linkPrompt.visible {
+		return m.renderLinkPrompt()
+	}
 	return ""
 }
 
@@ -3514,6 +3600,9 @@ func (m Model) footerHeight() int {
 	}
 	if m.defPreview.visible {
 		return m.defPreview.Height(m.width)
+	}
+	if m.linkPrompt.visible {
+		return linkPromptHeight
 	}
 	return 0
 }
@@ -3562,7 +3651,7 @@ func (m Model) blockHint() string {
 	case block.Embed:
 		return "\u2303X open \u00B7 Tab pick"
 	case block.Link:
-		return "\u2303X open \u00B7 Tab url"
+		return "\u2303X open \u00B7 Tab url \u00B7 \u21E7Tab title"
 	case block.DefinitionList:
 		return "\u2303X search"
 	default:

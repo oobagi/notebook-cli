@@ -33,15 +33,37 @@ func StatusBar(left, hint, right string, width int) string {
 // visible cursor, and right-side hints. Returns a fully styled, width-padded
 // string (faint text with a reverse-video cursor).
 func StatusBarInput(prompt, value string, cursorPos int, hints string, width int, cursorVisible bool) string {
+	return statusBarInput(prompt, value, "", cursorPos, hints, width, cursorVisible)
+}
+
+// StatusBarInputWithPlaceholder renders StatusBarInput with placeholder text
+// shown after the cursor when the value is empty.
+func StatusBarInputWithPlaceholder(prompt, value, placeholder string, cursorPos int, hints string, width int, cursorVisible bool) string {
+	return statusBarInput(prompt, value, placeholder, cursorPos, hints, width, cursorVisible)
+}
+
+func statusBarInput(prompt, value, placeholder string, cursorPos int, hints string, width int, cursorVisible bool) string {
 	dim := lipgloss.NewStyle().Faint(true)
 	rev := lipgloss.NewStyle().Reverse(true)
 
-	before := value[:cursorPos]
+	if cursorPos < 0 {
+		cursorPos = 0
+	}
+	if cursorPos > len(value) {
+		cursorPos = len(value)
+	}
+
+	runes := []rune(value)
+	if cursorPos > len(runes) {
+		cursorPos = len(runes)
+	}
+
+	before := string(runes[:cursorPos])
 	cursorChar := " "
 	after := ""
-	if cursorPos < len(value) {
-		cursorChar = string(value[cursorPos])
-		after = value[cursorPos+1:]
+	if cursorPos < len(runes) {
+		cursorChar = string(runes[cursorPos])
+		after = string(runes[cursorPos+1:])
 	}
 
 	var cursor string
@@ -52,6 +74,9 @@ func StatusBarInput(prompt, value string, cursorPos int, hints string, width int
 	}
 
 	left := dim.Render("  "+prompt+" "+before) + cursor + dim.Render(after)
+	if value == "" && placeholder != "" {
+		left += dim.Render(placeholder)
+	}
 	right := dim.Render(hints)
 	return StatusBar(left, "", right, width)
 }
@@ -60,9 +85,15 @@ func StatusBarInput(prompt, value string, cursorPos int, hints string, width int
 // panel style used by editor pickers. This provides visual consistency between
 // browser input modes and editor picker footers.
 func FooterInput(prompt, value string, cursorPos int, hints string, width int, cursorVisible bool) string {
+	return FooterInputWithPlaceholder(prompt, value, "", cursorPos, hints, width, cursorVisible)
+}
+
+// FooterInputWithPlaceholder renders FooterInput with placeholder text shown
+// after the cursor when the value is empty.
+func FooterInputWithPlaceholder(prompt, value, placeholder string, cursorPos int, hints string, width int, cursorVisible bool) string {
 	muted := lipgloss.NewStyle().Faint(true)
 	border := muted.Render(strings.Repeat("\u2500", width))
-	input := StatusBarInput(prompt, value, cursorPos, hints, width, cursorVisible)
+	input := StatusBarInputWithPlaceholder(prompt, value, placeholder, cursorPos, hints, width, cursorVisible)
 	return border + "\n" + input
 }
 

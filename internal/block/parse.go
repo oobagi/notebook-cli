@@ -222,10 +222,12 @@ func Parse(markdown string) []Block {
 		}
 
 		// --- Link ([title](url) or bare URL on its own line) ---
+		// Content is stored URL-first so the edit form presents URL above
+		// title; when title is empty, only the URL is stored.
 		if title, url, ok := ParseLink(line); ok {
 			content := url
 			if title != "" {
-				content = title + "\n" + url
+				content = url + "\n" + title
 			}
 			blocks = append(blocks, Block{Type: Link, Content: content})
 			i++
