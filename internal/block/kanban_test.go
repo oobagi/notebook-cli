@@ -160,6 +160,24 @@ func TestKanbanMultilineCardRoundTrip(t *testing.T) {
 	}
 }
 
+func TestKanbanMultilineCardWithBlankLineRoundTrip(t *testing.T) {
+	cols := []KanbanColumn{{Title: "Todo", Cards: []KanbanCard{
+		{Text: "First line\n\nThird line"},
+		{Text: "next card"},
+	}}}
+	md := SerializeKanban(cols)
+	got := ParseKanban(md)
+	if len(got) != 1 || len(got[0].Cards) != 2 {
+		t.Fatalf("shape lost: %+v", got)
+	}
+	if got[0].Cards[0].Text != "First line\n\nThird line" {
+		t.Errorf("blank-line text lost: %q", got[0].Cards[0].Text)
+	}
+	if got[0].Cards[1].Text != "next card" {
+		t.Errorf("second card = %+v", got[0].Cards[1])
+	}
+}
+
 func TestKanbanDoneColumnAutoMarks(t *testing.T) {
 	cols := []KanbanColumn{
 		{Title: "Done", Cards: []KanbanCard{{Text: "shipped"}}},

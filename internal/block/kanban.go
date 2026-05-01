@@ -51,6 +51,10 @@ func ParseKanban(body string) []KanbanColumn {
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimRight(raw, " \t")
 		if line == "" {
+			if lastCard != nil && raw != "" {
+				lastCard.Text += "\n"
+				continue
+			}
 			lastCard = nil // blank line breaks card continuation
 			continue
 		}
