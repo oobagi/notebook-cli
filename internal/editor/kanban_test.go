@@ -70,6 +70,8 @@ func keyMsgFromString(key string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'p', Text: "p"}
 	case "s":
 		return tea.KeyPressMsg{Code: 's', Text: "s"}
+	case "ctrl+t":
+		return tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}
 	case "space":
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "x":
@@ -174,6 +176,43 @@ func TestKanbanPriorityCycle(t *testing.T) {
 	m = pressKey(m, "p")
 	if c := m.kanban.selectedCard(); c == nil || c.Priority != block.PriorityNone {
 		t.Errorf("after four p: priority = %v, want None", c.Priority)
+	}
+}
+
+func TestKanbanTagCycle(t *testing.T) {
+	m := newKanbanEditor(t)
+	m = pressKey(m, "ctrl+t")
+	if c := m.kanban.selectedCard(); c == nil || c.Tag != block.KanbanTagBug {
+		t.Errorf("after one ctrl+t: tag = %v, want Bug", c.Tag)
+	}
+	m = pressKey(m, "ctrl+t")
+	if c := m.kanban.selectedCard(); c == nil || c.Tag != block.KanbanTagFeature {
+		t.Errorf("after two ctrl+t: tag = %v, want Feature", c.Tag)
+	}
+	for i := 0; i < 3; i++ {
+		m = pressKey(m, "ctrl+t")
+	}
+	if c := m.kanban.selectedCard(); c == nil || c.Tag != block.KanbanTagNone {
+		t.Errorf("after full cycle: tag = %v, want None", c.Tag)
+	}
+}
+
+func TestKanbanTagCycleWhileEditing(t *testing.T) {
+	m := newKanbanEditor(t)
+	m = pressKey(m, "enter")
+	if !m.kanban.edit {
+		t.Fatalf("enter should put card in edit mode")
+	}
+	m.kanban.editTA.SetValue("Edited A")
+	m = pressKey(m, "ctrl+t")
+	if !m.kanban.edit {
+		t.Fatalf("ctrl+t should keep card in edit mode")
+	}
+	if c := m.kanban.selectedCard(); c == nil || c.Tag != block.KanbanTagBug || c.Text != "Edited A" {
+		t.Errorf("card after ctrl+t in edit = %+v, want bug tag and edited text", c)
+	}
+	if got := m.kanban.editTA.Value(); got != "Edited A" {
+		t.Errorf("edit textarea = %q, want Edited A", got)
 	}
 }
 

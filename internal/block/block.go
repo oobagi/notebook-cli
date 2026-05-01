@@ -12,22 +12,22 @@ import "strings"
 type BlockType int
 
 const (
-	Paragraph    BlockType = iota // plain text paragraph
-	Heading1                      // # heading
-	Heading2                      // ## heading
-	Heading3                      // ### heading
-	BulletList                    // - or * list item
-	NumberedList                  // 1. numbered list item
-	Checklist                     // - [ ] or - [x] checklist item
-	CodeBlock                     // fenced code block (``` ... ```)
-	Quote                         // > block quote
-	Divider                       // ---, ***, or ___
-	DefinitionList                // term\n: definition
-	Embed                         // ![[path]] embedded note reference
-	Callout                       // > [!NOTE] callout/admonition
-	Table                         // GFM pipe table
-	Kanban                        // ```kanban``` fenced kanban board
-	Link                      // [title](url) link card
+	Paragraph      BlockType = iota // plain text paragraph
+	Heading1                        // # heading
+	Heading2                        // ## heading
+	Heading3                        // ### heading
+	BulletList                      // - or * list item
+	NumberedList                    // 1. numbered list item
+	Checklist                       // - [ ] or - [x] checklist item
+	CodeBlock                       // fenced code block (``` ... ```)
+	Quote                           // > block quote
+	Divider                         // ---, ***, or ___
+	DefinitionList                  // term\n: definition
+	Embed                           // ![[path]] embedded note reference
+	Callout                         // > [!NOTE] callout/admonition
+	Table                           // GFM pipe table
+	Kanban                          // ```kanban``` fenced kanban board
+	Link                            // [title](url) link card
 )
 
 // String returns the human-readable name of a BlockType.
@@ -245,6 +245,79 @@ func ParsePriorityMarker(content string) (Priority, string) {
 		return PriorityLow, content[2:]
 	}
 	return PriorityNone, content
+}
+
+// KanbanTag enumerates the built-in issue labels available to kanban cards.
+type KanbanTag int
+
+const (
+	KanbanTagNone KanbanTag = iota
+	KanbanTagBug
+	KanbanTagFeature
+	KanbanTagDocumentation
+	KanbanTagQuestion
+)
+
+// Label returns the markdown label text for a KanbanTag.
+func (kt KanbanTag) Label() string {
+	switch kt {
+	case KanbanTagBug:
+		return "bug"
+	case KanbanTagFeature:
+		return "feature"
+	case KanbanTagDocumentation:
+		return "documentation"
+	case KanbanTagQuestion:
+		return "question"
+	default:
+		return ""
+	}
+}
+
+// Marker returns the inline markdown marker for a KanbanTag, e.g. "[bug]".
+func (kt KanbanTag) Marker() string {
+	if label := kt.Label(); label != "" {
+		return "[" + label + "]"
+	}
+	return ""
+}
+
+// Next cycles through the supported kanban tags.
+func (kt KanbanTag) Next() KanbanTag {
+	return (kt + 1) % (KanbanTagQuestion + 1)
+}
+
+// ParseKanbanTag returns the KanbanTag for a label string.
+func ParseKanbanTag(s string) (KanbanTag, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "bug":
+		return KanbanTagBug, true
+	case "feature", "enhancement":
+		return KanbanTagFeature, true
+	case "documentation", "docs":
+		return KanbanTagDocumentation, true
+	case "question":
+		return KanbanTagQuestion, true
+	default:
+		return KanbanTagNone, false
+	}
+}
+
+// ParseKanbanTagMarker reads an optional leading "[label]" marker
+// followed by a space. Unrecognized bracketed text remains card content.
+func ParseKanbanTagMarker(content string) (KanbanTag, string) {
+	if !strings.HasPrefix(content, "[") {
+		return KanbanTagNone, content
+	}
+	end := strings.Index(content, "] ")
+	if end <= 1 {
+		return KanbanTagNone, content
+	}
+	tag, ok := ParseKanbanTag(content[1:end])
+	if !ok {
+		return KanbanTagNone, content
+	}
+	return tag, content[end+2:]
 }
 
 // CountNumberedPosition returns the 1-based position of a numbered list block
