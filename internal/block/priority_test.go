@@ -149,3 +149,43 @@ func TestChecklistPriorityRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestKanbanTagMarker(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantTag  KanbanTag
+		wantBody string
+	}{
+		{"plain task", KanbanTagNone, "plain task"},
+		{"[bug] broken", KanbanTagBug, "broken"},
+		{"[enhancement] new", KanbanTagFeature, "new"},
+		{"[docs] readme", KanbanTagDocumentation, "readme"},
+		{"[unknown] keep literal", KanbanTagNone, "[unknown] keep literal"},
+		{"[bug] ", KanbanTagBug, ""},
+		{"[bug]no space", KanbanTagNone, "[bug]no space"},
+	}
+	for _, tt := range tests {
+		gotTag, gotBody := ParseKanbanTagMarker(tt.input)
+		if gotTag != tt.wantTag || gotBody != tt.wantBody {
+			t.Errorf("ParseKanbanTagMarker(%q) = (%v, %q), want (%v, %q)",
+				tt.input, gotTag, gotBody, tt.wantTag, tt.wantBody)
+		}
+	}
+}
+
+func TestKanbanTagNext(t *testing.T) {
+	got := KanbanTagNone
+	want := []KanbanTag{
+		KanbanTagBug,
+		KanbanTagFeature,
+		KanbanTagDocumentation,
+		KanbanTagQuestion,
+		KanbanTagNone,
+	}
+	for i, w := range want {
+		got = got.Next()
+		if got != w {
+			t.Errorf("step %d: got %v, want %v", i, got, w)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import "strings"
 type KanbanCard struct {
 	Text     string
 	Priority Priority
+	Tag      KanbanTag
 	Done     bool
 }
 
@@ -34,7 +35,8 @@ const DefaultKanbanContent = "## Backlog\n" +
 //	- Card text             (open card)
 //	- [x] Card text         (done card)
 //	- !! Card text          (priority marker before text)
-//	- [ ] !!! Card text     (combined: open + high priority)
+//	- [bug] Card text       (issue label before text)
+//	- [ ] !!! [bug] Card text (combined: open + high priority + label)
 //	  continuation line     (indented continuation of previous card)
 //
 // Lines that do not match a column header or card are treated as
@@ -89,7 +91,8 @@ func ParseKanban(body string) []KanbanColumn {
 			} else if strings.HasPrefix(body, "[ ] ") {
 				body = body[4:]
 			}
-			prio, text := ParsePriorityMarker(body)
+			prio, body := ParsePriorityMarker(body)
+			tag, text := ParseKanbanTagMarker(body)
 			if current == nil {
 				cols = append(cols, KanbanColumn{Title: "Untitled"})
 				current = &cols[len(cols)-1]
@@ -97,6 +100,7 @@ func ParseKanban(body string) []KanbanColumn {
 			current.Cards = append(current.Cards, KanbanCard{
 				Text:     text,
 				Priority: prio,
+				Tag:      tag,
 				Done:     done,
 			})
 			lastCard = &current.Cards[len(current.Cards)-1]
@@ -148,6 +152,9 @@ func SerializeKanban(cols []KanbanColumn) string {
 			marker := ""
 			if m := c.Priority.Marker(); m != "" {
 				marker = m + " "
+			}
+			if m := c.Tag.Marker(); m != "" {
+				marker += m + " "
 			}
 			if done {
 				lines = append(lines, "- [x] "+marker+first)

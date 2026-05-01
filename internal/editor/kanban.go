@@ -317,6 +317,15 @@ func (ks *kanbanState) togglePriority() {
 	c.Priority = c.Priority.Next()
 }
 
+// toggleTag cycles the issue label tag of the selected card.
+func (ks *kanbanState) toggleTag() {
+	c := ks.selectedCard()
+	if c == nil {
+		return
+	}
+	c.Tag = c.Tag.Next()
+}
+
 // sortByPriority sorts cards within each column by priority descending
 // (HIGH → MED → LOW → none) using a stable sort, so cards of the same
 // priority keep their relative order. Selection follows the focused card
@@ -454,9 +463,9 @@ func (m Model) selectedCardLineRange() (top, bottom int) {
 		if taLines < 1 {
 			taLines = 1
 		}
-		// 2 border + priority badge (1 if present).
+		// 2 border + metadata header (1 if priority or tag is present).
 		extra := 2
-		if cards[m.kanban.card].Priority != block.PriorityNone {
+		if cards[m.kanban.card].Priority != block.PriorityNone || cards[m.kanban.card].Tag != block.KanbanTagNone {
 			extra++
 		}
 		height = taLines + extra
@@ -513,8 +522,8 @@ func cardRenderHeight(card block.KanbanCard, contentWidth int) int {
 		textLines = strings.Count(wrapped, "\n") + 1
 	}
 	extra := 2 // top + bottom border
-	if card.Priority != block.PriorityNone {
-		extra++ // priority header line
+	if card.Priority != block.PriorityNone || card.Tag != block.KanbanTagNone {
+		extra++ // metadata header line
 	}
 	return textLines + extra
 }
@@ -559,19 +568,25 @@ func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing b
 		text = format.RenderInlineMarkdown(wrapPlain(card.Text, contentWidth))
 	}
 
-	// Priority badge on its own short header line.
-	header := ""
+	// Metadata badges on their own short header line.
+	var headerParts []string
 	if m := card.Priority.Marker(); m != "" {
 		color := priorityColor(card.Priority, th)
 		bs := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 		if card.Priority == block.PriorityHigh {
 			bs = bs.Bold(true)
 		}
-		header = bs.Render(m)
+		headerParts = append(headerParts, bs.Render(m))
+	}
+	if m := card.Tag.Marker(); m != "" {
+		headerParts = append(headerParts, lipgloss.NewStyle().
+			Foreground(lipgloss.Color(th.Accent)).
+			Render(m))
 	}
 
 	body := text
-	if header != "" {
+	if len(headerParts) > 0 {
+		header := strings.Join(headerParts, " ")
 		body = header + "\n" + text
 	}
 	return style.Render(body)
@@ -817,6 +832,13 @@ func (m *Model) handleKanbanKey(msg tea.KeyPressMsg) (handled bool, cmd tea.Cmd)
 			m.kanban.editTA, c = m.kanban.editTA.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			m.kanban.editTA.SetHeight(m.kanban.editTA.VisualLineCount())
 			return true, c
+		case "ctrl+t":
+			if c := m.kanban.selectedCard(); c != nil {
+				c.Text = strings.TrimRight(m.kanban.editTA.Value(), "\n")
+				m.pushUndo()
+				m.kanban.toggleTag()
+			}
+			return true, nil
 		case "ctrl+s":
 			// Let main handler save; first commit edit so latest text is in state.
 			m.kanban.commitEdit()
@@ -984,6 +1006,12 @@ func (m *Model) handleKanbanKey(msg tea.KeyPressMsg) (handled bool, cmd tea.Cmd)
 			if m.kanbanSortByPrio {
 				m.kanban.sortByPriority()
 			}
+		}
+		return true, nil
+	case "ctrl+t":
+		if m.kanban.selectedCard() != nil {
+			m.pushUndo()
+			m.kanban.toggleTag()
 		}
 		return true, nil
 	case "s":

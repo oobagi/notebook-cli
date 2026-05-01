@@ -36,6 +36,34 @@ func TestParseKanbanPriority(t *testing.T) {
 	}
 }
 
+func TestParseKanbanTag(t *testing.T) {
+	body := "## Todo\n- [bug] broken\n- [feature] new thing\n- [documentation] readme\n- [x] !! [question] maybe\n- [unknown] literal"
+	cols := ParseKanban(body)
+	if len(cols) != 1 || len(cols[0].Cards) != 5 {
+		t.Fatalf("unexpected: %+v", cols)
+	}
+	tests := []struct {
+		idx      int
+		wantTag  KanbanTag
+		wantText string
+		wantPrio Priority
+		wantDone bool
+	}{
+		{0, KanbanTagBug, "broken", PriorityNone, false},
+		{1, KanbanTagFeature, "new thing", PriorityNone, false},
+		{2, KanbanTagDocumentation, "readme", PriorityNone, false},
+		{3, KanbanTagQuestion, "maybe", PriorityMed, true},
+		{4, KanbanTagNone, "[unknown] literal", PriorityNone, false},
+	}
+	for _, tt := range tests {
+		c := cols[0].Cards[tt.idx]
+		if c.Tag != tt.wantTag || c.Text != tt.wantText || c.Priority != tt.wantPrio || c.Done != tt.wantDone {
+			t.Errorf("card %d = %+v, want tag=%v text=%q prio=%v done=%v",
+				tt.idx, c, tt.wantTag, tt.wantText, tt.wantPrio, tt.wantDone)
+		}
+	}
+}
+
 func TestParseKanbanCheckedAndPriority(t *testing.T) {
 	body := "## Done\n- [x] !!! shipped"
 	cols := ParseKanban(body)
@@ -51,8 +79,8 @@ func TestParseKanbanCheckedAndPriority(t *testing.T) {
 func TestSerializeKanbanRoundTrip(t *testing.T) {
 	cols := []KanbanColumn{
 		{Title: "Todo", Cards: []KanbanCard{
-			{Text: "Buy groceries", Priority: PriorityHigh},
-			{Text: "Read book"},
+			{Text: "Buy groceries", Priority: PriorityHigh, Tag: KanbanTagBug},
+			{Text: "Read book", Tag: KanbanTagDocumentation},
 		}},
 		{Title: "In Progress", Cards: []KanbanCard{
 			{Text: "Email", Priority: PriorityMed},
@@ -180,11 +208,11 @@ func TestKanbanMultilineCardWithBlankLineRoundTrip(t *testing.T) {
 
 func TestKanbanDoneColumnAutoMarks(t *testing.T) {
 	cols := []KanbanColumn{
-		{Title: "Done", Cards: []KanbanCard{{Text: "shipped"}}},
+		{Title: "Done", Cards: []KanbanCard{{Text: "shipped", Tag: KanbanTagFeature}}},
 		{Title: "Todo", Cards: []KanbanCard{{Text: "next"}}},
 	}
 	md := SerializeKanban(cols)
-	if !strings.Contains(md, "## Done\n- [x] shipped") {
+	if !strings.Contains(md, "## Done\n- [x] [feature] shipped") {
 		t.Errorf("Done column should auto-mark cards: %q", md)
 	}
 	if !strings.Contains(md, "## Todo\n- next") {
