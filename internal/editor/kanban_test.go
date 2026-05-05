@@ -534,6 +534,58 @@ func TestKanbanTallColumnCameraPadsSelectedCard(t *testing.T) {
 	}
 }
 
+func TestKanbanNoWrapKeepsLongCardsSingleLine(t *testing.T) {
+	noWrap := false
+	longText := "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+	md := "```kanban\n## Todo\n- " + longText + "\n```"
+	m := New(Config{Title: "k", Content: md, WordWrap: &noWrap, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	m = out.(Model)
+	if m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+
+	const cardOuterWidth = 18
+	lines := m.renderKanbanColumnBodyLines(0, cardOuterWidth, theme.Current())
+	if got, want := len(lines), 3; got != want {
+		t.Fatalf("no-wrap card should render as border + one text line + border, got %d lines:\n%s",
+			got, stripANSI(strings.Join(lines, "\n")))
+	}
+	if plain := stripANSI(strings.Join(lines, "\n")); !strings.Contains(plain, "→") {
+		t.Fatalf("no-wrap card should truncate overflowing text with a scroll marker:\n%s", plain)
+	}
+
+	contentWidth := cardOuterWidth - kanbanCardChromeWidth
+	if got, want := cardRenderHeight(m.kanban.cols[0].Cards[0], contentWidth, m.wordWrap), 3; got != want {
+		t.Fatalf("no-wrap card height = %d, want %d", got, want)
+	}
+}
+
+func TestKanbanNoWrapInlineEditDoesNotSoftWrap(t *testing.T) {
+	noWrap := false
+	longText := "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+	md := "```kanban\n## Todo\n- " + longText + "\n```"
+	m := New(Config{Title: "k", Content: md, WordWrap: &noWrap, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	m = out.(Model)
+
+	m = pressKey(m, "enter")
+	if !m.kanban.edit {
+		t.Fatalf("enter should put card in edit mode")
+	}
+	if got, want := m.kanban.editTA.VisualLineCount(), 1; got != want {
+		t.Fatalf("no-wrap edit textarea visual lines = %d, want %d", got, want)
+	}
+
+	editView := renderEditingCardText(&m.kanban.editTA, 14, m.wordWrap)
+	if strings.Contains(editView, "\n") {
+		t.Fatalf("no-wrap edit view should stay on one visual line, got:\n%s", stripANSI(editView))
+	}
+	if plain := stripANSI(editView); !strings.Contains(plain, "←") {
+		t.Fatalf("no-wrap edit view should scroll to the cursor near the line end, got %q", plain)
+	}
+}
+
 func TestKanbanEnteringFromBelowKeepsHeaderVisible(t *testing.T) {
 	md := "above\n\n```kanban\n" +
 		"## Todo\n" +
