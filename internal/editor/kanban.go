@@ -17,7 +17,7 @@ import (
 // own View() can clip top lines once it has scrolled internally; rendering
 // from Value() + cursor position avoids that and matches the rest of the
 // block editor's pattern.
-func renderEditingCardText(ta *textarea.Model, contentWidth int) string {
+func renderEditingCardText(ta *textarea.Model, contentWidth int, wordWrap bool) string {
 	li := ta.LineInfo()
 	cursorRawRow := ta.Line()
 	cursorColInWrap := li.ColumnOffset
@@ -33,18 +33,23 @@ func renderEditingCardText(ta *textarea.Model, contentWidth int) string {
 	rawLines := strings.Split(content, "\n")
 	var visualLines []string
 	for rawIdx, raw := range rawLines {
-		segs := textarea.Wrap([]rune(raw), contentWidth)
+		segs := [][]rune{[]rune(raw)}
+		if wordWrap {
+			segs = textarea.Wrap([]rune(raw), contentWidth)
+		}
 		if len(segs) == 0 {
 			segs = [][]rune{{}}
 		}
 		for wIdx, seg := range segs {
 			line := strings.TrimSuffix(string(seg), " ")
+			cursorCol := cursorColInWrap
 			if rawIdx == cursorRawRow && wIdx == cursorWrapRow {
 				runes := []rune(line)
 				col := cursorColInWrap
 				if col > len(runes) {
 					col = len(runes)
 				}
+				cursorCol = col
 				before := string(runes[:col])
 				curChar := " "
 				after := ""
@@ -54,6 +59,9 @@ func renderEditingCardText(ta *textarea.Model, contentWidth int) string {
 				}
 				ta.CursorSetChar(curChar)
 				line = before + ta.CursorView() + after
+			}
+			if !wordWrap {
+				line = scrollOrTruncate(line, contentWidth, cursorCol, rawIdx == cursorRawRow)
 			}
 			visualLines = append(visualLines, line)
 		}
@@ -443,8 +451,8 @@ func (ks *kanbanState) sortByPriority() {
 }
 
 // startEdit opens an inline textarea seeded with the selected card's text.
-// The textarea wraps at the card's inner width and grows in height as the
-// user types or inserts newlines (Shift+Enter).
+// The caller supplies either the card's inner width (wrap mode) or the broad
+// no-wrap width, and the textarea grows in height as visual lines change.
 func (ks *kanbanState) startEdit(width int) {
 	c := ks.selectedCard()
 	if c == nil {
@@ -523,9 +531,9 @@ func (m Model) selectedCardLineRange() (top, bottom int) {
 	}
 	bodyLine := 0
 	for i := 0; i < m.kanban.card; i++ {
-		bodyLine += cardRenderHeight(cards[i], contentWidth)
+		bodyLine += cardRenderHeight(cards[i], contentWidth, m.wordWrap)
 	}
-	height := cardRenderHeight(cards[m.kanban.card], contentWidth)
+	height := cardRenderHeight(cards[m.kanban.card], contentWidth, m.wordWrap)
 	if m.kanban.edit {
 		// Editing: textarea visual line count drives the height.
 		taLines := m.kanban.editTA.VisualLineCount()
@@ -593,13 +601,16 @@ func (m Model) kanbanCardOuterWidth() int {
 
 // cardRenderHeight predicts the rendered line count of a single card box
 // given its content width. Mirrors the math in renderKanbanCard.
-func cardRenderHeight(card block.KanbanCard, contentWidth int) int {
+func cardRenderHeight(card block.KanbanCard, contentWidth int, wordWrap bool) int {
 	textLines := 1
 	if card.Text != "" {
-		// Account for explicit newlines in card text and word-wrapping at
-		// contentWidth (matches wrapPlain).
-		wrapped := wrapPlain(card.Text, contentWidth)
-		textLines = strings.Count(wrapped, "\n") + 1
+		text := card.Text
+		if wordWrap {
+			// Account for explicit newlines in card text and word-wrapping at
+			// contentWidth (matches wrapPlain).
+			text = wrapPlain(card.Text, contentWidth)
+		}
+		textLines = strings.Count(text, "\n") + 1
 	}
 	extra := 2 // top + bottom border
 	if card.Priority != block.PriorityNone || card.Tag != block.KanbanTagNone {
@@ -620,7 +631,7 @@ func (m Model) kanbanCardRenderHeight(card block.KanbanCard, ci, cardI, contentW
 		}
 		return taLines + extra
 	}
-	return cardRenderHeight(card, contentWidth)
+	return cardRenderHeight(card, contentWidth, m.wordWrap)
 }
 
 // kanbanCardChromeWidth is the visual width consumed by a card's border
@@ -630,7 +641,7 @@ const kanbanCardChromeWidth = 4
 // renderKanbanCard renders one card box. outerWidth is the total visible
 // width of the card box (including border and padding); the actual text
 // content area is outerWidth - kanbanCardChromeWidth wide.
-func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing bool, editView string, th theme.Theme) string {
+func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing bool, editView string, th theme.Theme, wordWrap bool) string {
 	border := lipgloss.RoundedBorder()
 	borderColor := th.Border
 	if selected {
@@ -658,9 +669,17 @@ func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing b
 	case card.Text == "":
 		text = lipgloss.NewStyle().Faint(true).Render("(empty)")
 	default:
-		// Wrap the plain text first (wrap uses visual width and would
-		// miscount ANSI escapes), then apply inline markdown formatting.
-		text = format.RenderInlineMarkdown(wrapPlain(card.Text, contentWidth))
+		if wordWrap {
+			// Wrap the plain text first (wrap uses visual width and would
+			// miscount ANSI escapes), then apply inline markdown formatting.
+			text = format.RenderInlineMarkdown(wrapPlain(card.Text, contentWidth))
+		} else {
+			lines := strings.Split(format.RenderInlineMarkdown(card.Text), "\n")
+			for i, l := range lines {
+				lines[i] = scrollOrTruncate(l, contentWidth, 0, false)
+			}
+			text = strings.Join(lines, "\n")
+		}
 	}
 
 	// Metadata badges on their own short header line.
@@ -838,9 +857,9 @@ func (m Model) renderKanbanColumnBodyLines(ci, cardOuterWidth int, th theme.Them
 		editing := isSel && m.kanban.edit
 		editView := ""
 		if editing {
-			editView = renderEditingCardText(&m.kanban.editTA, cardOuterWidth-kanbanCardChromeWidth)
+			editView = renderEditingCardText(&m.kanban.editTA, cardOuterWidth-kanbanCardChromeWidth, m.wordWrap)
 		}
-		lines = append(lines, strings.Split(renderKanbanCard(card, cardOuterWidth, isSel, editing, editView, th), "\n")...)
+		lines = append(lines, strings.Split(renderKanbanCard(card, cardOuterWidth, isSel, editing, editView, th, m.wordWrap), "\n")...)
 	}
 	return lines
 }
@@ -1020,10 +1039,12 @@ func cloneKanbanCols(in []block.KanbanColumn) []block.KanbanColumn {
 	return out
 }
 
-// kanbanCardEditWidth returns the available textarea width for the inline
-// edit textarea: matches the card's inner content width so the textarea
-// wraps at exactly the same column the rendered box does.
+// kanbanCardEditWidth returns the textarea width for the inline card editor.
+// In no-wrap mode, use the same broad textarea width as regular blocks.
 func (m Model) kanbanCardEditWidth() int {
+	if !m.wordWrap {
+		return noWrapWidth
+	}
 	return m.kanbanCardOuterWidth() - kanbanCardChromeWidth
 }
 
@@ -1292,7 +1313,7 @@ func (m Model) renderActiveKanban(idx int, b block.Block) string {
 // only difference is no card is highlighted as selected. The window
 // offset is taken from `colOffset` — callers can drive scroll in view
 // mode by adjusting it.
-func renderInactiveKanbanBoard(content string, width, colOffset int, th theme.Theme) string {
+func renderInactiveKanbanBoard(content string, width, colOffset int, th theme.Theme, wordWrap bool) string {
 	cols := block.ParseKanban(content)
 	if len(cols) == 0 {
 		return lipgloss.NewStyle().Faint(true).Render("(empty kanban — focus and press n to add a card)")
@@ -1339,7 +1360,7 @@ func renderInactiveKanbanBoard(content string, width, colOffset int, th theme.Th
 		}
 
 		for _, card := range col.Cards {
-			cardLines = append(cardLines, renderKanbanCard(card, colWidth, false, false, "", th))
+			cardLines = append(cardLines, renderKanbanCard(card, colWidth, false, false, "", th, wordWrap))
 		}
 
 		rendered = append(rendered, colStyle.Render(strings.Join(cardLines, "\n")))

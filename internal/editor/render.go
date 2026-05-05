@@ -6,18 +6,17 @@ import (
 	neturl "net/url"
 	"strings"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"charm.land/bubbles/v2/textarea"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/oobagi/notebook-cli/internal/block"
 	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/oobagi/notebook-cli/internal/theme"
 )
-
 
 // calloutVariantColor returns the hex color for a given callout variant.
 func calloutVariantColor(cs theme.CalloutStyle, v block.CalloutVariant) string {
@@ -522,7 +521,6 @@ func linkStyles() (icon, title, host lipgloss.Style) {
 
 const linkIcon = "↗ "
 const linkSep = "  "
-
 
 func renderLinkCard(content string, width int, hovered, wordWrap bool) string {
 	iconStyle, titleStyle, hostStyle := linkStyles()
@@ -1044,7 +1042,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if boardWidth < 30 {
 			boardWidth = 30
 		}
-		rendered = renderInactiveKanbanBoard(content, boardWidth, 0, th)
+		rendered = renderInactiveKanbanBoard(content, boardWidth, 0, th, wordWrap)
 
 	default:
 		rendered = wrapped
@@ -1263,7 +1261,7 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 		rendered = renderTableGrid(content, contentWidth, th.Border, th.Blocks.Table.HeaderBold, true)
 
 	case block.Kanban:
-		rendered = renderInactiveKanbanBoard(content, contentWidth, kanbanOffset, th)
+		rendered = renderInactiveKanbanBoard(content, contentWidth, kanbanOffset, th, wordWrap)
 
 	default:
 		rendered = wrapped

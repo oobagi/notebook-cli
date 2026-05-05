@@ -651,6 +651,11 @@ func (m *Model) resizeTextareas() {
 		}
 		m.textareas[i].SetHeight(m.textareas[i].VisualLineCount())
 	}
+	if m.kanban != nil && m.active >= 0 && m.active < len(m.blocks) &&
+		m.blocks[m.active].Type == block.Kanban && m.kanban.edit {
+		m.kanban.editTA.SetWidth(m.kanbanCardEditWidth())
+		m.kanban.editTA.SetHeight(m.kanban.editTA.VisualLineCount())
+	}
 	// Update viewport dimensions, reserving space for the header and status bar
 	// (which may wrap to multiple lines on narrow terminals).
 	h := m.height - m.headerHeight() - m.statusBarHeight()
