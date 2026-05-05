@@ -65,12 +65,13 @@ func renderEditingCardText(ta *textarea.Model, contentWidth int) string {
 // Mirrors the role of tableState for tables — non-nil only while a Kanban
 // block is the active block in the editor.
 type kanbanState struct {
-	cols      []block.KanbanColumn
-	col       int  // selected column index
-	card      int  // selected card index within selected column (-1 = column header)
-	colOffset int  // index of the leftmost visible column (horizontal scroll)
-	edit      bool // true when the inline text editor is active
-	editTA    textarea.Model
+	cols       []block.KanbanColumn
+	col        int   // selected column index
+	card       int   // selected card index within selected column (-1 = column header)
+	colOffset  int   // index of the leftmost visible column (horizontal scroll)
+	rowOffsets []int // per-column vertical line offset inside the card list
+	edit       bool  // true when the inline text editor is active
+	editTA     textarea.Model
 	// addedCardIdx tracks a card index inserted by addCard; if the user
 	// cancels editing it before typing anything, cancelEdit drops it and
 	// restores the prior selection. -1 when not in an addCard flow.
@@ -87,6 +88,12 @@ const kanbanTargetColWidth = 32
 // indicators on the left/right edges of the board (one cell each).
 const kanbanIndicatorWidth = 1
 
+const kanbanColumnCameraPadding = 3
+
+const kanbanDocumentContextLines = 4
+
+const kanbanMinCameraBoardHeight = 11
+
 // newKanbanState parses a kanban body into editable state, defaulting the
 // selection to the first card (or first column if there are no cards).
 func newKanbanState(body string) *kanbanState {
@@ -94,6 +101,7 @@ func newKanbanState(body string) *kanbanState {
 	if len(ks.cols) == 0 {
 		ks.cols = block.ParseKanban(block.DefaultKanbanContent)
 	}
+	ks.ensureRowOffsets()
 	ks.col = 0
 	if len(ks.cols[0].Cards) > 0 {
 		ks.card = 0
@@ -101,6 +109,67 @@ func newKanbanState(body string) *kanbanState {
 		ks.card = -1
 	}
 	return ks
+}
+
+func (ks *kanbanState) ensureRowOffsets() {
+	if len(ks.rowOffsets) == len(ks.cols) {
+		return
+	}
+	next := make([]int, len(ks.cols))
+	copy(next, ks.rowOffsets)
+	ks.rowOffsets = next
+}
+
+func (ks *kanbanState) clampRowOffset(col, bodyLineCount, bodyHeight, bottomOverscroll int) {
+	ks.ensureRowOffsets()
+	if col < 0 || col >= len(ks.rowOffsets) {
+		return
+	}
+	maxOffset := bodyLineCount - bodyHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if bodyLineCount > bodyHeight {
+		maxOffset += bottomOverscroll
+	}
+	if ks.rowOffsets[col] < 0 {
+		ks.rowOffsets[col] = 0
+	}
+	if ks.rowOffsets[col] > maxOffset {
+		ks.rowOffsets[col] = maxOffset
+	}
+}
+
+func kanbanCameraMargin(selectedHeight, bodyHeight int) int {
+	if selectedHeight < 1 {
+		selectedHeight = 1
+	}
+	margin := kanbanColumnCameraPadding
+	if maxMargin := (bodyHeight - selectedHeight) / 2; margin > maxMargin {
+		margin = maxMargin
+	}
+	if margin < 0 {
+		margin = 0
+	}
+	return margin
+}
+
+func (ks *kanbanState) ensureSelectedCardVisible(top, bottom, bodyHeight int) {
+	ks.ensureRowOffsets()
+	if ks.col < 0 || ks.col >= len(ks.rowOffsets) || bodyHeight <= 0 {
+		return
+	}
+	margin := kanbanCameraMargin(bottom-top+1, bodyHeight)
+	offset := ks.rowOffsets[ks.col]
+	if top-margin < offset {
+		offset = top - margin
+	} else if bottom+margin >= offset+bodyHeight {
+		offset = bottom + margin - bodyHeight + 1
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	ks.rowOffsets[ks.col] = offset
 }
 
 // serialize emits the current board to kanban-fence body markdown.
@@ -151,6 +220,7 @@ func (ks *kanbanState) selectedCard() *block.KanbanCard {
 
 // clamp keeps col/card in valid bounds. Called after every mutation.
 func (ks *kanbanState) clamp() {
+	ks.ensureRowOffsets()
 	if len(ks.cols) == 0 {
 		ks.col, ks.card = 0, -1
 		return
@@ -446,15 +516,14 @@ func (m Model) selectedCardLineRange() (top, bottom int) {
 		return 0, 1 // title + underline
 	}
 
-	// Header (title + underline) is 2 lines.
-	line := 2
 	cardOuterWidth := m.kanbanCardOuterWidth()
 	contentWidth := cardOuterWidth - kanbanCardChromeWidth
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
+	bodyLine := 0
 	for i := 0; i < m.kanban.card; i++ {
-		line += cardRenderHeight(cards[i], contentWidth)
+		bodyLine += cardRenderHeight(cards[i], contentWidth)
 	}
 	height := cardRenderHeight(cards[m.kanban.card], contentWidth)
 	if m.kanban.edit {
@@ -470,7 +539,18 @@ func (m Model) selectedCardLineRange() (top, bottom int) {
 		}
 		height = taLines + extra
 	}
-	return line, line + height - 1
+	m.kanban.ensureRowOffsets()
+	offset := m.kanban.rowOffsets[col]
+	// Header (title + underline) is always visible above the clipped body.
+	line := 2 + bodyLine - offset
+	if line < 2 {
+		line = 2
+	}
+	bottomLine := 2 + bodyLine + height - 1 - offset
+	if bottomLine < line {
+		bottomLine = line
+	}
+	return line, bottomLine
 }
 
 // maxViewKanbanOffset returns the largest valid offset for the view-mode
@@ -526,6 +606,21 @@ func cardRenderHeight(card block.KanbanCard, contentWidth int) int {
 		extra++ // metadata header line
 	}
 	return textLines + extra
+}
+
+func (m Model) kanbanCardRenderHeight(card block.KanbanCard, ci, cardI, contentWidth int) int {
+	if m.kanban != nil && m.kanban.edit && m.kanban.col == ci && m.kanban.card == cardI {
+		taLines := m.kanban.editTA.VisualLineCount()
+		if taLines < 1 {
+			taLines = 1
+		}
+		extra := 2
+		if card.Priority != block.PriorityNone || card.Tag != block.KanbanTagNone {
+			extra++
+		}
+		return taLines + extra
+	}
+	return cardRenderHeight(card, contentWidth)
 }
 
 // kanbanCardChromeWidth is the visual width consumed by a card's border
@@ -623,6 +718,133 @@ func wrapPlain(text string, width int) string {
 	return strings.Join(out, "\n")
 }
 
+func (m Model) kanbanColumnBodyLineCount(ci, colWidth int) int {
+	if m.kanban == nil || ci < 0 || ci >= len(m.kanban.cols) {
+		return 0
+	}
+	col := m.kanban.cols[ci]
+	if len(col.Cards) == 0 {
+		return 1
+	}
+	contentWidth := colWidth - kanbanCardChromeWidth
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	count := 0
+	for cardI, card := range col.Cards {
+		count += m.kanbanCardRenderHeight(card, ci, cardI, contentWidth)
+	}
+	return count
+}
+
+func (m Model) activeKanbanBoardHeight(startCol, endCol, colWidth int) int {
+	maxBody := 1
+	for ci := startCol; ci < endCol; ci++ {
+		if n := m.kanbanColumnBodyLineCount(ci, colWidth); n > maxBody {
+			maxBody = n
+		}
+	}
+	natural := maxBody + 2 // title + underline
+	maxHeight := m.viewport.Height()
+	if maxHeight < 3 {
+		maxHeight = 3
+	}
+	if maxHeight-kanbanDocumentContextLines >= kanbanMinCameraBoardHeight {
+		maxHeight -= kanbanDocumentContextLines
+	}
+	if natural > maxHeight {
+		return maxHeight
+	}
+	return natural
+}
+
+func (m Model) selectedCardBodyLineRange(colWidth int) (top, bottom int) {
+	if m.kanban == nil || m.kanban.col < 0 || m.kanban.col >= len(m.kanban.cols) {
+		return 0, 0
+	}
+	cards := m.kanban.cols[m.kanban.col].Cards
+	if m.kanban.card < 0 || m.kanban.card >= len(cards) {
+		return 0, 0
+	}
+	contentWidth := colWidth - kanbanCardChromeWidth
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	for i := 0; i < m.kanban.card; i++ {
+		top += m.kanbanCardRenderHeight(cards[i], m.kanban.col, i, contentWidth)
+	}
+	height := m.kanbanCardRenderHeight(cards[m.kanban.card], m.kanban.col, m.kanban.card, contentWidth)
+	return top, top + height - 1
+}
+
+func (m Model) kanbanCardStartLines(ci, colWidth int) []int {
+	if m.kanban == nil || ci < 0 || ci >= len(m.kanban.cols) {
+		return nil
+	}
+	contentWidth := colWidth - kanbanCardChromeWidth
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	starts := make([]int, 0, len(m.kanban.cols[ci].Cards))
+	line := 0
+	for cardI, card := range m.kanban.cols[ci].Cards {
+		starts = append(starts, line)
+		line += m.kanbanCardRenderHeight(card, ci, cardI, contentWidth)
+	}
+	return starts
+}
+
+func (m Model) adjustKanbanBottomCameraOffset(ci, colWidth, bodyLineCount, bodyHeight int) int {
+	offset := m.kanban.rowOffsets[ci]
+	maxRealOffset := bodyLineCount - bodyHeight
+	if maxRealOffset < 0 || offset <= maxRealOffset || m.kanban.col != ci {
+		return offset
+	}
+	top, bottom := m.selectedCardBodyLineRange(colWidth)
+	best := offset
+	for _, start := range m.kanbanCardStartLines(ci, colWidth) {
+		if start < offset || start > top || start+bodyHeight <= bottom {
+			continue
+		}
+		if best == offset || start < best {
+			best = start
+		}
+	}
+	return best
+}
+
+func (m Model) renderKanbanColumnBodyLines(ci, cardOuterWidth int, th theme.Theme) []string {
+	if m.kanban == nil || ci < 0 || ci >= len(m.kanban.cols) {
+		return nil
+	}
+	col := m.kanban.cols[ci]
+	if len(col.Cards) == 0 {
+		placeholderColor := th.Muted
+		placeholderText := "no cards · n to add"
+		if m.kanban.col == ci {
+			placeholderColor = th.Accent
+		}
+		placeholder := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(placeholderColor)).
+			Italic(true).
+			Padding(0, 2).
+			Render(placeholderText)
+		return strings.Split(placeholder, "\n")
+	}
+
+	var lines []string
+	for cardI, card := range col.Cards {
+		isSel := m.kanban.col == ci && m.kanban.card == cardI
+		editing := isSel && m.kanban.edit
+		editView := ""
+		if editing {
+			editView = renderEditingCardText(&m.kanban.editTA, cardOuterWidth-kanbanCardChromeWidth)
+		}
+		lines = append(lines, strings.Split(renderKanbanCard(card, cardOuterWidth, isSel, editing, editView, th), "\n")...)
+	}
+	return lines
+}
+
 // kanbanVisibleCols returns the number of columns that fit in width and
 // the chosen per-column width. Always at least 1; capped at the total
 // column count.
@@ -677,6 +899,13 @@ func (m Model) renderKanbanBoard(blockIdx, width int) string {
 	// so everything aligns visually.
 	cardOuterWidth := colWidth
 	gap := 1
+	boardHeight := m.activeKanbanBoardHeight(startCol, endCol, colWidth)
+	bodyHeight := boardHeight - 2
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	selTop, selBottom := m.selectedCardBodyLineRange(colWidth)
+	m.kanban.ensureSelectedCardVisible(selTop, selBottom, bodyHeight)
 
 	colStyle := lipgloss.NewStyle().Width(colWidth)
 
@@ -712,30 +941,25 @@ func (m Model) renderKanbanBoard(blockIdx, width int) string {
 		cardLines = append(cardLines, title)
 		cardLines = append(cardLines, under)
 
-		if len(col.Cards) == 0 {
-			// Empty placeholder. When this column is the focus, draw it
-			// in accent so the user can see where they are.
-			placeholderColor := th.Muted
-			placeholderText := "no cards · n to add"
-			if colSelected {
-				placeholderColor = th.Accent
-			}
-			placeholder := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(placeholderColor)).
-				Italic(true).
-				Padding(0, 2).
-				Render(placeholderText)
-			cardLines = append(cardLines, placeholder)
+		bodyLines := m.renderKanbanColumnBodyLines(ci, cardOuterWidth, th)
+		bottomOverscroll := 0
+		if colSelected {
+			selTop, selBottom := m.selectedCardBodyLineRange(colWidth)
+			bottomOverscroll = kanbanCameraMargin(selBottom-selTop+1, bodyHeight)
 		}
-
-		for cardI, card := range col.Cards {
-			isSel := m.kanban.col == ci && m.kanban.card == cardI
-			editing := isSel && m.kanban.edit
-			editView := ""
-			if editing {
-				editView = renderEditingCardText(&m.kanban.editTA, cardOuterWidth-kanbanCardChromeWidth)
+		m.kanban.clampRowOffset(ci, len(bodyLines), bodyHeight, bottomOverscroll)
+		offset := m.adjustKanbanBottomCameraOffset(ci, colWidth, len(bodyLines), bodyHeight)
+		m.kanban.rowOffsets[ci] = offset
+		end := offset + bodyHeight
+		for row := offset; row < end; row++ {
+			if row >= 0 && row < len(bodyLines) {
+				cardLines = append(cardLines, bodyLines[row])
+			} else {
+				cardLines = append(cardLines, "")
 			}
-			cardLines = append(cardLines, renderKanbanCard(card, cardOuterWidth, isSel, editing, editView, th))
+		}
+		for len(cardLines) < boardHeight {
+			cardLines = append(cardLines, "")
 		}
 
 		rendered = append(rendered, colStyle.Render(strings.Join(cardLines, "\n")))

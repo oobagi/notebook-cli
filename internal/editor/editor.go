@@ -762,6 +762,7 @@ func (m *Model) navigateUp() {
 	// enters at column 0 regardless of direction.
 	if m.kanban != nil {
 		m.kanban.enterFromBelow()
+		m.kanbanAnchorTop = true
 		return
 	}
 
@@ -3235,11 +3236,21 @@ func (m *Model) updateViewport() {
 			bottomTarget = lineOffset + chromeLines + bot
 			cursorLine = lineOffset + chromeLines + top
 			kanbanTop := lineOffset + chromeLines
-			// Anchor to the title row only when the user just changed
-			// columns — otherwise navigating into the kanban from below
-			// would snap to top instead of landing near the entry point.
-			if m.kanbanAnchorTop && bottomTarget-kanbanTop+1 <= m.viewport.Height() {
-				scrollTarget = kanbanTop
+			// The active board clips tall columns internally, so anchoring
+			// to the board top keeps headers visible without hiding the
+			// selected card.
+			if m.kanbanAnchorTop {
+				contextLines := 0
+				if m.active >= 0 && m.active < len(m.blockLineCounts) {
+					contextLines = m.viewport.Height() - m.blockLineCounts[m.active]
+					if contextLines > kanbanDocumentContextLines {
+						contextLines = kanbanDocumentContextLines
+					}
+					if contextLines < 0 {
+						contextLines = 0
+					}
+				}
+				scrollTarget = kanbanTop - contextLines/2
 			} else {
 				scrollTarget = cursorLine
 			}
