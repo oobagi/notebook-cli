@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
 const sampleKanbanMD = "```kanban\n" +
@@ -395,6 +396,216 @@ func TestKanbanOffsetsShiftOnInsertAndDelete(t *testing.T) {
 	if got, ok := m.kanbanOffsets[idx]; !ok || got != 2 {
 		t.Errorf("after delete: kanbanOffsets[%d] = (%d, %v), want (2, true). Map: %+v",
 			idx, got, ok, m.kanbanOffsets)
+	}
+}
+
+func TestKanbanTallColumnScrollsInsideBoard(t *testing.T) {
+	md := "```kanban\n" +
+		"## Todo\n" +
+		"- Task 01\n" +
+		"- Task 02\n" +
+		"- Task 03\n" +
+		"- Task 04\n" +
+		"- Task 05\n" +
+		"- Task 06\n" +
+		"- Task 07\n" +
+		"- Task 08\n" +
+		"- Task 09\n" +
+		"- Task 10\n" +
+		"\n" +
+		"## Doing\n" +
+		"- Short\n" +
+		"```"
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = out.(Model)
+	idx := firstKanban(m)
+	if idx < 0 || m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+
+	beforeY := m.viewport.YOffset()
+	for i := 0; i < 9; i++ {
+		m = pressKey(m, "down")
+	}
+	if m.kanban.rowOffsets[0] == 0 {
+		t.Fatalf("expected selected column to scroll internally, offsets=%v", m.kanban.rowOffsets)
+	}
+	if got := m.viewport.YOffset(); got != beforeY {
+		t.Fatalf("document viewport moved from %d to %d; want column-local scroll", beforeY, got)
+	}
+	if got := m.blockLineCounts[idx]; got > m.viewport.Height() {
+		t.Fatalf("rendered board height = %d, viewport height = %d; want clipped active board", got, m.viewport.Height())
+	}
+
+	view := m.viewport.View()
+	if !strings.Contains(view, "Todo") || !strings.Contains(view, "Doing") {
+		t.Fatalf("column headers should stay visible while a column scrolls; view:\n%s", view)
+	}
+	if strings.Contains(view, "Task 01") {
+		t.Fatalf("top card should be clipped after internal column scroll; view:\n%s", view)
+	}
+	if strings.Contains(view, "end") || strings.Contains(view, "more") {
+		t.Fatalf("column-local indicators should not be rendered; view:\n%s", view)
+	}
+}
+
+func TestKanbanTallColumnCameraPadsSelectedCard(t *testing.T) {
+	md := "```kanban\n" +
+		"## Todo\n" +
+		"- Task 01\n" +
+		"- Task 02\n" +
+		"- Task 03\n" +
+		"- Task 04\n" +
+		"- Task 05\n" +
+		"- Task 06\n" +
+		"- Task 07\n" +
+		"- Task 08\n" +
+		"- Task 09\n" +
+		"- Task 10\n" +
+		"```"
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = out.(Model)
+	if m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+
+	width := m.width - gutterWidth
+	if width < 30 {
+		width = 30
+	}
+	_, colWidth := kanbanVisibleCols(len(m.kanban.cols), width)
+	bodyHeight := m.activeKanbanBoardHeight(0, 1, colWidth) - 2
+	bodyLines := m.renderKanbanColumnBodyLines(0, colWidth, theme.Current())
+	if len(bodyLines) == 0 {
+		t.Fatalf("expected body lines")
+	}
+	if bodyLines[0] == "" {
+		t.Fatalf("top edge should be real card content, not a blank buffer line")
+	}
+	if bodyLines[len(bodyLines)-1] == "" {
+		t.Fatalf("bottom edge should be real card content, not a blank buffer line")
+	}
+
+	m.kanban.card = 4
+	m.renderKanbanBoard(0, width)
+	top, bottom := m.selectedCardBodyLineRange(colWidth)
+	visibleTop := top - m.kanban.rowOffsets[0]
+	visibleBottom := bottom - m.kanban.rowOffsets[0]
+	selectedHeight := bottom - top + 1
+	wantPadding := min(kanbanColumnCameraPadding, (bodyHeight-selectedHeight)/2)
+	if wantPadding < 0 {
+		wantPadding = 0
+	}
+	if visibleTop < wantPadding {
+		t.Fatalf("selected card should have camera padding above: visibleTop=%d padding=%d offset=%d",
+			visibleTop, wantPadding, m.kanban.rowOffsets[0])
+	}
+	if below := bodyHeight - 1 - visibleBottom; below < wantPadding {
+		t.Fatalf("selected card should have camera padding below: below=%d padding=%d offset=%d",
+			below, wantPadding, m.kanban.rowOffsets[0])
+	}
+
+	m.kanban.card = len(m.kanban.cols[0].Cards) - 1
+	m.renderKanbanBoard(0, width)
+	top, bottom = m.selectedCardBodyLineRange(colWidth)
+	visibleBottom = bottom - m.kanban.rowOffsets[0]
+	selectedHeight = bottom - top + 1
+	wantPadding = min(kanbanColumnCameraPadding, (bodyHeight-selectedHeight)/2)
+	if wantPadding < 0 {
+		wantPadding = 0
+	}
+	if below := bodyHeight - 1 - visibleBottom; below < wantPadding {
+		t.Fatalf("bottom card should retain camera padding below: below=%d padding=%d offset=%d",
+			below, wantPadding, m.kanban.rowOffsets[0])
+	}
+	starts := m.kanbanCardStartLines(0, colWidth)
+	aligned := false
+	for _, start := range starts {
+		if start == m.kanban.rowOffsets[0] {
+			aligned = true
+			break
+		}
+	}
+	if !aligned {
+		t.Fatalf("bottom camera offset should align to a card boundary, got %d starts=%v",
+			m.kanban.rowOffsets[0], starts)
+	}
+}
+
+func TestKanbanEnteringFromBelowKeepsHeaderVisible(t *testing.T) {
+	md := "above\n\n```kanban\n" +
+		"## Todo\n" +
+		"- Task 01\n" +
+		"- Task 02\n" +
+		"- Task 03\n" +
+		"- Task 04\n" +
+		"- Task 05\n" +
+		"- Task 06\n" +
+		"- Task 07\n" +
+		"- Task 08\n" +
+		"- Task 09\n" +
+		"- Task 10\n" +
+		"```\n\nbelow"
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = out.(Model)
+	idx := firstKanban(m)
+	if idx < 1 || idx >= len(m.blocks)-1 {
+		t.Fatalf("expected kanban between paragraphs, idx=%d blocks=%d", idx, len(m.blocks))
+	}
+
+	m.focusBlock(idx + 1)
+	m.updateViewport()
+	m.viewport.SetYOffset(100)
+	m = pressKey(m, "up")
+
+	view := m.viewport.View()
+	if !strings.Contains(view, "Todo") {
+		t.Fatalf("kanban header should be visible when entering from below; view:\n%s", view)
+	}
+	if m.kanban == nil || m.kanban.card != len(m.kanban.cols[0].Cards)-1 {
+		t.Fatalf("expected entry from below to select the last card, got kanban=%+v", m.kanban)
+	}
+}
+
+func TestKanbanTallBoardLeavesDocumentContext(t *testing.T) {
+	md := "before context\n\n```kanban\n" +
+		"## Todo\n" +
+		"- Task 01\n" +
+		"- Task 02\n" +
+		"- Task 03\n" +
+		"- Task 04\n" +
+		"- Task 05\n" +
+		"- Task 06\n" +
+		"- Task 07\n" +
+		"- Task 08\n" +
+		"- Task 09\n" +
+		"- Task 10\n" +
+		"- Task 11\n" +
+		"- Task 12\n" +
+		"```\n\nafter context"
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = out.(Model)
+	idx := firstKanban(m)
+	if idx < 1 || idx >= len(m.blocks)-1 {
+		t.Fatalf("expected kanban between context paragraphs, idx=%d blocks=%d", idx, len(m.blocks))
+	}
+	m.focusBlock(idx)
+	m.kanbanAnchorTop = true
+	m.updateViewport()
+
+	if got, limit := m.blockLineCounts[idx], m.viewport.Height()-kanbanDocumentContextLines; got > limit {
+		t.Fatalf("active kanban height = %d, want <= %d to leave document context", got, limit)
+	}
+	view := m.viewport.View()
+	if !strings.Contains(view, "before context") {
+		t.Fatalf("expected context before kanban to stay visible; view:\n%s", view)
+	}
+	if !strings.Contains(view, "after context") {
+		t.Fatalf("expected context after kanban to stay visible; view:\n%s", view)
 	}
 }
 
