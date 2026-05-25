@@ -86,6 +86,11 @@ type kanbanState struct {
 	addedCardIdx int
 }
 
+type kanbanPosition struct {
+	col  int
+	card int
+}
+
 // kanbanTargetColWidth is the preferred visible width of a single column
 // (including borders/padding of its cards). The renderer uses this to
 // decide how many columns fit on screen at once; the rest stay off-screen
@@ -95,8 +100,6 @@ const kanbanTargetColWidth = 32
 // kanbanIndicatorWidth reserves space for the ◀ / ▶ off-screen-column
 // indicators on the left/right edges of the board (one cell each).
 const kanbanIndicatorWidth = 1
-
-const kanbanColumnCameraPadding = 3
 
 const kanbanDocumentContextLines = 4
 
@@ -128,7 +131,7 @@ func (ks *kanbanState) ensureRowOffsets() {
 	ks.rowOffsets = next
 }
 
-func (ks *kanbanState) clampRowOffset(col, bodyLineCount, bodyHeight, bottomOverscroll int) {
+func (ks *kanbanState) clampRowOffset(col, bodyLineCount, bodyHeight int) {
 	ks.ensureRowOffsets()
 	if col < 0 || col >= len(ks.rowOffsets) {
 		return
@@ -136,9 +139,6 @@ func (ks *kanbanState) clampRowOffset(col, bodyLineCount, bodyHeight, bottomOver
 	maxOffset := bodyLineCount - bodyHeight
 	if maxOffset < 0 {
 		maxOffset = 0
-	}
-	if bodyLineCount > bodyHeight {
-		maxOffset += bottomOverscroll
 	}
 	if ks.rowOffsets[col] < 0 {
 		ks.rowOffsets[col] = 0
@@ -148,31 +148,16 @@ func (ks *kanbanState) clampRowOffset(col, bodyLineCount, bodyHeight, bottomOver
 	}
 }
 
-func kanbanCameraMargin(selectedHeight, bodyHeight int) int {
-	if selectedHeight < 1 {
-		selectedHeight = 1
-	}
-	margin := kanbanColumnCameraPadding
-	if maxMargin := (bodyHeight - selectedHeight) / 2; margin > maxMargin {
-		margin = maxMargin
-	}
-	if margin < 0 {
-		margin = 0
-	}
-	return margin
-}
-
 func (ks *kanbanState) ensureSelectedCardVisible(top, bottom, bodyHeight int) {
 	ks.ensureRowOffsets()
 	if ks.col < 0 || ks.col >= len(ks.rowOffsets) || bodyHeight <= 0 {
 		return
 	}
-	margin := kanbanCameraMargin(bottom-top+1, bodyHeight)
 	offset := ks.rowOffsets[ks.col]
-	if top-margin < offset {
-		offset = top - margin
-	} else if bottom+margin >= offset+bodyHeight {
-		offset = bottom + margin - bodyHeight + 1
+	if top < offset {
+		offset = top
+	} else if bottom >= offset+bodyHeight {
+		offset = bottom - bodyHeight + 1
 	}
 	if offset < 0 {
 		offset = 0
@@ -249,6 +234,44 @@ func (ks *kanbanState) clamp() {
 	}
 	if ks.card >= n {
 		ks.card = n - 1
+	}
+}
+
+func (m *Model) saveKanbanPosition(idx int) {
+	if m.kanban == nil {
+		return
+	}
+	if m.kanbanOffsets == nil {
+		m.kanbanOffsets = map[int]int{}
+	}
+	if m.kanbanPositions == nil {
+		m.kanbanPositions = map[int]kanbanPosition{}
+	}
+	m.kanbanOffsets[idx] = m.kanban.colOffset
+	m.kanbanPositions[idx] = kanbanPosition{col: m.kanban.col, card: m.kanban.card}
+}
+
+func (m *Model) hasSavedKanbanPosition(idx int) bool {
+	if m.kanbanPositions == nil {
+		return false
+	}
+	_, ok := m.kanbanPositions[idx]
+	return ok
+}
+
+func (m *Model) restoreKanbanPosition(idx int) {
+	if m.kanban == nil {
+		return
+	}
+	if m.kanbanOffsets != nil {
+		m.kanban.colOffset = m.kanbanOffsets[idx]
+	}
+	if m.kanbanPositions != nil {
+		if pos, ok := m.kanbanPositions[idx]; ok {
+			m.kanban.col = pos.col
+			m.kanban.card = pos.card
+			m.kanban.clamp()
+		}
 	}
 }
 
@@ -642,6 +665,10 @@ const kanbanCardChromeWidth = 4
 // width of the card box (including border and padding); the actual text
 // content area is outerWidth - kanbanCardChromeWidth wide.
 func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing bool, editView string, th theme.Theme, wordWrap bool) string {
+	return renderKanbanCardWithLabels(card, outerWidth, selected, editing, editView, th, wordWrap, "", "")
+}
+
+func renderKanbanCardWithLabels(card block.KanbanCard, outerWidth int, selected, editing bool, editView string, th theme.Theme, wordWrap bool, topLabel, bottomLabel string) string {
 	border := lipgloss.RoundedBorder()
 	borderColor := th.Border
 	if selected {
@@ -703,7 +730,46 @@ func renderKanbanCard(card block.KanbanCard, outerWidth int, selected, editing b
 		header := strings.Join(headerParts, " ")
 		body = header + "\n" + text
 	}
-	return style.Render(body)
+	rendered := style.Render(body)
+	if topLabel == "" && bottomLabel == "" {
+		return rendered
+	}
+	lines := strings.Split(rendered, "\n")
+	if topLabel != "" && len(lines) > 0 {
+		lines[0] = renderKanbanBorderLabel(topLabel, outerWidth, true, borderColor, th)
+	}
+	if bottomLabel != "" && len(lines) > 0 {
+		lines[len(lines)-1] = renderKanbanBorderLabel(bottomLabel, outerWidth, false, borderColor, th)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderKanbanBorderLabel(label string, width int, top bool, borderColor string, th theme.Theme) string {
+	if width < 2 {
+		width = 2
+	}
+	innerWidth := width - 2
+	label = " " + label + " "
+	labelWidth := lipgloss.Width(label)
+	if labelWidth > innerWidth {
+		label = strings.TrimSpace(label)
+		labelWidth = lipgloss.Width(label)
+	}
+	if labelWidth > innerWidth {
+		label = ""
+		labelWidth = 0
+	}
+	left := (innerWidth - labelWidth) / 2
+	right := innerWidth - labelWidth - left
+	leftCorner, rightCorner := "╭", "╮"
+	if !top {
+		leftCorner, rightCorner = "╰", "╯"
+	}
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Muted)).Faint(true)
+	return borderStyle.Render(leftCorner+strings.Repeat("─", left)) +
+		labelStyle.Render(label) +
+		borderStyle.Render(strings.Repeat("─", right)+rightCorner)
 }
 
 // wrapPlain word-wraps text to the given visual width. Empty preserves
@@ -796,51 +862,16 @@ func (m Model) selectedCardBodyLineRange(colWidth int) (top, bottom int) {
 	return top, top + height - 1
 }
 
-func (m Model) kanbanCardStartLines(ci, colWidth int) []int {
-	if m.kanban == nil || ci < 0 || ci >= len(m.kanban.cols) {
-		return nil
-	}
-	contentWidth := colWidth - kanbanCardChromeWidth
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	starts := make([]int, 0, len(m.kanban.cols[ci].Cards))
-	line := 0
-	for cardI, card := range m.kanban.cols[ci].Cards {
-		starts = append(starts, line)
-		line += m.kanbanCardRenderHeight(card, ci, cardI, contentWidth)
-	}
-	return starts
-}
-
-func (m Model) adjustKanbanBottomCameraOffset(ci, colWidth, bodyLineCount, bodyHeight int) int {
-	offset := m.kanban.rowOffsets[ci]
-	maxRealOffset := bodyLineCount - bodyHeight
-	if maxRealOffset < 0 || offset <= maxRealOffset || m.kanban.col != ci {
-		return offset
-	}
-	top, bottom := m.selectedCardBodyLineRange(colWidth)
-	best := offset
-	for _, start := range m.kanbanCardStartLines(ci, colWidth) {
-		if start < offset || start > top || start+bodyHeight <= bottom {
-			continue
-		}
-		if best == offset || start < best {
-			best = start
-		}
-	}
-	return best
-}
-
 func (m Model) renderKanbanColumnBodyLines(ci, cardOuterWidth int, th theme.Theme) []string {
 	if m.kanban == nil || ci < 0 || ci >= len(m.kanban.cols) {
 		return nil
 	}
 	col := m.kanban.cols[ci]
+	colSelected := m.kanban.col == ci
 	if len(col.Cards) == 0 {
 		placeholderColor := th.Muted
 		placeholderText := "no cards · n to add"
-		if m.kanban.col == ci {
+		if colSelected {
 			placeholderColor = th.Accent
 		}
 		placeholder := lipgloss.NewStyle().
@@ -853,13 +884,21 @@ func (m Model) renderKanbanColumnBodyLines(ci, cardOuterWidth int, th theme.Them
 
 	var lines []string
 	for cardI, card := range col.Cards {
-		isSel := m.kanban.col == ci && m.kanban.card == cardI
+		isSel := colSelected && m.kanban.card == cardI
 		editing := isSel && m.kanban.edit
 		editView := ""
 		if editing {
 			editView = renderEditingCardText(&m.kanban.editTA, cardOuterWidth-kanbanCardChromeWidth, m.wordWrap)
 		}
-		lines = append(lines, strings.Split(renderKanbanCard(card, cardOuterWidth, isSel, editing, editView, th, m.wordWrap), "\n")...)
+		topLabel, bottomLabel := "", ""
+		if colSelected && cardI == 0 {
+			topLabel = "top"
+		}
+		if colSelected && cardI == len(col.Cards)-1 {
+			bottomLabel = "bottom"
+		}
+		renderedCard := renderKanbanCardWithLabels(card, cardOuterWidth, isSel, editing, editView, th, m.wordWrap, topLabel, bottomLabel)
+		lines = append(lines, strings.Split(renderedCard, "\n")...)
 	}
 	return lines
 }
@@ -924,6 +963,12 @@ func (m Model) renderKanbanBoard(blockIdx, width int) string {
 		bodyHeight = 1
 	}
 	selTop, selBottom := m.selectedCardBodyLineRange(colWidth)
+	if m.kanban.card == 0 {
+		selTop = 0
+	}
+	if m.kanban.col >= 0 && m.kanban.col < len(cols) && m.kanban.card == len(cols[m.kanban.col].Cards)-1 {
+		selBottom = m.kanbanColumnBodyLineCount(m.kanban.col, colWidth) - 1
+	}
 	m.kanban.ensureSelectedCardVisible(selTop, selBottom, bodyHeight)
 
 	colStyle := lipgloss.NewStyle().Width(colWidth)
@@ -961,14 +1006,8 @@ func (m Model) renderKanbanBoard(blockIdx, width int) string {
 		cardLines = append(cardLines, under)
 
 		bodyLines := m.renderKanbanColumnBodyLines(ci, cardOuterWidth, th)
-		bottomOverscroll := 0
-		if colSelected {
-			selTop, selBottom := m.selectedCardBodyLineRange(colWidth)
-			bottomOverscroll = kanbanCameraMargin(selBottom-selTop+1, bodyHeight)
-		}
-		m.kanban.clampRowOffset(ci, len(bodyLines), bodyHeight, bottomOverscroll)
-		offset := m.adjustKanbanBottomCameraOffset(ci, colWidth, len(bodyLines), bodyHeight)
-		m.kanban.rowOffsets[ci] = offset
+		m.kanban.clampRowOffset(ci, len(bodyLines), bodyHeight)
+		offset := m.kanban.rowOffsets[ci]
 		end := offset + bodyHeight
 		for row := offset; row < end; row++ {
 			if row >= 0 && row < len(bodyLines) {

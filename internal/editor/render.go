@@ -146,7 +146,11 @@ func (m Model) renderBlock(idx int) string {
 	if isActive {
 		return m.renderActiveBlock(idx, b, content)
 	}
-	return renderInactiveBlock(b, content, m.width, m.wordWrap, m.blocks, idx)
+	kanbanOffset := 0
+	if b.Type == block.Kanban && m.kanbanOffsets != nil {
+		kanbanOffset = m.kanbanOffsets[idx]
+	}
+	return renderInactiveBlockWithKanbanOffset(b, content, m.width, m.wordWrap, m.blocks, idx, kanbanOffset)
 }
 
 // renderActiveBlock renders the block that currently has focus.
@@ -837,6 +841,10 @@ func highlightCode(code, language string) string {
 
 // renderInactiveBlock renders a block as styled static text (no cursor).
 func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int) string {
+	return renderInactiveBlockWithKanbanOffset(b, content, width, wordWrap, blocks, idx, 0)
+}
+
+func renderInactiveBlockWithKanbanOffset(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx, kanbanOffset int) string {
 	// Compute the available content width, matching the active block's calculation.
 	contentWidth := width - gutterWidth - blockPrefixWidth(b)
 	if contentWidth < 1 {
@@ -1042,7 +1050,7 @@ func renderInactiveBlock(b block.Block, content string, width int, wordWrap bool
 		if boardWidth < 30 {
 			boardWidth = 30
 		}
-		rendered = renderInactiveKanbanBoard(content, boardWidth, 0, th, wordWrap)
+		rendered = renderInactiveKanbanBoard(content, boardWidth, kanbanOffset, th, wordWrap)
 
 	default:
 		rendered = wrapped

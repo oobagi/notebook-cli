@@ -122,9 +122,7 @@ func (m *Model) restoreState(state editorState) {
 	// If active block is a Kanban, init kanban state.
 	if active < len(m.blocks) && m.blocks[active].Type == block.Kanban {
 		m.kanban = newKanbanState(m.blocks[active].Content)
-		if m.kanbanOffsets != nil {
-			m.kanban.colOffset = m.kanbanOffsets[active]
-		}
+		m.restoreKanbanPosition(active)
 		if m.kanbanSortByPrio {
 			m.kanban.sortByPriority()
 		}

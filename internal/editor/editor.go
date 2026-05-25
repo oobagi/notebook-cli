@@ -134,6 +134,7 @@ type Model struct {
 	kanban           *kanbanState    // active kanban board state (non-nil when editing a Kanban block)
 	viewKanbanOffset int             // horizontal scroll for kanban blocks in view mode
 	kanbanOffsets    map[int]int     // saved colOffset per block index, restored when refocusing
+	kanbanPositions  map[int]kanbanPosition
 	kanbanAnchorTop  bool            // one-shot: next viewport update anchors to kanban title row
 	defPreview       defPreviewState // focused preview for a single cross-note definition
 	jumpTarget       string          // "notebook/note" to open after editor quits; read via JumpTarget()
@@ -376,6 +377,7 @@ func New(cfg Config) Model {
 		cascadeChecks:    config.BoolVal(cfg.CascadeChecks, true),
 		kanbanSortByPrio: config.BoolVal(cfg.KanbanSortByPrio, false),
 		kanbanOffsets:    map[int]int{},
+		kanbanPositions:  map[int]kanbanPosition{},
 	}
 
 	// If first block is a Table, init table state.
@@ -696,15 +698,12 @@ func (m *Model) focusBlock(idx int) {
 		m.table = nil
 	}
 	// Leaving a kanban: serialize state back to block content and remember
-	// the horizontal scroll offset for when we focus this block again.
+	// the position for when we focus this block again.
 	if m.kanban != nil && m.active >= 0 && m.active < len(m.textareas) {
 		if m.kanban.edit {
 			m.kanban.commitEdit()
 		}
-		if m.kanbanOffsets == nil {
-			m.kanbanOffsets = map[int]int{}
-		}
-		m.kanbanOffsets[m.active] = m.kanban.colOffset
+		m.saveKanbanPosition(m.active)
 		serialized := m.kanban.serialize()
 		m.blocks[m.active].Content = serialized
 		m.textareas[m.active].SetValue(serialized)
@@ -726,12 +725,10 @@ func (m *Model) focusBlock(idx int) {
 		m.cursorCmd = m.textareas[idx].Focus()
 	}
 	// Entering a kanban: init kanban state from block content and restore
-	// the saved horizontal scroll offset (if any).
+	// the saved position (if any).
 	if m.blocks[idx].Type == block.Kanban {
 		m.kanban = newKanbanState(m.blocks[idx].Content)
-		if m.kanbanOffsets != nil {
-			m.kanban.colOffset = m.kanbanOffsets[idx]
-		}
+		m.restoreKanbanPosition(idx)
 		if m.kanbanSortByPrio {
 			m.kanban.sortByPriority()
 		}
@@ -762,11 +759,12 @@ func (m *Model) navigateUp() {
 		m.cursorCmd = ta.Focus()
 		return
 	}
-	// Entering a kanban from below: land on the last card of the
-	// leftmost non-empty column. Mirrors table behavior, which always
-	// enters at column 0 regardless of direction.
+	// First entry from below lands at the bottom; re-entry restores the
+	// column/card the user left.
 	if m.kanban != nil {
-		m.kanban.enterFromBelow()
+		if !m.hasSavedKanbanPosition(m.active) {
+			m.kanban.enterFromBelow()
+		}
 		m.kanbanAnchorTop = true
 		return
 	}
@@ -797,10 +795,12 @@ func (m *Model) navigateDown() {
 		m.cursorCmd = ta.Focus()
 		return
 	}
-	// Entering a kanban from above: land on the first card of the
-	// leftmost non-empty column. Symmetric with navigateUp's entry.
+	// First entry from above lands at the top; re-entry restores the
+	// column/card the user left.
 	if m.kanban != nil {
-		m.kanban.enterFromAbove()
+		if !m.hasSavedKanbanPosition(m.active) {
+			m.kanban.enterFromAbove()
+		}
 		return
 	}
 
@@ -848,9 +848,9 @@ func (m *Model) insertBlockBefore(idx int, b block.Block) {
 		m.active++
 	}
 
-	// Shift kanbanOffsets keys >= idx forward by one so saved horizontal
-	// scroll positions stay attached to the right Kanban block.
-	m.shiftKanbanOffsets(idx, +1)
+	// Shift saved Kanban positions forward so they stay attached to the
+	// right block.
+	m.shiftKanbanState(idx, +1)
 
 	m.focusBlock(idx)
 }
@@ -877,9 +877,9 @@ func (m *Model) insertBlockAfter(idx int, b block.Block) {
 	newTAs = append(newTAs, m.textareas[insertAt+1:]...)
 	m.textareas = newTAs
 
-	// Shift kanbanOffsets keys > insertAt forward by one so saved
-	// horizontal scroll positions stay attached to the right Kanban.
-	m.shiftKanbanOffsets(insertAt+1, +1)
+	// Shift saved Kanban positions forward so they stay attached to the
+	// right block.
+	m.shiftKanbanState(insertAt+1, +1)
 
 	m.focusBlock(insertAt + 1)
 }
@@ -904,7 +904,10 @@ func (m *Model) deleteBlock(idx int) {
 	if m.kanbanOffsets != nil {
 		delete(m.kanbanOffsets, idx)
 	}
-	m.shiftKanbanOffsets(idx+1, -1)
+	if m.kanbanPositions != nil {
+		delete(m.kanbanPositions, idx)
+	}
+	m.shiftKanbanState(idx+1, -1)
 
 	// Adjust active index.
 	if idx >= len(m.blocks) {
@@ -922,23 +925,37 @@ func (m *Model) deleteBlock(idx int) {
 	m.initActiveContainerState()
 }
 
-// shiftKanbanOffsets remaps kanbanOffsets keys at or above `from` by `delta`.
+// shiftKanbanState remaps saved Kanban keys at or above `from` by `delta`.
 // Used by insertBlockBefore/After (delta=+1) and deleteBlock (delta=-1) so
-// that per-block horizontal scroll positions stay attached to the right
+// that per-block scroll/selection positions stay attached to the right
 // Kanban as block indexes shift around them.
-func (m *Model) shiftKanbanOffsets(from, delta int) {
-	if len(m.kanbanOffsets) == 0 || delta == 0 {
+func (m *Model) shiftKanbanState(from, delta int) {
+	if delta == 0 {
 		return
 	}
-	next := make(map[int]int, len(m.kanbanOffsets))
-	for k, v := range m.kanbanOffsets {
+	if len(m.kanbanOffsets) > 0 {
+		next := make(map[int]int, len(m.kanbanOffsets))
+		for k, v := range m.kanbanOffsets {
+			if k >= from {
+				next[k+delta] = v
+			} else {
+				next[k] = v
+			}
+		}
+		m.kanbanOffsets = next
+	}
+	if len(m.kanbanPositions) == 0 {
+		return
+	}
+	nextPositions := make(map[int]kanbanPosition, len(m.kanbanPositions))
+	for k, v := range m.kanbanPositions {
 		if k >= from {
-			next[k+delta] = v
+			nextPositions[k+delta] = v
 		} else {
-			next[k] = v
+			nextPositions[k] = v
 		}
 	}
-	m.kanbanOffsets = next
+	m.kanbanPositions = nextPositions
 }
 
 // initActiveContainerState initializes table/kanban state when the active
@@ -958,9 +975,7 @@ func (m *Model) initActiveContainerState() {
 	}
 	if bt == block.Kanban && m.kanban == nil {
 		m.kanban = newKanbanState(m.blocks[m.active].Content)
-		if m.kanbanOffsets != nil {
-			m.kanban.colOffset = m.kanbanOffsets[m.active]
-		}
+		m.restoreKanbanPosition(m.active)
 		if m.kanbanSortByPrio {
 			m.kanban.sortByPriority()
 		}

@@ -450,7 +450,7 @@ func TestKanbanTallColumnScrollsInsideBoard(t *testing.T) {
 	}
 }
 
-func TestKanbanTallColumnCameraPadsSelectedCard(t *testing.T) {
+func TestKanbanTallColumnLabelsCardBordersAtEdges(t *testing.T) {
 	md := "```kanban\n" +
 		"## Todo\n" +
 		"- Task 01\n" +
@@ -481,56 +481,43 @@ func TestKanbanTallColumnCameraPadsSelectedCard(t *testing.T) {
 	if len(bodyLines) == 0 {
 		t.Fatalf("expected body lines")
 	}
-	if bodyLines[0] == "" {
-		t.Fatalf("top edge should be real card content, not a blank buffer line")
+	if got := stripANSI(bodyLines[0]); !strings.Contains(got, "top") {
+		t.Fatalf("first card top border should include the top label, got %q", got)
 	}
-	if bodyLines[len(bodyLines)-1] == "" {
-		t.Fatalf("bottom edge should be real card content, not a blank buffer line")
+	if got := stripANSI(bodyLines[len(bodyLines)-1]); !strings.Contains(got, "bottom") {
+		t.Fatalf("last card bottom border should include the bottom label, got %q", got)
+	}
+	if got := stripANSI(bodyLines[0]); !strings.Contains(got, "── top ──") {
+		t.Fatalf("top label should be centered inline with the border, got %q", got)
+	}
+	if got := stripANSI(bodyLines[len(bodyLines)-1]); !strings.Contains(got, " bottom ") {
+		t.Fatalf("bottom label should be inline with the border, got %q", got)
 	}
 
+	// In the middle of the list, neither edge label is visible because the
+	// labels scroll with the column content instead of sticking to the frame.
 	m.kanban.card = 4
 	m.renderKanbanBoard(0, width)
-	top, bottom := m.selectedCardBodyLineRange(colWidth)
-	visibleTop := top - m.kanban.rowOffsets[0]
-	visibleBottom := bottom - m.kanban.rowOffsets[0]
-	selectedHeight := bottom - top + 1
-	wantPadding := min(kanbanColumnCameraPadding, (bodyHeight-selectedHeight)/2)
-	if wantPadding < 0 {
-		wantPadding = 0
+	offset := m.kanban.rowOffsets[0]
+	midVisible := strings.Join(bodyLines[offset:min(offset+bodyHeight, len(bodyLines))], "\n")
+	if strings.Contains(stripANSI(midVisible), "top") || strings.Contains(stripANSI(midVisible), "bottom") {
+		t.Fatalf("edge labels should not be sticky in the middle; visible:\n%s", stripANSI(midVisible))
 	}
-	if visibleTop < wantPadding {
-		t.Fatalf("selected card should have camera padding above: visibleTop=%d padding=%d offset=%d",
-			visibleTop, wantPadding, m.kanban.rowOffsets[0])
-	}
-	if below := bodyHeight - 1 - visibleBottom; below < wantPadding {
-		t.Fatalf("selected card should have camera padding below: below=%d padding=%d offset=%d",
-			below, wantPadding, m.kanban.rowOffsets[0])
+
+	m.kanban.card = 0
+	m.renderKanbanBoard(0, width)
+	offset = m.kanban.rowOffsets[0]
+	topVisible := strings.Join(bodyLines[offset:min(offset+bodyHeight, len(bodyLines))], "\n")
+	if !strings.Contains(stripANSI(topVisible), "top") {
+		t.Fatalf("top label should be visible only at the top edge; visible:\n%s", stripANSI(topVisible))
 	}
 
 	m.kanban.card = len(m.kanban.cols[0].Cards) - 1
 	m.renderKanbanBoard(0, width)
-	top, bottom = m.selectedCardBodyLineRange(colWidth)
-	visibleBottom = bottom - m.kanban.rowOffsets[0]
-	selectedHeight = bottom - top + 1
-	wantPadding = min(kanbanColumnCameraPadding, (bodyHeight-selectedHeight)/2)
-	if wantPadding < 0 {
-		wantPadding = 0
-	}
-	if below := bodyHeight - 1 - visibleBottom; below < wantPadding {
-		t.Fatalf("bottom card should retain camera padding below: below=%d padding=%d offset=%d",
-			below, wantPadding, m.kanban.rowOffsets[0])
-	}
-	starts := m.kanbanCardStartLines(0, colWidth)
-	aligned := false
-	for _, start := range starts {
-		if start == m.kanban.rowOffsets[0] {
-			aligned = true
-			break
-		}
-	}
-	if !aligned {
-		t.Fatalf("bottom camera offset should align to a card boundary, got %d starts=%v",
-			m.kanban.rowOffsets[0], starts)
+	offset = m.kanban.rowOffsets[0]
+	bottomVisible := strings.Join(bodyLines[offset:min(offset+bodyHeight, len(bodyLines))], "\n")
+	if !strings.Contains(stripANSI(bottomVisible), "bottom") {
+		t.Fatalf("bottom label should be visible only at the bottom edge; visible:\n%s", stripANSI(bottomVisible))
 	}
 }
 
@@ -838,7 +825,7 @@ func TestKanbanUpAtTopFirstBlockInsertsCleanParagraph(t *testing.T) {
 }
 
 func TestKanbanEntrySymmetric(t *testing.T) {
-	// Both entries should land in the leftmost non-empty column,
+	// First-time entries land in the leftmost non-empty column;
 	// only the card position differs (top → first, bottom → last).
 	md := "para above\n\n" + sampleKanbanMD + "\n\npara below"
 	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
@@ -860,6 +847,11 @@ func TestKanbanEntrySymmetric(t *testing.T) {
 		t.Errorf("entry from above card = %d, want 0", cardTop)
 	}
 
+	m = New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = out.(Model)
+	idx = firstKanban(m)
+
 	// Enter from below: focus paragraph below, navigateUp.
 	m.focusBlock(idx + 1)
 	m.navigateUp()
@@ -873,6 +865,49 @@ func TestKanbanEntrySymmetric(t *testing.T) {
 	wantLast := len(m.kanban.cols[colBot].Cards) - 1
 	if cardBot != wantLast {
 		t.Errorf("entry from below card = %d, want %d (last)", cardBot, wantLast)
+	}
+}
+
+func TestKanbanReEntryRestoresExitedSelection(t *testing.T) {
+	mdLines := []string{"above", "", "```kanban"}
+	for _, title := range []string{"Column 01", "Column 02", "Column 03", "Column 04", "Column 05", "Column 06"} {
+		mdLines = append(mdLines, "## "+title, "- first", "- second")
+	}
+	mdLines = append(mdLines, "```", "", "below")
+	md := strings.Join(mdLines, "\n")
+
+	m := New(Config{Title: "k", Content: md, Save: func(string) error { return nil }})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
+	m = out.(Model)
+	idx := firstKanban(m)
+	if idx < 1 {
+		t.Fatalf("expected kanban after leading paragraph, idx=%d", idx)
+	}
+	m.focusBlock(idx)
+	if m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+
+	for i := 0; i < 5; i++ {
+		m = pressKey(m, "right")
+	}
+	m = pressKey(m, "down")
+	m = pressKey(m, "down")
+	leftCol, leftCard := m.kanbanPositions[idx].col, m.kanbanPositions[idx].card
+	if leftCol != 5 || leftCard != 1 {
+		t.Fatalf("saved position = %d/%d, want 5/1", leftCol, leftCard)
+	}
+
+	m = pressKey(m, "up")
+	if m.kanban == nil {
+		t.Fatalf("kanban should be active after re-entry")
+	}
+	if m.kanban.col != leftCol || m.kanban.card != leftCard {
+		t.Fatalf("re-entry selection = %d/%d, want %d/%d", m.kanban.col, m.kanban.card, leftCol, leftCard)
+	}
+	_ = m.renderBlock(idx)
+	if m.kanban.colOffset == 0 {
+		t.Fatalf("re-entry should keep the horizontal window near the saved column")
 	}
 }
 
@@ -1046,6 +1081,47 @@ func TestKanbanHorizontalScrollFollowsFocus(t *testing.T) {
 	_ = m.renderBlock(idx)
 	if m.kanban.colOffset != 0 {
 		t.Errorf("colOffset should be 0 after returning to first column, got %d", m.kanban.colOffset)
+	}
+}
+
+func TestKanbanInactiveRenderKeepsExitedColumnWindow(t *testing.T) {
+	mdLines := []string{"```kanban"}
+	for _, title := range []string{"Column 01", "Column 02", "Column 03", "Column 04", "Column 05", "Column 06"} {
+		mdLines = append(mdLines, "## "+title, "- card")
+	}
+	mdLines = append(mdLines, "```", "", "below")
+	md := strings.Join(mdLines, "\n")
+
+	m := New(Config{Title: "k", Content: md})
+	out, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
+	m = out.(Model)
+	idx := firstKanban(m)
+	if idx < 0 || m.kanban == nil {
+		t.Fatalf("kanban not initialized")
+	}
+
+	for i := 0; i < 5; i++ {
+		m = pressKey(m, "right")
+	}
+	_ = m.renderBlock(idx)
+	if m.kanban.colOffset == 0 {
+		t.Fatalf("expected horizontal offset before leaving kanban")
+	}
+
+	m = pressKey(m, "down")
+	if m.active != idx+1 {
+		t.Fatalf("active = %d, want paragraph below at %d", m.active, idx+1)
+	}
+	if m.kanban != nil {
+		t.Fatalf("kanban state should be inactive after leaving")
+	}
+
+	rendered := stripANSI(m.renderBlock(idx))
+	if !strings.Contains(rendered, "Column 06") {
+		t.Fatalf("inactive kanban should stay on exited column window; rendered:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Column 01") {
+		t.Fatalf("inactive kanban jumped back to the left edge; rendered:\n%s", rendered)
 	}
 }
 
