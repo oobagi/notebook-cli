@@ -100,13 +100,6 @@ type DividerStyle struct {
 	Color    string // hex; "" means theme.Accent (active) / theme.Muted (inactive)
 }
 
-// DefinitionStyle controls definition list rendering.
-type DefinitionStyle struct {
-	Marker      string // prefix before definition, e.g. "  : "
-	MarkerColor string // hex; "" means theme.Muted
-	TermBold    bool   // whether to bold the term
-}
-
 // EmbedStyle controls embedded note link rendering.
 type EmbedStyle struct {
 	Icon  string // prefix icon, e.g. "↗ "
@@ -127,20 +120,19 @@ type LinkStyle struct {
 
 // BlockStyles groups all per-block-type formatting.
 type BlockStyles struct {
-	Heading1   HeadingStyle
-	Heading2   HeadingStyle
-	Heading3   HeadingStyle
-	Bullet     ListStyle
-	Numbered   NumberedStyle
-	Checklist  ChecklistStyle
-	Code       CodeStyle
-	Quote      QuoteStyle
-	Callout    CalloutStyle
-	Divider    DividerStyle
-	Definition DefinitionStyle
-	Embed      EmbedStyle
-	Table      TableStyle
-	Link   LinkStyle
+	Heading1  HeadingStyle
+	Heading2  HeadingStyle
+	Heading3  HeadingStyle
+	Bullet    ListStyle
+	Numbered  NumberedStyle
+	Checklist ChecklistStyle
+	Code      CodeStyle
+	Quote     QuoteStyle
+	Callout   CalloutStyle
+	Divider   DividerStyle
+	Embed     EmbedStyle
+	Table     TableStyle
+	Link      LinkStyle
 }
 
 // DefaultBlockStyles returns the baseline block styles that match the original
@@ -160,8 +152,8 @@ func DefaultBlockStyles() BlockStyles {
 			CheckedBold:      true,
 			CheckedTextFaint: true,
 		},
-		Code:       CodeStyle{LabelAlign: "left"},
-		Quote:      QuoteStyle{Bar: "\u2502 "},
+		Code:  CodeStyle{LabelAlign: "left"},
+		Quote: QuoteStyle{Bar: "\u2502 "},
 		Callout: CalloutStyle{
 			NoteColor:      "#6CB6FF",
 			TipColor:       "#3FB950",
@@ -169,24 +161,23 @@ func DefaultBlockStyles() BlockStyles {
 			CautionColor:   "#F85149",
 			ImportantColor: "#A371F7",
 		},
-		Divider:    DividerStyle{Char: "\u2500", MaxWidth: 40},
-		Definition: DefinitionStyle{Marker: "  : ", TermBold: true},
-		Embed:      EmbedStyle{Icon: "\u2197 "},
-		Table:      TableStyle{HeaderBold: false},
+		Divider: DividerStyle{Char: "\u2500", MaxWidth: 40},
+		Embed:   EmbedStyle{Icon: "\u2197 "},
+		Table:   TableStyle{HeaderBold: false},
 	}
 }
 
 // Theme holds color values tuned for a specific terminal background.
 type Theme struct {
-	Name         string // preset name, e.g. "dark", "ocean"
-	Primary      string // main accent (cyan on dark, blue on light)
-	Success      string // confirmations
-	Error        string // errors
-	Warning      string // cautions
-	Muted        string // secondary/dim text
-	Border       string // border/separator color
-	Accent       string // accent color for selections/highlights
-	StatusBg     string // status bar background
+	Name       string // preset name, e.g. "dark", "ocean"
+	Primary    string // main accent (cyan on dark, blue on light)
+	Success    string // confirmations
+	Error      string // errors
+	Warning    string // cautions
+	Muted      string // secondary/dim text
+	Border     string // border/separator color
+	Accent     string // accent color for selections/highlights
+	StatusBg   string // status bar background
 	StatusFg   string // status bar foreground
 	Background string // metadata: "dark" or "light" — target background type
 	Blocks     BlockStyles
@@ -194,49 +185,49 @@ type Theme struct {
 
 // Dark is the color scheme for terminals with a dark background.
 var Dark = Theme{
-	Name:         "dark",
-	Primary:      "#00BFFF", // cyan
-	Success:      "#00E676", // green
-	Error:        "#FF5252", // red
-	Warning:      "#FFD740", // yellow
-	Muted:        "#777777", // dim gray
-	Border:       "#555555",
-	Accent:       "#00BFFF",
-	StatusBg:     "#333333",
-	StatusFg:     "#CCCCCC",
+	Name:       "dark",
+	Primary:    "#00BFFF", // cyan
+	Success:    "#00E676", // green
+	Error:      "#FF5252", // red
+	Warning:    "#FFD740", // yellow
+	Muted:      "#777777", // dim gray
+	Border:     "#555555",
+	Accent:     "#00BFFF",
+	StatusBg:   "#333333",
+	StatusFg:   "#CCCCCC",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
 		bs.Bullet.Marker = "  \u25B8  " // ▸ (small right triangle)
 		bs.Checklist.Checked = " [\u2713] "
 		bs.Checklist.Unchecked = " [\u2219] " // ∙
-		bs.Quote.Bar = "\u258F " // ▏ (left one eighth block)
-		bs.Divider.Char = "\u2508" // ┈ (light quadruple dash)
+		bs.Quote.Bar = "\u258F "              // ▏ (left one eighth block)
+		bs.Divider.Char = "\u2508"            // ┈ (light quadruple dash)
 		return bs
 	}(),
 }
 
 // Ocean uses deep blue tones on a dark background.
 var Ocean = Theme{
-	Name:         "ocean",
-	Primary:      "#4FC3F7", // light blue
-	Success:      "#00E676", // green
-	Error:        "#FF5252", // red
-	Warning:      "#FFD740", // yellow
-	Muted:        "#6688AA", // steel blue-gray
-	Border:       "#1A5276",
-	Accent:       "#81D4FA",
-	StatusBg:     "#0D3B66",
-	StatusFg:     "#B3E5FC",
+	Name:       "ocean",
+	Primary:    "#4FC3F7", // light blue
+	Success:    "#00E676", // green
+	Error:      "#FF5252", // red
+	Warning:    "#FFD740", // yellow
+	Muted:      "#6688AA", // steel blue-gray
+	Border:     "#1A5276",
+	Accent:     "#81D4FA",
+	StatusBg:   "#0D3B66",
+	StatusFg:   "#B3E5FC",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
-		bs.Bullet.Marker = "  \u2023  " // ‣
-		bs.Numbered.Format = "  %d\u2502 " // │ separator
-		bs.Checklist.Checked = " \u25C9  " // ◉
+		bs.Bullet.Marker = "  \u2023  "      // ‣
+		bs.Numbered.Format = "  %d\u2502 "   // │ separator
+		bs.Checklist.Checked = " \u25C9  "   // ◉
 		bs.Checklist.Unchecked = " \u25CE  " // ◎
 		bs.Code.LabelAlign = "center"
-		bs.Quote.Bar = "\u2503 " // ┃ (heavy vertical)
+		bs.Quote.Bar = "\u2503 "         // ┃ (heavy vertical)
 		bs.Divider.Char = "\u2500\u2508" // ─┈ (alternating)
 		return bs
 	}(),
@@ -244,25 +235,25 @@ var Ocean = Theme{
 
 // Forest uses green tones on a dark background.
 var Forest = Theme{
-	Name:         "forest",
-	Primary:      "#66BB6A", // medium green
-	Success:      "#A5D6A7", // light green
-	Error:        "#EF5350", // red
-	Warning:      "#FFD54F", // amber
-	Muted:        "#6B8E6B", // sage
-	Border:       "#2E5E2E",
-	Accent:       "#81C784",
-	StatusBg:     "#1B4332",
-	StatusFg:     "#C8E6C9",
+	Name:       "forest",
+	Primary:    "#66BB6A", // medium green
+	Success:    "#A5D6A7", // light green
+	Error:      "#EF5350", // red
+	Warning:    "#FFD54F", // amber
+	Muted:      "#6B8E6B", // sage
+	Border:     "#2E5E2E",
+	Accent:     "#81C784",
+	StatusBg:   "#1B4332",
+	StatusFg:   "#C8E6C9",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
-		bs.Bullet.Marker = "  \u2192  " // →
+		bs.Bullet.Marker = "  \u2192  "    // →
 		bs.Numbered.Format = "  %d\u00BB " // » separator
 		bs.Checklist.Checked = " [\u2713] "
 		bs.Checklist.Unchecked = " [\u00B7] "
 		bs.Code.LabelAlign = "center"
-		bs.Quote.Bar = "\u2595 " // ▕ (right one eighth block)
+		bs.Quote.Bar = "\u2595 "         // ▕ (right one eighth block)
 		bs.Divider.Char = "\u2500\u253C" // ─┼ (cross pattern)
 		return bs
 	}(),
@@ -270,26 +261,26 @@ var Forest = Theme{
 
 // Sunset uses warm orange and amber tones on a dark background.
 var Sunset = Theme{
-	Name:         "sunset",
-	Primary:      "#FFB74D", // orange
-	Success:      "#81C784", // green
-	Error:        "#E57373", // soft red
-	Warning:      "#FFF176", // yellow
-	Muted:        "#A1887F", // brown-gray
-	Border:       "#5D4037",
-	Accent:       "#FFCC80",
-	StatusBg:     "#4E342E",
-	StatusFg:     "#FFECB3",
+	Name:       "sunset",
+	Primary:    "#FFB74D", // orange
+	Success:    "#81C784", // green
+	Error:      "#E57373", // soft red
+	Warning:    "#FFF176", // yellow
+	Muted:      "#A1887F", // brown-gray
+	Border:     "#5D4037",
+	Accent:     "#FFCC80",
+	StatusBg:   "#4E342E",
+	StatusFg:   "#FFECB3",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
 		bs.Heading1.Text = TextStyle{Bold: true, Italic: true}
 		bs.Bullet.Marker = "  \u2605  " // ★
 		bs.Numbered.Format = "  %d) "
-		bs.Checklist.Checked = " \u25C6  " // ◆
+		bs.Checklist.Checked = " \u25C6  "   // ◆
 		bs.Checklist.Unchecked = " \u25C7  " // ◇
 		bs.Code.LabelAlign = "right"
-		bs.Quote.Bar = "\u2503 " // ┃
+		bs.Quote.Bar = "\u2503 "   // ┃
 		bs.Divider.Char = "\u2053" // ⁓ (swung dash)
 		return bs
 	}(),
@@ -297,16 +288,16 @@ var Sunset = Theme{
 
 // Monochrome uses grayscale tones on a dark background.
 var Monochrome = Theme{
-	Name:         "monochrome",
-	Primary:      "#E0E0E0", // near white
-	Success:      "#BDBDBD", // light gray
-	Error:        "#F5F5F5", // bright white
-	Warning:      "#EEEEEE", // off-white
-	Muted:        "#757575", // mid gray
-	Border:       "#616161",
-	Accent:       "#FAFAFA",
-	StatusBg:     "#424242",
-	StatusFg:     "#E0E0E0",
+	Name:       "monochrome",
+	Primary:    "#E0E0E0", // near white
+	Success:    "#BDBDBD", // light gray
+	Error:      "#F5F5F5", // bright white
+	Warning:    "#EEEEEE", // off-white
+	Muted:      "#757575", // mid gray
+	Border:     "#616161",
+	Accent:     "#FAFAFA",
+	StatusBg:   "#424242",
+	StatusFg:   "#E0E0E0",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
@@ -321,16 +312,16 @@ var Monochrome = Theme{
 
 // Rose uses pink tones on a dark background.
 var Rose = Theme{
-	Name:         "rose",
-	Primary:      "#F48FB1", // pink
-	Success:      "#A5D6A7", // light green
-	Error:        "#EF5350", // red
-	Warning:      "#FFD54F", // amber
-	Muted:        "#AD8B9E", // dusty rose
-	Border:       "#6D3B55",
-	Accent:       "#F8BBD0",
-	StatusBg:     "#4A1942",
-	StatusFg:     "#FCE4EC",
+	Name:       "rose",
+	Primary:    "#F48FB1", // pink
+	Success:    "#A5D6A7", // light green
+	Error:      "#EF5350", // red
+	Warning:    "#FFD54F", // amber
+	Muted:      "#AD8B9E", // dusty rose
+	Border:     "#6D3B55",
+	Accent:     "#F8BBD0",
+	StatusBg:   "#4A1942",
+	StatusFg:   "#FCE4EC",
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
@@ -338,7 +329,7 @@ var Rose = Theme{
 		bs.Heading3.Text = TextStyle{Bold: true, Italic: true, Color: "-"}
 		bs.Bullet.Marker = "  \u25E6  " // ◦
 		bs.Numbered.Format = "  %d\u2502 "
-		bs.Checklist.Checked = "  \u2764  " // ❤ (heart)
+		bs.Checklist.Checked = "  \u2764  "   // ❤ (heart)
 		bs.Checklist.Unchecked = "  \u25CB  " // ○
 		bs.Code.LabelAlign = "center"
 		bs.Quote.Bar = "\u2502 "
@@ -366,10 +357,10 @@ var Cyberpunk = Theme{
 		bs.Heading1.Text = TextStyle{Bold: true, Underline: true}
 		bs.Bullet.Marker = "  \u00BB  " // »
 		bs.Numbered.Format = "  [%d] "
-		bs.Checklist.Checked = " [\u2588] "  // █ (full block)
+		bs.Checklist.Checked = " [\u2588] "   // █ (full block)
 		bs.Checklist.Unchecked = " [\u2591] " // ░ (light shade)
 		bs.Code.LabelAlign = "center"
-		bs.Quote.Bar = "\u2551 " // ║ (double vertical)
+		bs.Quote.Bar = "\u2551 "   // ║ (double vertical)
 		bs.Divider.Char = "\u2550" // ═ (double horizontal)
 		return bs
 	}(),
@@ -393,9 +384,9 @@ var Minimal = Theme{
 		bs.Heading1.Text = TextStyle{Bold: true, Color: "-"}
 		bs.Heading2.Text = TextStyle{Bold: true, Color: "-"}
 		bs.Heading3.Text = TextStyle{Faint: true, Color: "-"}
-		bs.Bullet.Marker = "  \u2013  " // – (en dash)
-		bs.Numbered.Format = "  %d\u2502 " // │ separator
-		bs.Checklist.Checked = "  \u2714  "  // ✔
+		bs.Bullet.Marker = "  \u2013  "       // – (en dash)
+		bs.Numbered.Format = "  %d\u2502 "    // │ separator
+		bs.Checklist.Checked = "  \u2714  "   // ✔
 		bs.Checklist.Unchecked = "  \u00B7  " // ·
 		bs.Checklist.CheckedBold = false
 		bs.Code.LabelAlign = "right"
@@ -448,8 +439,8 @@ var Nord = Theme{
 	Background: "dark",
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
-		bs.Bullet.Marker = "  \u2043  " // ⁃ (hyphen bullet)
-		bs.Checklist.Checked = " [\u2713] "  // ✓
+		bs.Bullet.Marker = "  \u2043  "       // ⁃ (hyphen bullet)
+		bs.Checklist.Checked = " [\u2713] "   // ✓
 		bs.Checklist.Unchecked = " [\u2219] " // ∙ (bullet operator)
 		bs.Code.LabelAlign = "left"
 		bs.Quote.Bar = "\u2502 "
@@ -478,7 +469,7 @@ var Solarized = Theme{
 		bs.Checklist.Checked = " (\u2713) "
 		bs.Checklist.Unchecked = " ( ) "
 		bs.Code.LabelAlign = "center"
-		bs.Quote.Bar = "\u2503 " // ┃ (heavy)
+		bs.Quote.Bar = "\u2503 "   // ┃ (heavy)
 		bs.Divider.Char = "\u2504" // ┄ (dashed)
 		return bs
 	}(),
@@ -502,10 +493,10 @@ var Dracula = Theme{
 		bs.Heading1.Text = TextStyle{Bold: true, Italic: true}
 		bs.Bullet.Marker = "  \u2766  " // ❦ (floral heart)
 		bs.Numbered.Format = "  %d\u2502 "
-		bs.Checklist.Checked = " \u25A3  " // ▣ (filled square)
+		bs.Checklist.Checked = " \u25A3  "   // ▣ (filled square)
 		bs.Checklist.Unchecked = " \u25A2  " // ▢ (empty square)
 		bs.Code.LabelAlign = "left"
-		bs.Quote.Bar = "\u2590 " // ▐ (right half block)
+		bs.Quote.Bar = "\u2590 "         // ▐ (right half block)
 		bs.Divider.Char = "\u2500\u2504" // ─┄ (solid-dashed)
 		return bs
 	}(),
@@ -528,7 +519,7 @@ var Tokyo = Theme{
 		bs := DefaultBlockStyles()
 		bs.Bullet.Marker = "  \u2514  " // └
 		bs.Numbered.Format = "  [%d] "
-		bs.Checklist.Checked = " \u2611  " // ☑ (ballot box checked)
+		bs.Checklist.Checked = " \u2611  "   // ☑ (ballot box checked)
 		bs.Checklist.Unchecked = " \u2610  " // ☐ (ballot box)
 		bs.Code.LabelAlign = "right"
 		bs.Quote.Bar = "\u258E " // ▎ (left one quarter block)
@@ -554,8 +545,8 @@ var Lavender = Theme{
 		bs := DefaultBlockStyles()
 		bs.Heading1.Text = TextStyle{Bold: true, Italic: true}
 		bs.Heading3.Text = TextStyle{Italic: true, Color: "-"}
-		bs.Bullet.Marker = "  \u2727  " // ✧
-		bs.Checklist.Checked = " \u2726  " // ✦
+		bs.Bullet.Marker = "  \u2727  "      // ✧
+		bs.Checklist.Checked = " \u2726  "   // ✦
 		bs.Checklist.Unchecked = " \u2727  " // ✧
 		bs.Checklist.CheckedTextFaint = false
 		bs.Code.LabelAlign = "center"
@@ -582,12 +573,12 @@ var Ember = Theme{
 	Blocks: func() BlockStyles {
 		bs := DefaultBlockStyles()
 		bs.Heading1.Text = TextStyle{Bold: true, Underline: true}
-		bs.Bullet.Marker = "  \u25B6  " // ▶ (right triangle)
-		bs.Numbered.Format = "  %d\u25B8 " // ▸ separator
-		bs.Checklist.Checked = " \u25CF  " // ● (filled circle)
+		bs.Bullet.Marker = "  \u25B6  "      // ▶ (right triangle)
+		bs.Numbered.Format = "  %d\u25B8 "   // ▸ separator
+		bs.Checklist.Checked = " \u25CF  "   // ● (filled circle)
 		bs.Checklist.Unchecked = " \u25CB  " // ○ (empty circle)
 		bs.Code.LabelAlign = "left"
-		bs.Quote.Bar = "\u2588 " // █ (full block)
+		bs.Quote.Bar = "\u2588 "   // █ (full block)
 		bs.Divider.Char = "\u2501" // ━ (heavy horizontal)
 		return bs
 	}(),
@@ -679,4 +670,3 @@ func init() {
 		Catppuccin,
 	}
 }
-

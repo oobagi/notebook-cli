@@ -1376,9 +1376,8 @@ func TestBrowserThemePickerViewContent(t *testing.T) {
 	if !containsStr(view, "ocean") {
 		t.Errorf("view should list 'ocean' preset, got:\n%s", view)
 	}
-	// Should contain navigation hint.
-	if !containsStr(view, "navigate") {
-		t.Errorf("view should contain navigation hint, got:\n%s", view)
+	if !containsStr(view, "Enter apply") {
+		t.Errorf("view should contain apply hint, got:\n%s", view)
 	}
 }
 

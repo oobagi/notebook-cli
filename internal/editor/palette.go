@@ -10,9 +10,9 @@ import (
 // palette is the "/" command palette for changing a block's type.
 type palette struct {
 	ui.Picker
-	blockIdx    int            // which block triggered the palette
+	blockIdx    int             // which block triggered the palette
 	currentType block.BlockType // current block type (for visual indicator)
-	hasContent  bool           // whether the block has content (hides Divider)
+	hasContent  bool            // whether the block has content (hides Divider)
 }
 
 // paletteItem describes one entry in the palette.
@@ -81,7 +81,6 @@ var paletteItemDefs = []struct {
 	{"\u229e", "Table", block.Table},
 	{"\u25a6", "Kanban", block.Kanban},
 	{">", "Quote", block.Quote},
-	{":", "Definition", block.DefinitionList},
 	{"!", "Callout", block.Callout},
 	{"\u2014", "Divider", block.Divider},
 	{"\u2197", "Embed", block.Embed},

@@ -222,30 +222,30 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:  "definition list single item",
+			name:  "colon definition syntax stays paragraph text",
 			input: "Term\n: Definition text here",
 			expect: []Block{
-				{Type: DefinitionList, Content: "Term\nDefinition text here"},
+				{Type: Paragraph, Content: "Term\n: Definition text here"},
 			},
 		},
 		{
-			name:  "definition list multiple items",
+			name:  "multiple colon definition sections stay paragraphs",
 			input: "Term One\n: First definition\n\nTerm Two\n: Second definition",
 			expect: []Block{
-				{Type: DefinitionList, Content: "Term One\nFirst definition"},
+				{Type: Paragraph, Content: "Term One\n: First definition"},
 				{Type: Paragraph, Content: ""},
-				{Type: DefinitionList, Content: "Term Two\nSecond definition"},
+				{Type: Paragraph, Content: "Term Two\n: Second definition"},
 			},
 		},
 		{
-			name:  "definition list in mixed document",
+			name:  "colon definition syntax in mixed document stays paragraphs",
 			input: "# Glossary\n\nAPI\n: Application Programming Interface\n\nSDK\n: Software Development Kit",
 			expect: []Block{
 				{Type: Heading1, Content: "Glossary"},
 				{Type: Paragraph, Content: ""},
-				{Type: DefinitionList, Content: "API\nApplication Programming Interface"},
+				{Type: Paragraph, Content: "API\n: Application Programming Interface"},
 				{Type: Paragraph, Content: ""},
-				{Type: DefinitionList, Content: "SDK\nSoftware Development Kit"},
+				{Type: Paragraph, Content: "SDK\n: Software Development Kit"},
 			},
 		},
 		{
@@ -313,42 +313,42 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:  "link titled link",
+			name:  "standalone titled link stays paragraph",
 			input: "[Example](https://example.com)",
 			expect: []Block{
-				{Type: Link, Content: "https://example.com\nExample"},
+				{Type: Paragraph, Content: "[Example](https://example.com)"},
 			},
 		},
 		{
-			name:  "link bare url",
+			name:  "standalone bare url stays paragraph",
 			input: "https://example.com",
 			expect: []Block{
-				{Type: Link, Content: "https://example.com"},
+				{Type: Paragraph, Content: "https://example.com"},
 			},
 		},
 		{
-			name:  "link http url",
+			name:  "standalone http url stays paragraph",
 			input: "http://example.com/path?q=1",
 			expect: []Block{
-				{Type: Link, Content: "http://example.com/path?q=1"},
+				{Type: Paragraph, Content: "http://example.com/path?q=1"},
 			},
 		},
 		{
-			name:  "link between paragraphs",
+			name:  "standalone link between paragraphs stays paragraph",
 			input: "above\n\n[Site](https://site.io)\n\nbelow",
 			expect: []Block{
 				{Type: Paragraph, Content: "above"},
 				{Type: Paragraph, Content: ""},
-				{Type: Link, Content: "https://site.io\nSite"},
+				{Type: Paragraph, Content: "[Site](https://site.io)"},
 				{Type: Paragraph, Content: ""},
 				{Type: Paragraph, Content: "below"},
 			},
 		},
 		{
-			name:  "link titled link with empty title",
+			name:  "standalone empty-title link stays paragraph",
 			input: "[](https://example.com)",
 			expect: []Block{
-				{Type: Link, Content: "https://example.com"},
+				{Type: Paragraph, Content: "[](https://example.com)"},
 			},
 		},
 		{
@@ -411,14 +411,10 @@ func formatBlocks(blocks []Block) string {
 			b.WriteString("Quote")
 		case Divider:
 			b.WriteString("Divider")
-		case DefinitionList:
-			b.WriteString("DefinitionList")
 		case Embed:
 			b.WriteString("Embed")
 		case Table:
 			b.WriteString("Table")
-		case Link:
-			b.WriteString("Link")
 		}
 		if bl.Content != "" {
 			b.WriteString(" " + bl.Content)

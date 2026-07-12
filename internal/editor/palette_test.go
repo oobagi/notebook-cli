@@ -138,17 +138,16 @@ func TestPaletteContainsAllBlockTypes(t *testing.T) {
 	items := defaultPaletteItems(-1)
 
 	expectedTypes := map[block.BlockType]bool{
-		block.Paragraph:      true,
-		block.Heading1:       true,
-		block.Heading2:       true,
-		block.Heading3:       true,
-		block.BulletList:     true,
-		block.NumberedList:   true,
-		block.Checklist:      true,
-		block.CodeBlock:      true,
-		block.Quote:          true,
-		block.Divider:        true,
-		block.DefinitionList: true,
+		block.Paragraph:    true,
+		block.Heading1:     true,
+		block.Heading2:     true,
+		block.Heading3:     true,
+		block.BulletList:   true,
+		block.NumberedList: true,
+		block.Checklist:    true,
+		block.CodeBlock:    true,
+		block.Quote:        true,
+		block.Divider:      true,
 	}
 
 	for _, item := range items {
@@ -361,6 +360,36 @@ func TestContentPreservedAfterTypeChange(t *testing.T) {
 
 	if m.textareas[m.active].Value() != "hello world" {
 		t.Fatalf("content should be preserved after type change, got %q", m.textareas[m.active].Value())
+	}
+}
+
+func TestPaletteLinkInsertsInlineMarkdownTemplate(t *testing.T) {
+	m := New(Config{Title: "test", Content: "hello world"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	m.textareas[m.active].SetCursorColumn(0)
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updated.(Model)
+	if !m.palette.Visible {
+		t.Fatal("palette should be visible")
+	}
+
+	for _, r := range "link" {
+		updated, _ = m.Update(tea.KeyPressMsg{Code: rune(r), Text: string(r)})
+		m = updated.(Model)
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+
+	if m.blocks[m.active].Type != block.Paragraph {
+		t.Fatalf("/link should keep the current text block type, got %v", m.blocks[m.active].Type)
+	}
+	if got, want := m.textareas[m.active].Value(), "[](https://)hello world"; got != want {
+		t.Fatalf("/link inserted %q, want %q", got, want)
+	}
+	if got, want := m.textareas[m.active].LineInfo().ColumnOffset, len([]rune("[")); got != want {
+		t.Fatalf("cursor column = %d, want %d", got, want)
 	}
 }
 

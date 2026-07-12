@@ -1,27 +1,6 @@
 package block
 
-import (
-	"regexp"
-	"strings"
-)
-
-var (
-	linkLinkRe = regexp.MustCompile(`^\[([^\]]*)\]\((https?://[^\s)]+)\)\s*$`)
-	linkBareRe = regexp.MustCompile(`^(https?://\S+)\s*$`)
-)
-
-// ParseLink reports whether a single line is a link — either a
-// titled markdown link `[title](url)` or a bare http(s) URL — and returns
-// the extracted title (may be empty) and URL.
-func ParseLink(line string) (title, url string, ok bool) {
-	if m := linkLinkRe.FindStringSubmatch(line); m != nil {
-		return m[1], m[2], true
-	}
-	if m := linkBareRe.FindStringSubmatch(line); m != nil {
-		return "", m[1], true
-	}
-	return "", "", false
-}
+import "strings"
 
 // stripListIndent counts leading 4-space groups on a line.
 func stripListIndent(line string) (indent int, stripped string) {
@@ -221,35 +200,6 @@ func Parse(markdown string) []Block {
 			continue
 		}
 
-		// --- Link ([title](url) or bare URL on its own line) ---
-		// Content is stored URL-first so the edit form presents URL above
-		// title; when title is empty, only the URL is stored.
-		if title, url, ok := ParseLink(line); ok {
-			content := url
-			if title != "" {
-				content = url + "\n" + title
-			}
-			blocks = append(blocks, Block{Type: Link, Content: content})
-			i++
-			continue
-		}
-
-		// --- Definition (term followed by one or more ": definition" lines) ---
-		if i+1 < len(lines) && !isBlockStart(line) && isDefinitionLine(lines[i+1]) {
-			term := line
-			i++
-			var defs []string
-			for i < len(lines) && isDefinitionLine(lines[i]) {
-				defs = append(defs, strings.TrimPrefix(lines[i], ": "))
-				i++
-			}
-			blocks = append(blocks, Block{
-				Type:    DefinitionList,
-				Content: term + "\n" + strings.Join(defs, "\n"),
-			})
-			continue
-		}
-
 		// --- Paragraph (merge consecutive non-special lines) ---
 		var paraLines []string
 		for i < len(lines) {
@@ -286,7 +236,6 @@ func isBlockStart(line string) bool {
 		strings.HasPrefix(line, "## ") ||
 		strings.HasPrefix(line, "### ") ||
 		strings.HasPrefix(line, "> ") ||
-		strings.HasPrefix(line, ": ") ||
 		strings.HasPrefix(line, "|") {
 		return true
 	}
@@ -302,15 +251,7 @@ func isBlockStart(line string) bool {
 	if strings.HasPrefix(line, "![[") && strings.HasSuffix(line, "]]") {
 		return true
 	}
-	if _, _, ok := ParseLink(line); ok {
-		return true
-	}
 	return isDivider(line)
-}
-
-// isDefinitionLine reports whether a line starts a definition (": ").
-func isDefinitionLine(line string) bool {
-	return strings.HasPrefix(line, ": ")
 }
 
 // isDivider reports whether a line is a thematic break (---, ***, or ___).

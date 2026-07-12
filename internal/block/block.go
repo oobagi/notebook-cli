@@ -12,22 +12,21 @@ import "strings"
 type BlockType int
 
 const (
-	Paragraph      BlockType = iota // plain text paragraph
-	Heading1                        // # heading
-	Heading2                        // ## heading
-	Heading3                        // ### heading
-	BulletList                      // - or * list item
-	NumberedList                    // 1. numbered list item
-	Checklist                       // - [ ] or - [x] checklist item
-	CodeBlock                       // fenced code block (``` ... ```)
-	Quote                           // > block quote
-	Divider                         // ---, ***, or ___
-	DefinitionList                  // term\n: definition
-	Embed                           // ![[path]] embedded note reference
-	Callout                         // > [!NOTE] callout/admonition
-	Table                           // GFM pipe table
-	Kanban                          // ```kanban``` fenced kanban board
-	Link                            // [title](url) link card
+	Paragraph    BlockType = iota // plain text paragraph
+	Heading1                      // # heading
+	Heading2                      // ## heading
+	Heading3                      // ### heading
+	BulletList                    // - or * list item
+	NumberedList                  // 1. numbered list item
+	Checklist                     // - [ ] or - [x] checklist item
+	CodeBlock                     // fenced code block (``` ... ```)
+	Quote                         // > block quote
+	Divider                       // ---, ***, or ___
+	Embed                         // ![[path]] embedded note reference
+	Callout                       // > [!NOTE] callout/admonition
+	Table                         // GFM pipe table
+	Kanban                        // ```kanban``` fenced kanban board
+	Link                          // [title](url) link card
 )
 
 // String returns the human-readable name of a BlockType.
@@ -53,8 +52,6 @@ func (bt BlockType) String() string {
 		return "Quote"
 	case Divider:
 		return "Divider"
-	case DefinitionList:
-		return "DefinitionList"
 	case Embed:
 		return "Embed"
 	case Callout:
@@ -103,8 +100,6 @@ func (bt BlockType) Short() string {
 		return "qt"
 	case Divider:
 		return "hr"
-	case DefinitionList:
-		return "df"
 	case Embed:
 		return "em"
 	case Callout:
@@ -338,17 +333,6 @@ func CountNumberedPosition(blocks []Block, idx int) int {
 		}
 	}
 	return num
-}
-
-// ExtractDefinition splits a definition list block's content into its term
-// (first line) and definition (remaining lines). The content stores both
-// parts separated by a newline.
-func ExtractDefinition(content string) (term, definition string) {
-	first, rest, found := strings.Cut(content, "\n")
-	if found {
-		return first, rest
-	}
-	return first, ""
 }
 
 // ExtractLink splits a link block's content into its URL line (first line)

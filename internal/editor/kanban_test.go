@@ -787,10 +787,9 @@ func TestKanbanSwallowsPlainPrintableKeys(t *testing.T) {
 	}
 }
 
-func TestKanbanUpAtTopFirstBlockInsertsCleanParagraph(t *testing.T) {
-	// Repro: kanban is the first (and only) block, user presses up.
-	// A paragraph should be inserted before, but the paragraph must be
-	// EMPTY — not contain the kanban's serialized content.
+func TestKanbanUpAtTopFirstBlockDoesNotInsertParagraph(t *testing.T) {
+	// Kanban is the first (and only) block. Pressing up at the top edge should
+	// stay put instead of creating a paragraph above it.
 	m := New(Config{Title: "k", Content: sampleKanbanMD, Save: func(string) error { return nil }})
 	out, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = out.(Model)
@@ -807,20 +806,17 @@ func TestKanbanUpAtTopFirstBlockInsertsCleanParagraph(t *testing.T) {
 
 	beforeBlocks := len(m.blocks)
 	m = pressKey(m, "up")
-	if len(m.blocks) != beforeBlocks+1 {
-		t.Fatalf("blocks count: %d → %d, want +1", beforeBlocks, len(m.blocks))
+	if len(m.blocks) != beforeBlocks {
+		t.Fatalf("blocks count: %d → %d, want unchanged", beforeBlocks, len(m.blocks))
 	}
-	if m.blocks[0].Type != block.Paragraph {
-		t.Errorf("inserted block type = %v, want Paragraph", m.blocks[0].Type)
+	if m.active != 0 {
+		t.Fatalf("active = %d, want 0", m.active)
 	}
-	if m.blocks[0].Content != "" {
-		t.Errorf("inserted paragraph should be empty, got %q", m.blocks[0].Content)
+	if m.blocks[0].Type != block.Kanban {
+		t.Errorf("first block should remain Kanban, got %v", m.blocks[0].Type)
 	}
-	if m.blocks[1].Type != block.Kanban {
-		t.Errorf("kanban should now be at index 1, got %v", m.blocks[1].Type)
-	}
-	if !strings.Contains(m.blocks[1].Content, "## Todo") {
-		t.Errorf("kanban content corrupted: %q", m.blocks[1].Content)
+	if !strings.Contains(m.blocks[0].Content, "## Todo") {
+		t.Errorf("kanban content corrupted: %q", m.blocks[0].Content)
 	}
 }
 

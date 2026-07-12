@@ -699,9 +699,9 @@ func renderKanbanCardWithLabels(card block.KanbanCard, outerWidth int, selected,
 		if wordWrap {
 			// Wrap the plain text first (wrap uses visual width and would
 			// miscount ANSI escapes), then apply inline markdown formatting.
-			text = format.RenderInlineMarkdown(wrapPlain(card.Text, contentWidth))
+			text = renderInlineMarkdownBlockText(block.Paragraph, wrapPlain(card.Text, contentWidth), contentWidth, false, "")
 		} else {
-			lines := strings.Split(format.RenderInlineMarkdown(card.Text), "\n")
+			lines := strings.Split(renderInlineMarkdownBlockText(block.Paragraph, card.Text, contentWidth, false, ""), "\n")
 			for i, l := range lines {
 				lines[i] = scrollOrTruncate(l, contentWidth, 0, false)
 			}
@@ -1152,9 +1152,6 @@ func (m *Model) handleKanbanKey(msg tea.KeyPressMsg) (handled bool, cmd tea.Cmd)
 		if m.kanban.card <= 0 || len(col.Cards) == 0 {
 			if m.active > 0 {
 				m.navigateUp()
-			} else if m.blocks[0].Type != block.Paragraph {
-				m.pushUndo()
-				m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
 			}
 			return true, nil
 		}

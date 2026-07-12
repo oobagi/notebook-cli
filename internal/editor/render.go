@@ -362,59 +362,6 @@ func (m Model) renderActiveBlock(idx int, b block.Block, _ string) string {
 		}
 		rendered = strings.Join(lines, "\n")
 
-	case block.DefinitionList:
-		bs := th.Blocks.Definition
-		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
-		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
-		rawLines := strings.Split(ta.Value(), "\n")
-		lines := strings.Split(taView, "\n")
-
-		// Build a map: for each raw line, how many visual lines it occupies.
-		// Visual line index → (rawLineIdx, isFirstVisualLine).
-		type visInfo struct {
-			rawIdx  int
-			isFirst bool
-		}
-		visMap := make([]visInfo, len(lines))
-		visIdx := 0
-		for ri, raw := range rawLines {
-			nVis := 1
-			if m.wordWrap {
-				segs := textarea.Wrap([]rune(raw), contentWidth)
-				if len(segs) > 0 {
-					nVis = len(segs)
-				}
-			}
-			for v := 0; v < nVis && visIdx < len(lines); v++ {
-				visMap[visIdx] = visInfo{rawIdx: ri, isFirst: v == 0}
-				visIdx++
-			}
-		}
-
-		for i, l := range lines {
-			vi := visMap[i]
-			if vi.rawIdx == 0 {
-				// Term line: no prefix, just bold + placeholder.
-				if rawLines[0] == "" && vi.isFirst {
-					lines[i] = renderPlaceholder("Term", cursorVisIdx == i)
-				} else if bs.TermBold {
-					lines[i] = styleAroundCursor(l, lipgloss.NewStyle().Bold(true), cursorByteOffset, cursorLen, cursorVisIdx-i)
-				}
-			} else if vi.isFirst {
-				// First visual line of a definition: marker prefix.
-				if rawLines[vi.rawIdx] == "" {
-					lines[i] = marker + renderPlaceholder("Definition", cursorVisIdx == i)
-				} else {
-					lines[i] = marker + l
-				}
-			} else {
-				// Wrapped continuation: indent to match marker width.
-				lines[i] = markerIndent + l
-			}
-		}
-		rendered = strings.Join(lines, "\n")
-
 	case block.Embed:
 		bs := th.Blocks.Embed
 		embedColor := resolveColor(bs.Color, th.Accent)
@@ -855,14 +802,12 @@ func renderInactiveBlockWithKanbanOffset(b block.Block, content string, width in
 
 	// Wrap content to fit within the available width.
 	wrapped := content
-	if wordWrap {
-		wrapped = wrapText(content, contentWidth)
-	}
-
-	// Apply inline markdown formatting (bold, italic, etc.) to all blocks
-	// except code blocks, which display raw content.
+	// Apply inline markdown formatting (bold, italic, links, etc.) to all
+	// blocks except code blocks, which display raw content.
 	if b.Type != block.CodeBlock {
-		wrapped = format.RenderInlineMarkdown(wrapped)
+		wrapped = renderInlineMarkdownBlockText(b.Type, content, contentWidth, wordWrap, "")
+	} else if wordWrap {
+		wrapped = wrapText(content, contentWidth)
 	}
 
 	var rendered string
@@ -982,43 +927,6 @@ func renderInactiveBlockWithKanbanOffset(b block.Block, content string, width in
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
 
-	case block.DefinitionList:
-		bs := th.Blocks.Definition
-		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
-		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
-		term, def := block.ExtractDefinition(content)
-		termWrapped := term
-		if wordWrap {
-			// Term has no marker prefix; contentWidth already subtracts
-			// blockPrefixWidth (marker), so term wraps at the same width
-			// as the textarea in active mode.
-			termWrapped = wrapText(term, contentWidth)
-		}
-		termWrapped = format.RenderInlineMarkdown(termWrapped)
-		if bs.TermBold {
-			termWrapped = lipgloss.NewStyle().Bold(true).Render(termWrapped)
-		}
-		// Definition lines wrap at contentWidth — the marker is rendered
-		// within the prefix space already reserved by blockPrefixWidth.
-		// Do NOT subtract marker width again.
-		var defOutput []string
-		for _, rawDef := range strings.Split(def, "\n") {
-			dw := rawDef
-			if wordWrap {
-				dw = wrapText(rawDef, contentWidth)
-			}
-			dw = format.RenderInlineMarkdown(dw)
-			for j, vl := range strings.Split(dw, "\n") {
-				if j == 0 {
-					defOutput = append(defOutput, marker+vl)
-				} else {
-					defOutput = append(defOutput, markerIndent+vl)
-				}
-			}
-		}
-		rendered = termWrapped + "\n" + strings.Join(defOutput, "\n")
-
 	case block.Embed:
 		bs := th.Blocks.Embed
 		embedColor := resolveColor(bs.Color, th.Accent)
@@ -1084,7 +992,7 @@ func renderInactiveBlockWithKanbanOffset(b block.Block, content string, width in
 
 // renderViewBlock renders a block for view mode: styled static text without
 // the gutter, centered in a constrained content column for clean reading.
-func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool, kanbanOffset int) string {
+func renderViewBlock(b block.Block, content string, width int, wordWrap bool, blocks []block.Block, idx int, hovered bool, hoverLinkURL string, kanbanOffset int) string {
 	// Width here is the content column width (already constrained to viewMaxWidth).
 	contentWidth := width - blockPrefixWidth(b)
 	if contentWidth < 1 {
@@ -1093,13 +1001,14 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 
 	th := theme.Current()
 
-	// Always wrap in view mode regardless of the no-wrap setting.
-	wrapped := wrapText(content, contentWidth)
-
-	// Apply inline markdown formatting (bold, italic, etc.) to all blocks
-	// except code blocks, which display raw content.
+	// Apply inline markdown formatting (bold, italic, links, etc.) to all
+	// blocks except code blocks, which display raw content. View mode always
+	// wraps regardless of the edit-mode no-wrap setting.
+	wrapped := content
 	if b.Type != block.CodeBlock {
-		wrapped = format.RenderInlineMarkdown(wrapped)
+		wrapped = renderInlineMarkdownBlockText(b.Type, content, contentWidth, true, hoverLinkURL)
+	} else {
+		wrapped = wrapText(content, contentWidth)
 	}
 
 	var rendered string
@@ -1217,32 +1126,6 @@ func renderViewBlock(b block.Block, content string, width int, wordWrap bool, bl
 			divLine = string(runes[:width])
 		}
 		rendered = lipgloss.NewStyle().Foreground(lipgloss.Color(divColor)).Render(divLine)
-
-	case block.DefinitionList:
-		bs := th.Blocks.Definition
-		markerColor := resolveColor(bs.MarkerColor, th.Muted)
-		marker := lipgloss.NewStyle().Foreground(lipgloss.Color(markerColor)).Render(bs.Marker)
-		markerIndent := strings.Repeat(" ", lipgloss.Width(marker))
-		term, def := block.ExtractDefinition(content)
-		termWrapped := wrapText(term, contentWidth)
-		termWrapped = format.RenderInlineMarkdown(termWrapped)
-		if bs.TermBold {
-			termWrapped = lipgloss.NewStyle().Bold(true).Render(termWrapped)
-		}
-		// contentWidth already has marker space reserved via blockPrefixWidth.
-		var defOutput []string
-		for _, rawDef := range strings.Split(def, "\n") {
-			dw := wrapText(rawDef, contentWidth)
-			dw = format.RenderInlineMarkdown(dw)
-			for j, vl := range strings.Split(dw, "\n") {
-				if j == 0 {
-					defOutput = append(defOutput, marker+vl)
-				} else {
-					defOutput = append(defOutput, markerIndent+vl)
-				}
-			}
-		}
-		rendered = termWrapped + "\n" + strings.Join(defOutput, "\n")
 
 	case block.Embed:
 		bs := th.Blocks.Embed

@@ -55,9 +55,6 @@ const showcaseContent = "" +
 	"| Enter on empty row      | Exit table          |\n\n" +
 	"## Quotes\n\n" +
 	"> The best way to predict the future is to invent it.\n> \u2014 Alan Kay\n\n" +
-	"## Definitions\n\n" +
-	"Press **:** on an empty block to search definitions.\n\n" +
-	"TUI\n: Terminal User Interface\n\n" +
 	"## Callouts\n\n" +
 	"> [!TIP]\n> Five variants. Press **Ctrl+T** to cycle: Note, Tip, Important, Warning, Caution.\n\n" +
 	"---\n\n" +

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/oobagi/notebook-cli/internal/block"
+	"github.com/oobagi/notebook-cli/internal/format"
 )
 
 func TestNewParsesBlocks(t *testing.T) {
@@ -325,7 +326,6 @@ func TestQuitPromptIgnoresOtherKeys(t *testing.T) {
 	}
 }
 
-
 func TestWindowSizeMsgSetsSize(t *testing.T) {
 	m := New(Config{Title: "test", Content: ""})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -523,6 +523,30 @@ func TestNavigationDoesNotGoPastBounds(t *testing.T) {
 
 	if m.active != 0 {
 		t.Fatalf("should stay at block 0, got %d", m.active)
+	}
+}
+
+func TestUpAtFirstNonParagraphDoesNotInsertParagraph(t *testing.T) {
+	m := New(Config{Title: "test", Content: "# Title"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if m.active != 0 || m.blocks[0].Type != block.Heading1 {
+		t.Fatalf("expected first heading active, active=%d type=%s", m.active, m.blocks[0].Type)
+	}
+	blocksBefore := m.BlockCount()
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updated.(Model)
+
+	if m.active != 0 {
+		t.Fatalf("active = %d, want 0", m.active)
+	}
+	if m.BlockCount() != blocksBefore {
+		t.Fatalf("block count = %d, want %d", m.BlockCount(), blocksBefore)
+	}
+	if m.blocks[0].Type != block.Heading1 {
+		t.Fatalf("first block type = %s, want Heading1", m.blocks[0].Type)
 	}
 }
 
@@ -1916,6 +1940,236 @@ func TestMouseClickTogglesChecklistInViewMode(t *testing.T) {
 
 	if m.blocks[0].Checked {
 		t.Fatal("block 0 should be unchecked after second click")
+	}
+}
+
+func TestViewModeChecklistClickUndoRedo(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [ ] buy milk"})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset()
+	updated, _ = m.Update(tea.MouseClickMsg{X: 5, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+	if !m.blocks[0].Checked {
+		t.Fatal("block should be checked after view-mode click")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if m.blocks[0].Checked {
+		t.Fatal("block should be unchecked after undo in view mode")
+	}
+	if !m.viewMode {
+		t.Fatal("undo should keep editor in view mode")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if !m.blocks[0].Checked {
+		t.Fatal("block should be checked after redo in view mode")
+	}
+}
+
+func TestViewModeSortCheckedUndoable(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [x] done\n- [ ] todo"})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if m.blocks[0].Content != "todo" || m.blocks[1].Content != "done" {
+		t.Fatalf("sort checked did not reorder blocks: got %q, %q", m.blocks[0].Content, m.blocks[1].Content)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if m.blocks[0].Content != "done" || m.blocks[1].Content != "todo" {
+		t.Fatalf("undo did not restore pre-sort order: got %q, %q", m.blocks[0].Content, m.blocks[1].Content)
+	}
+}
+
+func TestEmbedModalChecklistToggleUndoSavesReferencedNote(t *testing.T) {
+	var saved []string
+	m := New(Config{
+		Title:   "test",
+		Content: "![[work/task]]",
+		ResolveEmbed: func(path string) (string, string, error) {
+			return "Task", "- [ ] child", nil
+		},
+		SaveEmbed: func(path, content string) error {
+			saved = append(saved, content)
+			return nil
+		},
+	})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	m.openEmbedModal(0)
+	if !m.embedModal.visible {
+		t.Fatal("embed modal should be visible")
+	}
+
+	clickY := m.embedModal.sheetStartY + 2 + m.embedModal.blockLineOffsets[0] - m.embedModal.scroll
+	updated, _ = m.Update(tea.MouseClickMsg{X: 5, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+	if !m.embedModal.blocks[0].Checked {
+		t.Fatal("embedded checklist should be checked after click")
+	}
+	if len(saved) == 0 || saved[len(saved)-1] != "- [x] child" {
+		t.Fatalf("embedded toggle save = %#v, want last save %q", saved, "- [x] child")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	m = updated.(Model)
+	if m.embedModal.blocks[0].Checked {
+		t.Fatal("embedded checklist should be unchecked after undo")
+	}
+	if saved[len(saved)-1] != "- [ ] child" {
+		t.Fatalf("embedded undo save = %q, want %q", saved[len(saved)-1], "- [ ] child")
+	}
+}
+
+func TestChecklistInlineLinkClickOpensURLWithoutToggling(t *testing.T) {
+	opened := ""
+	oldOpenURL := openURL
+	openURL = func(url string) error {
+		opened = url
+		return nil
+	}
+	defer func() { openURL = oldOpenURL }()
+
+	m := New(Config{Title: "test", Content: "- [ ] read [Docs](https://example.com) today"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	leftPad, contentWidth := m.viewContentXRange()
+	display, spans := format.InlineLinkDisplay(m.blocks[0].Content)
+	if len(spans) != 1 {
+		t.Fatalf("expected one inline link span, got %d", len(spans))
+	}
+	wrapWidth := contentWidth - blockPrefixWidth(m.blocks[0])
+	line, col := wrappedTextPosition(display, spans[0].Start, wrapWidth)
+	clickY := m.blockLineOffsets[0] - m.viewport.YOffset() + line
+	clickX := leftPad + checklistPrefixVisualWidth(m.blocks[0]) + col
+	updated, _ = m.Update(tea.MouseClickMsg{X: clickX, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+
+	if opened != "https://example.com" {
+		t.Fatalf("opened URL = %q, want %q", opened, "https://example.com")
+	}
+	if m.blocks[0].Checked {
+		t.Fatal("clicking checklist inline link should not toggle checkbox")
+	}
+
+	updated, _ = m.Update(tea.MouseClickMsg{X: leftPad + 1, Y: clickY, Button: tea.MouseLeft})
+	m = updated.(Model)
+	if !m.blocks[0].Checked {
+		t.Fatal("clicking checklist marker should toggle checkbox when item contains a link")
+	}
+}
+
+func TestChecklistInlineLinkHoverStylesViewMode(t *testing.T) {
+	m := New(Config{Title: "test", Content: "- [ ] read [Docs](https://example.com) today"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	leftPad, contentWidth := m.viewContentXRange()
+	display, spans := format.InlineLinkDisplay(m.blocks[0].Content)
+	if len(spans) != 1 {
+		t.Fatalf("expected one inline link span, got %d", len(spans))
+	}
+	wrapWidth := contentWidth - blockPrefixWidth(m.blocks[0])
+	line, col := wrappedTextPosition(display, spans[0].Start, wrapWidth)
+	hoverY := m.blockLineOffsets[0] - m.viewport.YOffset() + line
+	hoverX := leftPad + checklistPrefixVisualWidth(m.blocks[0]) + col
+
+	updated, _ = m.Update(tea.MouseMotionMsg{X: hoverX, Y: hoverY})
+	m = updated.(Model)
+	if m.hoverLinkURL != "https://example.com" {
+		t.Fatalf("hoverLinkURL = %q, want %q", m.hoverLinkURL, "https://example.com")
+	}
+	rendered := renderViewBlock(m.blocks[0], m.blocks[0].Content, contentWidth, true, m.blocks, 0, true, m.hoverLinkURL, 0)
+	if !strings.Contains(rendered, "\x1b[4m") || !strings.Contains(rendered, "\x1b[1m") {
+		t.Fatalf("hovered inline link should render bold+underlined, got %q", rendered)
+	}
+	if strings.Contains(rendered, "[Docs]") || strings.Contains(rendered, "](https://example.com)") {
+		t.Fatalf("rendered inline link should hide markdown syntax while showing the URL, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "example.com") {
+		t.Fatalf("rendered inline link should show compact URL for terminal clickability, got %q", rendered)
+	}
+}
+
+func TestParagraphInlineLinkHoverAndClickInViewMode(t *testing.T) {
+	opened := ""
+	oldOpenURL := openURL
+	openURL = func(url string) error {
+		opened = url
+		return nil
+	}
+	defer func() { openURL = oldOpenURL }()
+
+	m := New(Config{Title: "test", Content: "read [Docs](https://example.com) today"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(Model)
+
+	leftPad, contentWidth := m.viewContentXRange()
+	display, spans := format.InlineLinkDisplay(m.blocks[0].Content)
+	if len(spans) != 1 {
+		t.Fatalf("expected one inline link span, got %d", len(spans))
+	}
+	line, col := wrappedTextPosition(display, spans[0].Start, contentWidth)
+	hoverY := m.blockLineOffsets[0] - m.viewport.YOffset() + line
+	hoverX := leftPad + col
+
+	updated, _ = m.Update(tea.MouseMotionMsg{X: hoverX, Y: hoverY})
+	m = updated.(Model)
+	if m.hoverLinkURL != "https://example.com" {
+		t.Fatalf("hoverLinkURL = %q, want %q", m.hoverLinkURL, "https://example.com")
+	}
+	rendered := renderViewBlock(m.blocks[0], m.blocks[0].Content, contentWidth, true, m.blocks, 0, true, m.hoverLinkURL, 0)
+	if !strings.Contains(rendered, "\x1b[4m") || !strings.Contains(rendered, "\x1b[1m") {
+		t.Fatalf("hovered paragraph inline link should render bold+underlined, got %q", rendered)
+	}
+
+	updated, _ = m.Update(tea.MouseClickMsg{X: hoverX, Y: hoverY, Button: tea.MouseLeft})
+	m = updated.(Model)
+	if opened != "https://example.com" {
+		t.Fatalf("opened URL = %q, want %q", opened, "https://example.com")
+	}
+}
+
+func TestInactiveEditorInlineLinkFormatsLikeMarkdown(t *testing.T) {
+	b := block.Block{Type: block.Paragraph, Content: "read [Docs](https://example.com) today"}
+	rendered := renderInactiveBlock(b, b.Content, 80, true, []block.Block{b}, 0)
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "Docs  example.com") {
+		t.Fatalf("inactive editor inline link should render label plus compact visible URL, got %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[4mDocs") {
+		t.Fatalf("inactive editor inline link should not underline the full label and URL, got %q", rendered)
+	}
+	if strings.Contains(rendered, "[Docs]") || strings.Contains(rendered, "](https://example.com)") {
+		t.Fatalf("inactive editor inline link should hide markdown syntax while showing the URL, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[38;2;0;191;255mDocs") {
+		t.Fatalf("inactive editor inline link should theme the label with the link title color, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[38;2;119;119;119mexample.com") {
+		t.Fatalf("inactive editor inline link should theme the URL with the link URL color, got %q", rendered)
 	}
 }
 

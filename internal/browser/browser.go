@@ -1360,7 +1360,7 @@ func (m Model) renderThemeOverlay() string {
 	rendered := outer.Render(combined)
 
 	// Status hint.
-	statusHint := dim.Render("↑/↓ navigate · Enter apply · Esc cancel")
+	statusHint := dim.Render("Enter apply · Esc cancel")
 
 	full := rendered + "\n" + statusHint
 
@@ -2389,7 +2389,7 @@ func (m Model) renderStatusBar() string {
 			case settingBool:
 				right = "Enter toggle \u00B7 Esc close"
 			case settingCycle:
-				right = "←/→ cycle \u00B7 Esc close"
+				right = "Enter cycle \u00B7 Esc close"
 			case settingText:
 				right = "Enter edit \u00B7 Esc close"
 			}

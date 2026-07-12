@@ -49,20 +49,6 @@ type Config struct {
 	// ListEmbedTargets returns all available "notebook/note" paths for the
 	// embed picker. Called when the picker opens.
 	ListEmbedTargets func() []string
-	// ListAllDefinitions returns definition list entries gathered from every
-	// note across all notebooks, excluding the note currently being edited
-	// (since its in-memory blocks may differ from disk). When nil, the ":"
-	// lookup is restricted to the current note.
-	ListAllDefinitions func() []DefinitionEntry
-}
-
-// DefinitionEntry is a single definition list block sourced from another
-// note. The Notebook/Note pair locates the source for display in the lookup.
-type DefinitionEntry struct {
-	Term       string
-	Definition string
-	Notebook   string
-	Note       string
 }
 
 // savedMsg is sent after a successful save.
@@ -113,10 +99,10 @@ type Model struct {
 	blockClip        *block.Block    // block-level clipboard for Ctrl+K block cut
 	statusGen        int             // generation counter for status auto-dismiss
 	palette          palette         // "/" command palette for block type insertion
-	defLookup        defLookup       // ":" definition lookup palette
 	wordWrap         bool            // when true, text wraps at terminal width
 	viewMode         bool            // when true, read-only rendering with no cursor
 	hoverBlock       int             // view mode: block index under mouse cursor (-1 = none)
+	hoverLinkURL     string          // view mode: inline link under mouse cursor
 	cursorCmd        tea.Cmd         // pending cursor blink command from Focus()
 	blockLineOffsets []int           // view mode: starting Y line of each block in rendered output
 	blockLineCounts  []int           // per-block rendered line counts from renderAllBlocks
@@ -135,34 +121,9 @@ type Model struct {
 	viewKanbanOffset int             // horizontal scroll for kanban blocks in view mode
 	kanbanOffsets    map[int]int     // saved colOffset per block index, restored when refocusing
 	kanbanPositions  map[int]kanbanPosition
-	kanbanAnchorTop  bool            // one-shot: next viewport update anchors to kanban title row
-	defPreview       defPreviewState // focused preview for a single cross-note definition
-	jumpTarget       string          // "notebook/note" to open after editor quits; read via JumpTarget()
-	pendingJump      string          // jump requested but current note is modified — set alongside quitPrompt
-}
-
-// defPreviewState holds a focused preview of one cross-note definition.
-// Renders as a compact auto-height footer pane above the status bar, sized
-// to the wrapped content (not full-screen).
-type defPreviewState struct {
-	visible    bool
-	term       string
-	definition string
-	path       string // "notebook/note" for the Enter-to-open keybind
-}
-
-func (d *defPreviewState) open(term, definition, path string) {
-	d.visible = true
-	d.term = term
-	d.definition = definition
-	d.path = path
-}
-
-func (d *defPreviewState) close() {
-	d.visible = false
-	d.term = ""
-	d.definition = ""
-	d.path = ""
+	kanbanAnchorTop  bool   // one-shot: next viewport update anchors to kanban title row
+	jumpTarget       string // "notebook/note" to open after editor quits; read via JumpTarget()
+	pendingJump      string // jump requested but current note is modified — set alongside quitPrompt
 }
 
 // JumpTarget returns the "notebook/note" path the editor was asked to open
@@ -187,11 +148,14 @@ type embedModalState struct {
 	title            string        // display title for the sheet header
 	path             string        // original embed path for save-back
 	blocks           []block.Block // parsed blocks of the referenced note
-	scroll           int           // scroll offset (line index)
-	lines            []string      // pre-split rendered lines
-	blockLineOffsets []int         // starting line of each block within lines
-	hoverBlock       int           // block under mouse cursor (-1 = none)
-	sheetStartY      int           // Y line where the sheet content begins
+	undo             [][]block.Block
+	redo             [][]block.Block
+	scroll           int      // scroll offset (line index)
+	lines            []string // pre-split rendered lines
+	blockLineOffsets []int    // starting line of each block within lines
+	hoverBlock       int      // block under mouse cursor (-1 = none)
+	hoverLinkURL     string   // inline link under mouse cursor
+	sheetStartY      int      // Y line where the sheet content begins
 }
 
 // open prepares the sheet with parsed blocks and resets state.
@@ -200,8 +164,11 @@ func (e *embedModalState) open(title, path string, blocks []block.Block) {
 	e.title = title
 	e.path = path
 	e.blocks = blocks
+	e.undo = nil
+	e.redo = nil
 	e.scroll = 0
 	e.hoverBlock = -1
+	e.hoverLinkURL = ""
 	// Layout: line 0=context, 1=blank, 2=sep → sheet starts at Y=2.
 	e.sheetStartY = 2
 	// lines and blockLineOffsets are populated by renderEmbedSheetContent.
@@ -213,10 +180,49 @@ func (e *embedModalState) close() {
 	e.title = ""
 	e.path = ""
 	e.blocks = nil
+	e.undo = nil
+	e.redo = nil
 	e.lines = nil
 	e.blockLineOffsets = nil
 	e.scroll = 0
 	e.hoverBlock = -1
+	e.hoverLinkURL = ""
+}
+
+func cloneBlocks(blocks []block.Block) []block.Block {
+	cp := make([]block.Block, len(blocks))
+	copy(cp, blocks)
+	return cp
+}
+
+func (e *embedModalState) pushUndo() {
+	e.undo = append(e.undo, cloneBlocks(e.blocks))
+	if len(e.undo) > maxUndoDepth {
+		e.undo = e.undo[len(e.undo)-maxUndoDepth:]
+	}
+	e.redo = nil
+}
+
+func (e *embedModalState) performUndo() bool {
+	if len(e.undo) == 0 {
+		return false
+	}
+	e.redo = append(e.redo, cloneBlocks(e.blocks))
+	last := e.undo[len(e.undo)-1]
+	e.undo = e.undo[:len(e.undo)-1]
+	e.blocks = cloneBlocks(last)
+	return true
+}
+
+func (e *embedModalState) performRedo() bool {
+	if len(e.redo) == 0 {
+		return false
+	}
+	e.undo = append(e.undo, cloneBlocks(e.blocks))
+	last := e.redo[len(e.redo)-1]
+	e.redo = e.redo[:len(e.redo)-1]
+	e.blocks = cloneBlocks(last)
+	return true
 }
 
 // blockAtLine returns the block index containing the given line, or -1.
@@ -271,8 +277,6 @@ func blockPrefixWidth(b block.Block) int {
 		base = lipgloss.Width(th.Blocks.Quote.Bar)
 	case block.CodeBlock:
 		base = 4
-	case block.DefinitionList:
-		base = lipgloss.Width(th.Blocks.Definition.Marker)
 	case block.Embed:
 		icon := th.Blocks.Embed.Icon
 		if icon == "" {
@@ -368,11 +372,11 @@ func New(cfg Config) Model {
 		width:            defaultWidth,
 		height:           defaultHeight,
 		palette:          newPalette(),
-		defLookup:        newDefLookup(),
 		embedPicker:      newEmbedPicker(),
 		wordWrap:         config.BoolVal(cfg.WordWrap, true),
 		dismissedHints:   dismissed,
 		hoverBlock:       -1,
+		hoverLinkURL:     "",
 		sortChecked:      config.BoolVal(cfg.HideChecked, false),
 		cascadeChecks:    config.BoolVal(cfg.CascadeChecks, true),
 		kanbanSortByPrio: config.BoolVal(cfg.KanbanSortByPrio, false),
@@ -816,7 +820,7 @@ func (m *Model) navigateDown() {
 
 // isMultiLine returns true if the block type allows multi-line content.
 func isMultiLine(bt block.BlockType) bool {
-	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.DefinitionList || bt == block.Callout || bt == block.Table || bt == block.Link
+	return bt == block.Paragraph || bt == block.CodeBlock || bt == block.Quote || bt == block.Callout || bt == block.Table || bt == block.Link
 }
 
 // insertBlockBefore inserts a new block before the given index, creates a
@@ -1160,50 +1164,6 @@ func (m *Model) handleEnter() {
 		return
 	}
 
-	// Definition block: same pattern as code/quote — Enter inserts a
-	// newline via the textarea natively. Empty last line exits to paragraph.
-	// Empty block converts to paragraph.
-	if bt == block.DefinitionList {
-		if content == "" || content == "\n" {
-			m.blocks[m.active].Type = block.Paragraph
-			m.blocks[m.active].Content = ""
-			newTA := newTextareaForBlock(m.blocks[m.active], m.width)
-			m.cursorCmd = newTA.Focus()
-			m.textareas[m.active] = newTA
-			return
-		}
-
-		lines := strings.Split(content, "\n")
-		cursorLine := ta.Line()
-		isLastLine := cursorLine >= len(lines)-1
-		currentLineEmpty := cursorLine < len(lines) && lines[cursorLine] == ""
-
-		if isLastLine && currentLineEmpty && len(lines) > 1 {
-			// Empty definition line: trim it and exit to paragraph.
-			trimmed := strings.Join(lines[:len(lines)-1], "\n")
-			ta.SetValue(trimmed)
-			m.blocks[m.active].Content = trimmed
-			m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
-			m.insertBlockAfter(m.active, block.Block{Type: block.Paragraph})
-			return
-		}
-
-		// Term line: if a definition line already exists below, just move
-		// the cursor down instead of inserting a duplicate empty line.
-		if cursorLine == 0 && len(lines) > 1 {
-			ta.CursorDown()
-			ta.CursorEnd()
-			m.cursorCmd = ta.Focus()
-			return
-		}
-
-		// Otherwise insert a newline within the block (new def line).
-		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount() + 1)
-		m.textareas[m.active], _ = m.textareas[m.active].Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-		m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
-		return
-	}
-
 	// Empty multi-line or embed block: convert to paragraph.
 	// For code blocks, content is "\n" when empty (language separator).
 	if bt == block.CodeBlock || bt == block.Quote || bt == block.Callout || bt == block.Embed {
@@ -1366,7 +1326,7 @@ func (m *Model) handleEnter() {
 //   - Divider: delete block, focus previous.
 //   - List items: outdent if indented, else convert to paragraph.
 //   - Any other non-paragraph type: convert to paragraph (unwrap formatting).
-//     Code blocks keep body only (drop language line). Definition keeps term only.
+//     Code blocks keep body only (drop language line).
 //   - Empty paragraph: delete block, focus previous.
 //   - Non-empty paragraph: merge with previous block.
 func (m *Model) handleBackspace() bool {
@@ -1435,9 +1395,6 @@ func (m *Model) handleBackspace() bool {
 			if idx := strings.Index(content, "\n"); idx >= 0 {
 				keepContent = content[idx+1:]
 			}
-		case block.DefinitionList:
-			// Keep only the term line.
-			keepContent, _ = block.ExtractDefinition(content)
 		}
 		m.convertToParagraph(keepContent)
 		return true
@@ -1470,7 +1427,7 @@ func (m *Model) handleBackspace() bool {
 
 	// Don't merge into multi-line container blocks.
 	prev := m.blocks[m.active-1].Type
-	if prev == block.CodeBlock || prev == block.Quote || prev == block.DefinitionList || prev == block.Callout || prev == block.Table || prev == block.Kanban {
+	if prev == block.CodeBlock || prev == block.Quote || prev == block.Callout || prev == block.Table || prev == block.Kanban {
 		return false
 	}
 
@@ -1566,6 +1523,10 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	if m.active < 0 || m.active >= len(m.blocks) {
 		return
 	}
+	if bt == block.Link {
+		m.insertInlineLinkTemplate()
+		return
+	}
 	m.blocks[m.active].Type = bt
 	if !bt.IsListItem() {
 		m.blocks[m.active].Indent = 0
@@ -1582,24 +1543,6 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
 		m.textareas[m.active].MoveToBegin()
 		m.cursorCmd = m.textareas[m.active].Focus()
-	}
-	// Ensure new definition list blocks have term\ndefinition structure.
-	// Place cursor on the term line so the user types the term first.
-	if bt == block.DefinitionList && !strings.Contains(m.textareas[m.active].Value(), "\n") {
-		m.textareas[m.active].SetValue(m.textareas[m.active].Value() + "\n")
-		m.textareas[m.active].MoveToBegin()
-		m.cursorCmd = m.textareas[m.active].Focus()
-	}
-	if bt == block.Link {
-		if !strings.Contains(m.textareas[m.active].Value(), "\n") {
-			m.textareas[m.active].SetValue("\n")
-			m.textareas[m.active].MoveToBegin()
-		}
-		m.textareas[m.active].Blur()
-		// Sequential wizard: prompt for URL first; on commit, chain to title.
-		title, url := block.ExtractLink(m.textareas[m.active].Value())
-		_ = title
-		m.linkPrompt.open(m.active, linkPromptURL, url, true)
 	}
 	// Open the note picker for embed blocks so the user can browse targets.
 	if bt == block.Embed && m.config.ListEmbedTargets != nil {
@@ -1632,6 +1575,37 @@ func (m *Model) applyPaletteSelection(bt block.BlockType) {
 	m.textareas[m.active].SetHeight(m.textareas[m.active].VisualLineCount())
 }
 
+func (m *Model) insertInlineLinkTemplate() {
+	if m.active < 0 || m.active >= len(m.textareas) {
+		return
+	}
+	const template = "[](https://)"
+	ta := &m.textareas[m.active]
+	lines := strings.Split(ta.Value(), "\n")
+	row := ta.Line()
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(lines) {
+		row = len(lines) - 1
+	}
+	info := ta.LineInfo()
+	col := info.StartColumn + info.ColumnOffset
+	runes := []rune(lines[row])
+	if col < 0 {
+		col = 0
+	}
+	if col > len(runes) {
+		col = len(runes)
+	}
+	lines[row] = string(runes[:col]) + template + string(runes[col:])
+	ta.SetValue(strings.Join(lines, "\n"))
+	ta.SetCursorColumn(col + 1)
+	m.blocks[m.active].Content = ta.Value()
+	ta.SetHeight(ta.VisualLineCount())
+	m.cursorCmd = ta.Focus()
+}
+
 // activePicker returns whichever picker is currently visible, or nil.
 func (m *Model) activePicker() *ui.Picker {
 	if m.palette.Visible {
@@ -1639,9 +1613,6 @@ func (m *Model) activePicker() *ui.Picker {
 	}
 	if m.embedPicker.Visible {
 		return &m.embedPicker.Picker
-	}
-	if m.defLookup.Visible {
-		return &m.defLookup.Picker
 	}
 	return nil
 }
@@ -1662,38 +1633,7 @@ func (m *Model) handlePickerSelect() {
 			m.cursorCmd = m.textareas[m.active].Focus()
 		}
 		m.embedPicker.Close()
-
-	case m.defLookup.Visible:
-		sel := m.defLookup.selected()
-		m.defLookup.close()
-		if sel == nil {
-			return
-		}
-		if sel.BlockIdx >= 0 {
-			// Local definition: focus the block directly.
-			if m.viewMode {
-				m.active = sel.BlockIdx
-				if sel.BlockIdx < len(m.blockLineOffsets) {
-					m.viewport.SetYOffset(m.blockLineOffsets[sel.BlockIdx])
-				}
-			} else {
-				m.focusBlock(sel.BlockIdx)
-			}
-			return
-		}
-		// Remote definition: show a focused preview of just this
-		// definition. Enter inside the preview jumps to the source note.
-		m.openDefPreview(sel.Notebook, sel.Note, sel.Term, sel.Definition)
 	}
-}
-
-// remoteDefinitions returns definition entries from notes other than the
-// current one, or nil when the host hasn't wired up the lookup.
-func (m Model) remoteDefinitions() []DefinitionEntry {
-	if m.config.ListAllDefinitions == nil {
-		return nil
-	}
-	return m.config.ListAllDefinitions()
 }
 
 // isAtFirstLine returns true if the cursor is on the first visual line
@@ -1761,10 +1701,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				contentLine := m.embedModal.scroll + (msg.Y - contentStartY)
 				idx := m.embedModal.blockAtLine(contentLine)
 				old := m.embedModal.hoverBlock
+				oldLink := m.embedModal.hoverLinkURL
 				m.embedModal.hoverBlock = idx
+				m.embedModal.hoverLinkURL = ""
+				if idx >= 0 && idx < len(m.embedModal.blocks) {
+					leftPad, contentWidth := m.viewContentXRange()
+					line := contentLine - m.embedModal.blockLineOffsets[idx]
+					x := msg.X - leftPad
+					m.embedModal.hoverLinkURL = inlineLinkAt(m.embedModal.blocks[idx], m.embedModal.blocks[idx].Content, line, x, contentWidth)
+				}
 				if idx != old {
 					// Re-render for hover feedback on interactive blocks.
-					needsUpdate := false
+					needsUpdate := m.embedModal.hoverLinkURL != "" || oldLink != ""
 					for _, checkIdx := range []int{idx, old} {
 						if checkIdx >= 0 && checkIdx < len(m.embedModal.blocks) {
 							bt := m.embedModal.blocks[checkIdx].Type
@@ -1777,9 +1725,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if needsUpdate {
 						m.renderEmbedSheetContent()
 					}
+				} else if m.embedModal.hoverLinkURL != oldLink {
+					m.renderEmbedSheetContent()
 				}
 			} else {
 				m.embedModal.hoverBlock = -1
+				if m.embedModal.hoverLinkURL != "" {
+					m.embedModal.hoverLinkURL = ""
+					m.renderEmbedSheetContent()
+				}
 			}
 			return m, nil
 		}
@@ -1789,16 +1743,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the highlight matches click activation bounds.
 			leftPad, contentWidth := m.viewContentXRange()
 			oldHover := m.hoverBlock
+			oldLink := m.hoverLinkURL
 			idx := -1
+			linkURL := ""
 			if msg.X >= leftPad && msg.X < leftPad+contentWidth {
 				hoverY := m.viewport.YOffset() + msg.Y
 				idx = m.blockIndexAtLine(hoverY)
+				if idx >= 0 && idx < len(m.blocks) {
+					line := hoverY - m.blockLineOffsets[idx]
+					x := msg.X - leftPad
+					content := m.blocks[idx].Content
+					if idx < len(m.textareas) {
+						content = m.textareas[idx].Value()
+					}
+					linkURL = inlineLinkAt(m.blocks[idx], content, line, x, contentWidth)
+				}
 			}
 			m.hoverBlock = idx
+			m.hoverLinkURL = linkURL
 
 			// Re-render if hovering over a different interactive block.
 			if idx != oldHover {
-				needsUpdate := false
+				needsUpdate := m.hoverLinkURL != "" || oldLink != ""
 				for _, checkIdx := range []int{idx, oldHover} {
 					if checkIdx >= 0 && checkIdx < len(m.blocks) {
 						bt := m.blocks[checkIdx].Type
@@ -1811,9 +1777,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if needsUpdate {
 					m.updateViewport()
 				}
+			} else if m.hoverLinkURL != oldLink {
+				m.updateViewport()
 			}
 		} else {
 			m.hoverBlock = -1
+			m.hoverLinkURL = ""
 		}
 		return m, nil
 
@@ -1832,14 +1801,29 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				contentLine := m.embedModal.scroll + (msg.Y - contentStartY)
 				idx := m.embedModal.blockAtLine(contentLine)
 				if idx >= 0 && idx < len(m.embedModal.blocks) {
-					if m.embedModal.blocks[idx].Type == block.Checklist {
-						m.embedModal.blocks[idx].Checked = !m.embedModal.blocks[idx].Checked
-						// Save changes back to the referenced note.
-						if m.config.SaveEmbed != nil {
-							content := block.Serialize(m.embedModal.blocks)
-							_ = m.config.SaveEmbed(m.embedModal.path, content)
+					leftPad, contentWidth := m.viewContentXRange()
+					line := contentLine - m.embedModal.blockLineOffsets[idx]
+					x := msg.X - leftPad
+					if url := inlineLinkAt(m.embedModal.blocks[idx], m.embedModal.blocks[idx].Content, line, x, contentWidth); url != "" {
+						m.embedModal.hoverLinkURL = url
+						if err := openURL(url); err == nil {
+							m.status = "Opened: " + url
+							m.statusStyle = statusSuccess
+						} else {
+							m.status = "Open failed: " + err.Error()
+							m.statusStyle = statusError
 						}
-						m.renderEmbedSheetContent()
+						return m, m.scheduleStatusDismiss()
+					}
+					if m.embedModal.blocks[idx].Type == block.Checklist {
+						_, linkSpans := format.InlineLinkDisplay(m.embedModal.blocks[idx].Content)
+						if checklistClickShouldToggle(m.embedModal.blocks[idx], len(linkSpans) > 0, line, x) {
+							m.embedModal.pushUndo()
+							m.embedModal.blocks[idx].Checked = !m.embedModal.blocks[idx].Checked
+							// Save changes back to the referenced note.
+							m.saveEmbedModalBlocks()
+							m.renderEmbedSheetContent()
+						}
 					}
 				}
 			}
@@ -1852,25 +1836,47 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			leftPad, contentWidth := m.viewContentXRange()
 			if msg.X < leftPad || msg.X >= leftPad+contentWidth {
 				m.hoverBlock = -1
+				m.hoverLinkURL = ""
 				return m, nil
 			}
 			// Track hover state for checklist visual feedback.
 			hoverY := m.viewport.YOffset() + msg.Y
 			idx := m.blockIndexAtLine(hoverY)
 			m.hoverBlock = idx
+			m.hoverLinkURL = ""
 
 			if msg.Button == tea.MouseLeft && idx >= 0 && idx < len(m.blocks) {
+				line := hoverY - m.blockLineOffsets[idx]
+				x := msg.X - leftPad
+				content := m.blocks[idx].Content
+				if idx < len(m.textareas) {
+					content = m.textareas[idx].Value()
+				}
+				if url := inlineLinkAt(m.blocks[idx], content, line, x, contentWidth); url != "" {
+					m.hoverLinkURL = url
+					if err := openURL(url); err == nil {
+						m.status = "Opened: " + url
+						m.statusStyle = statusSuccess
+					} else {
+						m.status = "Open failed: " + err.Error()
+						m.statusStyle = statusError
+					}
+					return m, m.scheduleStatusDismiss()
+				}
 				// Left-click on a checklist block toggles its checked state.
 				if m.blocks[idx].Type == block.Checklist {
-					m.pushUndo()
-					if idx < len(m.textareas) {
-						m.blocks[idx].Content = m.textareas[idx].Value()
+					_, linkSpans := format.InlineLinkDisplay(content)
+					if checklistClickShouldToggle(m.blocks[idx], len(linkSpans) > 0, line, x) {
+						m.pushUndo()
+						if idx < len(m.textareas) {
+							m.blocks[idx].Content = m.textareas[idx].Value()
+						}
+						m.toggleChecklist(idx)
+						if m.sortChecked {
+							m.sortCheckedToBottom()
+						}
+						m.updateViewport()
 					}
-					m.toggleChecklist(idx)
-					if m.sortChecked {
-						m.sortCheckedToBottom()
-					}
-					m.updateViewport()
 					return m, nil
 				}
 				// Left-click on an embed block opens the referenced note.
@@ -1939,8 +1945,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateViewport()
 			return m, nil
 		}
-		if m.viewMode || m.showHelp || m.quitPrompt || m.embedModal.visible ||
-			m.defPreview.visible {
+		if m.viewMode || m.showHelp || m.quitPrompt || m.embedModal.visible {
 			return m, nil
 		}
 		if m.kanban != nil && m.kanban.edit {
@@ -2032,20 +2037,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Unified picker key handling: palette, embed picker, or def lookup.
+		// Unified picker key handling: palette or embed picker.
 		if picker := m.activePicker(); picker != nil {
 			if msg.String() == "ctrl+v" {
 				return m, readClipboardCmd()
 			}
-			// Check trigger-key-closes before generic handling:
-			// "/" re-typed closes palette, ":" re-typed closes deflookup.
+			// Check trigger-key-closes before generic handling.
 			if m.palette.Visible && msg.Code == '/' {
 				m.palette.close()
-				m.updateViewport()
-				return m, nil
-			}
-			if m.defLookup.Visible && msg.Code == ':' {
-				m.defLookup.close()
 				m.updateViewport()
 				return m, nil
 			}
@@ -2126,6 +2125,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Embed modal: intercept keys when overlay is showing.
 		if m.embedModal.visible {
 			switch msg.String() {
+			case "ctrl+z":
+				if m.embedModal.performUndo() {
+					m.saveEmbedModalBlocks()
+					m.renderEmbedSheetContent()
+					m.status = "Undone"
+					m.statusStyle = statusSuccess
+				} else {
+					m.status = "Nothing to undo"
+					m.statusStyle = statusWarning
+				}
+				return m, m.scheduleStatusDismiss()
+			case "ctrl+y":
+				if m.embedModal.performRedo() {
+					m.saveEmbedModalBlocks()
+					m.renderEmbedSheetContent()
+					m.status = "Redone"
+					m.statusStyle = statusSuccess
+				} else {
+					m.status = "Nothing to redo"
+					m.statusStyle = statusWarning
+				}
+				return m, m.scheduleStatusDismiss()
 			case "esc", "q":
 				m.embedModal.close()
 				m.updateViewport()
@@ -2177,40 +2198,29 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Definition preview: focused pane for a single remote definition.
-		if m.defPreview.visible {
-			switch msg.String() {
-			case "esc", "q":
-				m.defPreview.close()
-				m.updateViewport()
-				return m, nil
-			case "enter":
-				target := m.defPreview.path
-				m.defPreview.close()
-				if target == "" {
-					m.updateViewport()
-					return m, nil
-				}
-				if m.modified() {
-					m.pendingJump = target
-					m.quitPrompt = true
-					m.status = "Save before opening? [Y/n/Esc]"
-					m.statusStyle = statusWarning
-					return m, nil
-				}
-				m.jumpTarget = target
-				m.quitting = true
-				return m, tea.Quit
-			}
-			return m, nil
-		}
-
 		// View mode: intercept keys early.
 		if m.viewMode {
 			switch msg.String() {
+			case "ctrl+z":
+				if m.performUndo() {
+					m.updateViewport()
+				} else {
+					m.status = "Nothing to undo"
+					m.statusStyle = statusWarning
+				}
+				return m, m.scheduleStatusDismiss()
+			case "ctrl+y":
+				if m.performRedo() {
+					m.updateViewport()
+				} else {
+					m.status = "Nothing to redo"
+					m.statusStyle = statusWarning
+				}
+				return m, m.scheduleStatusDismiss()
 			case "ctrl+h":
 				m.sortChecked = !m.sortChecked
 				if m.sortChecked {
+					m.pushUndo()
 					m.sortCheckedToBottom()
 					m.status = "Sort checked: on"
 				} else {
@@ -2305,12 +2315,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateViewport()
 				}
 				return m, nil
-			default:
-				if msg.Code == ':' {
-					m.defLookup.open(m.blocks, m.remoteDefinitions())
-					m.updateViewport()
-					return m, nil
-				}
 			}
 			// Swallow everything else in view mode.
 			return m, nil
@@ -2409,14 +2413,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Link blocks: up always navigates to the previous block,
 			// never swaps between URL and title slots.
 			if m.blocks[m.active].Type == block.Link {
-				if m.active == 0 {
-					m.pushUndo()
-					m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
+				if m.active > 0 {
+					m.navigateUp()
 					m.updateViewport()
-					return m, nil
 				}
-				m.navigateUp()
-				m.updateViewport()
 				return m, nil
 			}
 			// Table: move to cell above, preserving horizontal position.
@@ -2430,12 +2430,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				li := ta.LineInfo()
 				ta.SetCursorColumn(li.StartColumn + charOffset)
 				m.cursorCmd = ta.Focus()
-				m.updateViewport()
-				return m, nil
-			}
-			if m.isAtFirstLine() && m.active == 0 && m.blocks[0].Type != block.Paragraph {
-				m.pushUndo()
-				m.insertBlockBefore(0, block.Block{Type: block.Paragraph})
 				m.updateViewport()
 				return m, nil
 			}
@@ -2590,10 +2584,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case block.Embed:
 					m.openEmbedModal(m.active)
 					return m, nil
-				case block.DefinitionList:
-					m.defLookup.open(m.blocks, m.remoteDefinitions())
-					m.updateViewport()
-					return m, nil
 				case block.Link:
 					content := m.blocks[m.active].Content
 					if m.active < len(m.textareas) {
@@ -2669,16 +2659,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ta := &m.textareas[m.active]
 				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 {
 					m.palette.openForBlock(m.active, m.blocks[m.active].Type, ta.Value() != "")
-					m.updateViewport()
-					return m, nil
-				}
-			}
-
-			// Handle ":" at position 0 of an empty block to open definition lookup.
-			if keyMsg.Code == ':' && len(keyMsg.Text) > 0 {
-				ta := &m.textareas[m.active]
-				if ta.Line() == 0 && ta.LineInfo().ColumnOffset == 0 && ta.Value() == "" {
-					m.defLookup.open(m.blocks, m.remoteDefinitions())
 					m.updateViewport()
 					return m, nil
 				}
@@ -2933,21 +2913,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateViewport()
 					return m, nil
 				}
-				// Definition block: prevent deleting the term/definition
-				// separator newline. Backspace at line 1 col 0 → jump to term.
-				if m.blocks[m.active].Type == block.DefinitionList {
-					ta := &m.textareas[m.active]
-					info := ta.LineInfo()
-					// Only intercept at the true start of raw line 1
-					// (not a wrapped continuation where StartColumn > 0).
-					if ta.Line() == 1 && info.ColumnOffset == 0 && info.StartColumn == 0 {
-						ta.MoveToBegin()
-						ta.CursorEnd()
-						m.cursorCmd = ta.Focus()
-						m.updateViewport()
-						return m, nil
-					}
-				}
 				// The textarea's backspace binding is an exact-match on
 				// "backspace"; "shift+backspace" gets dropped. Rewrite so a
 				// held Shift doesn't swallow the delete.
@@ -3089,18 +3054,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.undo.push(preState)
 			m.redo.clear()
 			m.undoDirty = true
-		}
-
-		// Definition block guard: if a delete operation destroyed the
-		// term/definition newline separator, restore it.
-		if m.blocks[m.active].Type == block.DefinitionList {
-			val := m.textareas[m.active].Value()
-			if !strings.Contains(val, "\n") {
-				m.textareas[m.active].SetValue(val + "\n")
-				m.textareas[m.active].MoveToBegin()
-				m.textareas[m.active].CursorEnd()
-				m.cursorCmd = m.textareas[m.active].Focus()
-			}
 		}
 
 		// Auto-convert Quote to Callout when user types [!TYPE] as first line.
@@ -3387,7 +3340,7 @@ func (m *Model) computeBlockLineOffsets() {
 		}
 
 		offsets[i] = nextLine
-		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false, m.viewKanbanOffset)
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, false, "", m.viewKanbanOffset)
 		advance(rendered)
 		prevIdx = i
 	}
@@ -3486,7 +3439,11 @@ func (m Model) renderViewContent() string {
 		}
 
 		hovered := i == m.hoverBlock
-		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered, m.viewKanbanOffset)
+		hoverLinkURL := ""
+		if hovered {
+			hoverLinkURL = m.hoverLinkURL
+		}
+		rendered := renderViewBlock(b, content, contentWidth, m.wordWrap, m.blocks, i, hovered, hoverLinkURL, m.viewKanbanOffset)
 
 		// Add vertical spacing before certain block types.
 		if prevIdx >= 0 {
@@ -3582,7 +3539,6 @@ func (m Model) renderHelpFooter() string {
 		{Key: "⌃Z/⌃Y", Desc: "Undo / redo"},
 		{Key: "⌥↑/⌥↓", Desc: "Move block"},
 		{Key: "/", Desc: "Block type"},
-		{Key: ":", Desc: "Definitions"},
 		{Key: "Tab/⇧Tab", Desc: "Indent"},
 		{Key: "⌃X", Desc: "Interact"},
 		{Key: "⌃R", Desc: "View mode"},
@@ -3603,12 +3559,6 @@ func (m Model) renderPickerFooter() string {
 	if m.embedPicker.Visible {
 		return m.embedPicker.RenderFooter(m.width)
 	}
-	if m.defLookup.Visible {
-		return m.defLookup.RenderFooter(m.width)
-	}
-	if m.defPreview.visible {
-		return m.defPreview.RenderFooter(m.width)
-	}
 	if m.linkPrompt.visible {
 		return m.renderLinkPrompt()
 	}
@@ -3626,12 +3576,6 @@ func (m Model) footerHeight() int {
 	if m.embedPicker.Visible {
 		return m.embedPicker.Height()
 	}
-	if m.defLookup.Visible {
-		return m.defLookup.Height()
-	}
-	if m.defPreview.visible {
-		return m.defPreview.Height(m.width)
-	}
 	if m.linkPrompt.visible {
 		return linkPromptHeight
 	}
@@ -3639,8 +3583,7 @@ func (m Model) footerHeight() int {
 }
 
 // editModeHints builds the right-side status bar shortcuts for edit mode.
-// The "/" and ":" shortcuts only show when the cursor is at position 0
-// (i.e., when they would actually trigger the palette/deflookup).
+// The "/" shortcut only shows when the cursor is at position 0.
 func (m Model) editModeHints() string {
 	var parts []string
 	atPos0 := false
@@ -3650,10 +3593,6 @@ func (m Model) editModeHints() string {
 	}
 	if atPos0 {
 		parts = append(parts, "/ blocks")
-		// ":" only works on empty blocks.
-		if m.active >= 0 && m.active < len(m.textareas) && m.textareas[m.active].Value() == "" {
-			parts = append(parts, ": defs")
-		}
 	}
 	parts = append(parts, "\u2303G help", "Esc quit")
 	return strings.Join(parts, " \u00B7 ")
@@ -3667,24 +3606,22 @@ func (m Model) blockHint() string {
 	}
 	switch m.blocks[m.active].Type {
 	case block.Table:
-		return "\u2325R +row \u00B7 \u2325C +col \u00B7 \u2325\u21E7\u232B del row \u00B7 \u2325\u21E7D del col"
+		return "\u2325R row \u00B7 \u2325C col"
 	case block.Callout:
 		return "\u2303T variant"
 	case block.CodeBlock:
-		return "line 1 sets language"
+		return "line 1: language"
 	case block.Checklist:
 		return "\u2303X toggle"
 	case block.Kanban:
 		if m.kanban != nil && m.kanban.edit {
-			return "\u23ce save \u00b7 \u21e7\u23ce newline \u00b7 esc cancel"
+			return "\u23ce save \u00b7 esc cancel"
 		}
-		return "\u2190\u2192 col \u00b7 \u2191\u2193 card \u00b7 \u21e7+arrows move \u00b7 n new \u00b7 \u23ce edit \u00b7 p prio \u00b7 s sort \u00b7 bksp del (board if col empty)"
+		return "n new \u00B7 \u23ce edit"
 	case block.Embed:
-		return "\u2303X open \u00B7 Tab pick"
+		return "\u2303X open"
 	case block.Link:
-		return "\u2303X open \u00B7 Tab url \u00B7 \u21E7Tab title"
-	case block.DefinitionList:
-		return "\u2303X search"
+		return "\u2303X open \u00B7 Tab edit"
 	default:
 		return ""
 	}
@@ -3713,17 +3650,13 @@ func (m Model) renderStatusBar() string {
 		if !m.dismissedHints["editor.checkbox"] {
 			hint = "click checkboxes to toggle!  [h]ide"
 		}
-		right = ": defs \u00B7 \u2303R edit \u00B7 Esc quit"
+		right = "\u2303R edit \u00B7 Esc quit"
 	} else if m.embedModal.visible {
-		right = "\u21B5 open \u00B7 \u2191\u2193 scroll \u00B7 Esc close"
-	} else if m.defPreview.visible {
-		right = "\u21B5 open note \u00B7 Esc close"
+		right = "\u21B5 open \u00B7 Esc close"
 	} else if m.palette.Visible {
-		right = "\u21B5 select \u00B7 \u2191\u2193 move \u00B7 Esc close"
+		right = "\u21B5 select \u00B7 Esc close"
 	} else if m.embedPicker.Visible {
-		right = "\u21B5 insert \u00B7 \u2191\u2193 move \u00B7 Esc close"
-	} else if m.defLookup.Visible {
-		right = "\u21B5 preview \u00B7 \u2191\u2193 move \u00B7 Esc close"
+		right = "\u21B5 insert \u00B7 Esc close"
 	} else {
 		// Build right-side hints: block-specific hints + contextual shortcuts.
 		bh := m.blockHint()
@@ -3770,6 +3703,14 @@ func (m *Model) clampEmbedScroll() {
 	}
 }
 
+func (m *Model) saveEmbedModalBlocks() {
+	if m.config.SaveEmbed == nil || !m.embedModal.visible {
+		return
+	}
+	content := block.Serialize(m.embedModal.blocks)
+	_ = m.config.SaveEmbed(m.embedModal.path, content)
+}
+
 func (m *Model) openEmbedModal(idx int) {
 	if idx < 0 || idx >= len(m.blocks) || m.blocks[idx].Type != block.Embed {
 		return
@@ -3800,14 +3741,6 @@ func (m *Model) openEmbedModal(idx int) {
 	refBlocks := block.Parse(content)
 	m.embedModal.open(title, path, refBlocks)
 	m.renderEmbedSheetContent()
-}
-
-// openDefPreview shows the focused definition preview for a remote def.
-// The preview is an auto-sized footer, not a fullscreen sheet. Enter inside
-// it jumps to the source note via jumpTarget.
-func (m *Model) openDefPreview(notebook, note, term, definition string) {
-	path := notebook + "/" + note
-	m.defPreview.open(term, definition, path)
 }
 
 // renderEmbedSheetContent pre-renders the embed sheet blocks into lines
@@ -3874,7 +3807,11 @@ func (m *Model) renderEmbedSheetContent() {
 
 		offsets[i] = len(parts)
 		hovered := i == em.hoverBlock
-		rendered := renderViewBlock(b, b.Content, contentWidth, true, em.blocks, i, hovered, 0)
+		hoverLinkURL := ""
+		if hovered {
+			hoverLinkURL = em.hoverLinkURL
+		}
+		rendered := renderViewBlock(b, b.Content, contentWidth, true, em.blocks, i, hovered, hoverLinkURL, 0)
 		for _, l := range strings.Split(rendered, "\n") {
 			parts = append(parts, padStr+l)
 		}
@@ -3951,7 +3888,7 @@ func (m Model) renderEmbedSheet() string {
 	}
 
 	// Status bar.
-	statusRight := "\u21B5 open \u00B7 \u2191\u2193 scroll \u00B7 Esc close"
+	statusRight := "\u21B5 open \u00B7 Esc close"
 	statusLeft := ""
 	if len(lines) > contentH {
 		pct := 0

@@ -43,6 +43,31 @@ func TestRenderInlineMarkdown_Underline(t *testing.T) {
 	}
 }
 
+func TestRenderInlineMarkdown_Link(t *testing.T) {
+	result := RenderInlineMarkdown("read [Docs](https://example.com) today")
+	expected := "read Docs  example.com today"
+	if result != expected {
+		t.Errorf("link:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdown_LinkWithEmptyLabel(t *testing.T) {
+	result := RenderInlineMarkdown("open [](https://example.com)")
+	expected := "open example.com"
+	if result != expected {
+		t.Errorf("empty-label link:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
+func TestRenderInlineMarkdownWithLinks_HoveredLink(t *testing.T) {
+	display, links := InlineLinkDisplay("read [Docs](https://example.com)")
+	result := RenderInlineMarkdownWithLinks(display, links, "https://example.com")
+	expected := "read Docs  " + boldOn + underlineOn + "example.com" + boldOff + underlineOff
+	if result != expected {
+		t.Errorf("hovered link:\n got: %q\nwant: %q", result, expected)
+	}
+}
+
 func TestRenderInlineMarkdown_SnakeCaseNotUnderline(t *testing.T) {
 	input := "use snake_case_variable here"
 	result := RenderInlineMarkdown(input)

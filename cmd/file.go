@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/oobagi/notebook-cli/internal/block"
 	"github.com/oobagi/notebook-cli/internal/editor"
 	"github.com/oobagi/notebook-cli/internal/recents"
 )
@@ -54,45 +53,16 @@ func openFile(path string) error {
 	originalMode := info.Mode().Perm()
 
 	editorCfg := editor.Config{
-		Title:       filepath.Base(absPath),
-		FilePath:    absPath,
-		FileSize:    info.Size(),
-		Content:     string(data),
+		Title:    filepath.Base(absPath),
+		FilePath: absPath,
+		FileSize: info.Size(),
+		Content:  string(data),
 		Save: func(content string) error {
 			if err := os.WriteFile(absPath, []byte(content), originalMode); err != nil {
 				return err
 			}
 			recents.RecordExternal(absPath)
 			return nil
-		},
-		ListAllDefinitions: func() []editor.DefinitionEntry {
-			notebooks, err := store.ListNotebooks()
-			if err != nil {
-				return nil
-			}
-			var defs []editor.DefinitionEntry
-			for _, nb := range notebooks {
-				notes, err := store.ListNotes(nb)
-				if err != nil {
-					continue
-				}
-				for _, n := range notes {
-					blocks := block.Parse(n.Content)
-					for _, b := range blocks {
-						if b.Type != block.DefinitionList {
-							continue
-						}
-						term, def := block.ExtractDefinition(b.Content)
-						defs = append(defs, editor.DefinitionEntry{
-							Term:       term,
-							Definition: def,
-							Notebook:   nb,
-							Note:       n.Name,
-						})
-					}
-				}
-			}
-			return defs
 		},
 		HideChecked:      cfg.HideChecked,
 		CascadeChecks:    cfg.CascadeChecks,

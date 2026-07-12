@@ -1,8 +1,12 @@
 package format
 
 import (
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Targeted ANSI SGR codes — no full resets, so outer block styles survive.
@@ -16,6 +20,88 @@ const (
 	strikethroughOn  = "\x1b[9m"
 	strikethroughOff = "\x1b[29m"
 )
+
+var inlineMarkdownLinkRe = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^\s)]+)\)`)
+
+// InlineLinkSpan records a markdown link's display range after
+// [label](url) has been rewritten for terminal display.
+type InlineLinkSpan struct {
+	Start    int
+	End      int
+	URLStart int
+	URLEnd   int
+	URL      string
+}
+
+// InlineLinkRenderStyle controls optional color styling for rendered inline
+// links. Empty colors preserve the plain formatter behavior.
+type InlineLinkRenderStyle struct {
+	LabelColor string
+	URLColor   string
+	HoverColor string
+	BaseColor  string
+}
+
+// InlineLinkDisplay replaces inline markdown links with readable terminal text
+// and returns the link ranges in that display text. The URL stays visible so
+// terminal URL detection can still support Cmd-click/open-link behavior.
+func InlineLinkDisplay(raw string) (string, []InlineLinkSpan) {
+	raw = StripControlChars(raw)
+	matches := inlineMarkdownLinkRe.FindAllStringSubmatchIndex(raw, -1)
+	if len(matches) == 0 {
+		return raw, nil
+	}
+
+	var out strings.Builder
+	var spans []InlineLinkSpan
+	last := 0
+	runeCount := 0
+
+	for _, match := range matches {
+		if len(match) < 6 {
+			continue
+		}
+		before := raw[last:match[0]]
+		out.WriteString(before)
+		runeCount += utf8.RuneCountInString(before)
+
+		label := raw[match[2]:match[3]]
+		url := raw[match[4]:match[5]]
+		displayURL := InlineLinkDisplayURL(url)
+		display := displayURL
+		urlStart := runeCount
+		if label != "" && label != url && label != displayURL {
+			display = label + "  " + displayURL
+			urlStart += utf8.RuneCountInString(label + "  ")
+		}
+		start := runeCount
+		out.WriteString(display)
+		runeCount += utf8.RuneCountInString(display)
+		spans = append(spans, InlineLinkSpan{
+			Start:    start,
+			End:      runeCount,
+			URLStart: urlStart,
+			URLEnd:   runeCount,
+			URL:      url,
+		})
+		last = match[1]
+	}
+
+	after := raw[last:]
+	out.WriteString(after)
+	return out.String(), spans
+}
+
+// InlineLinkDisplayURL keeps rendered links compact while preserving a
+// terminal-recognizable URL-like string.
+func InlineLinkDisplayURL(raw string) string {
+	display := strings.TrimPrefix(raw, "https://")
+	display = strings.TrimPrefix(display, "http://")
+	if strings.HasSuffix(display, "/") && strings.Count(display, "/") == 1 {
+		display = strings.TrimSuffix(display, "/")
+	}
+	return display
+}
 
 // StripControlChars removes C0 (0x00–0x1F except \n \r \t) and DEL (0x7F)
 // from the input. This defangs terminal escape injection (OSC title
@@ -69,6 +155,21 @@ func needsStrip(s string) bool {
 // terminal escape injection from untrusted markdown content (e.g. a
 // pasted card body containing OSC sequences that retitle the terminal).
 func RenderInlineMarkdown(text string) string {
+	display, links := InlineLinkDisplay(text)
+	return RenderInlineMarkdownWithLinks(display, links, "")
+}
+
+// RenderInlineMarkdownWithLinks applies inline markdown formatting to text
+// that has already had inline links rewritten by InlineLinkDisplay. Link URLs
+// stay visible for terminal URL detection; hovered links get a light emphasis
+// for mouse feedback in view mode.
+func RenderInlineMarkdownWithLinks(text string, links []InlineLinkSpan, hoverURL string) string {
+	return RenderInlineMarkdownWithLinksStyled(text, links, hoverURL, InlineLinkRenderStyle{})
+}
+
+// RenderInlineMarkdownWithLinksStyled is RenderInlineMarkdownWithLinks with
+// optional foreground colors for inline-link labels and visible URLs.
+func RenderInlineMarkdownWithLinksStyled(text string, links []InlineLinkSpan, hoverURL string, linkStyle InlineLinkRenderStyle) string {
 	text = StripControlChars(text)
 	runes := []rune(text)
 	n := len(runes)
@@ -77,7 +178,7 @@ func RenderInlineMarkdown(text string) string {
 	}
 
 	pairs := findDelimiterPairs(runes)
-	if len(pairs) == 0 {
+	if len(pairs) == 0 && len(links) == 0 {
 		return text
 	}
 
@@ -106,10 +207,10 @@ func RenderInlineMarkdown(text string) string {
 		if runes[i] == '\n' {
 			if active != (styleFlags{}) {
 				saved := active
-				emitTransition(&buf, active, styleFlags{})
+				emitTransitionWithBase(&buf, active, styleFlags{}, linkStyle.BaseColor)
 				active = styleFlags{}
 				buf.WriteRune('\n')
-				emitTransition(&buf, active, saved)
+				emitTransitionWithBase(&buf, active, saved, linkStyle.BaseColor)
 				active = saved
 			} else {
 				buf.WriteRune('\n')
@@ -132,15 +233,31 @@ func RenderInlineMarkdown(text string) string {
 				}
 			}
 		}
+		for _, link := range links {
+			if i >= link.Start && i < link.End {
+				if i >= link.URLStart && i < link.URLEnd {
+					flags.color = linkStyle.URLColor
+				} else {
+					flags.color = linkStyle.LabelColor
+				}
+				if hoverURL != "" && link.URL == hoverURL && i >= link.URLStart && i < link.URLEnd {
+					flags.linkHover = true
+					if linkStyle.HoverColor != "" {
+						flags.color = linkStyle.HoverColor
+					}
+				}
+				break
+			}
+		}
 
 		if flags != active {
-			emitTransition(&buf, active, flags)
+			emitTransitionWithBase(&buf, active, flags, linkStyle.BaseColor)
 			active = flags
 		}
 		buf.WriteRune(runes[i])
 	}
 
-	emitTransition(&buf, active, styleFlags{})
+	emitTransitionWithBase(&buf, active, styleFlags{}, linkStyle.BaseColor)
 	return buf.String()
 }
 
@@ -164,13 +281,21 @@ type delimPair struct {
 
 type styleFlags struct {
 	bold, italic, strikethrough, underline bool
+	linkHover                              bool
+	color                                  string
 }
 
 // emitTransition writes only the ANSI codes needed to move from one style set to another.
 func emitTransition(buf *strings.Builder, from, to styleFlags) {
-	if from.bold && !to.bold {
+	emitTransitionWithBase(buf, from, to, "")
+}
+
+func emitTransitionWithBase(buf *strings.Builder, from, to styleFlags, baseColor string) {
+	fromBold := from.bold || from.linkHover
+	toBold := to.bold || to.linkHover
+	if fromBold && !toBold {
 		buf.WriteString(boldOff)
-	} else if !from.bold && to.bold {
+	} else if !fromBold && toBold {
 		buf.WriteString(boldOn)
 	}
 	if from.italic && !to.italic {
@@ -178,9 +303,11 @@ func emitTransition(buf *strings.Builder, from, to styleFlags) {
 	} else if !from.italic && to.italic {
 		buf.WriteString(italicOn)
 	}
-	if from.underline && !to.underline {
+	fromUnderline := from.underline || from.linkHover
+	toUnderline := to.underline || to.linkHover
+	if fromUnderline && !toUnderline {
 		buf.WriteString(underlineOff)
-	} else if !from.underline && to.underline {
+	} else if !fromUnderline && toUnderline {
 		buf.WriteString(underlineOn)
 	}
 	if from.strikethrough && !to.strikethrough {
@@ -188,6 +315,32 @@ func emitTransition(buf *strings.Builder, from, to styleFlags) {
 	} else if !from.strikethrough && to.strikethrough {
 		buf.WriteString(strikethroughOn)
 	}
+	if from.color != to.color {
+		buf.WriteString(colorTransition(to.color, baseColor))
+	}
+}
+
+func colorTransition(color, fallback string) string {
+	if color == "" || color == "-" {
+		color = fallback
+	}
+	if color == "" || color == "-" {
+		return "\x1b[39m"
+	}
+	return colorSGR(color)
+}
+
+func colorSGR(color string) string {
+	color = strings.TrimSpace(color)
+	if len(color) == 7 && color[0] == '#' {
+		r, errR := strconv.ParseUint(color[1:3], 16, 8)
+		g, errG := strconv.ParseUint(color[3:5], 16, 8)
+		b, errB := strconv.ParseUint(color[5:7], 16, 8)
+		if errR == nil && errG == nil && errB == nil {
+			return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+		}
+	}
+	return "\x1b[39m"
 }
 
 // --- Pass 1: delimiter pair matching ---

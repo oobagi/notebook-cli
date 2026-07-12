@@ -8,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/oobagi/notebook-cli/internal/block"
-	"github.com/oobagi/notebook-cli/internal/format"
 	"github.com/oobagi/notebook-cli/internal/theme"
 )
 
@@ -379,7 +378,7 @@ func renderStaticCell(content string, cw int, bold bool, wordWrap bool) cellRend
 	} else {
 		rendered = content
 	}
-	rendered = format.RenderInlineMarkdown(rendered)
+	rendered = renderInlineMarkdownBlockText(block.Paragraph, rendered, cw, false, "")
 
 	boldStyle := lipgloss.NewStyle()
 	if bold {

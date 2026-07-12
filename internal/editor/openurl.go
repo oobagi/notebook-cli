@@ -6,7 +6,9 @@ import (
 	"runtime"
 )
 
-func openURL(url string) error {
+var openURL = defaultOpenURL
+
+func defaultOpenURL(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":

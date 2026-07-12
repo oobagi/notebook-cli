@@ -37,7 +37,7 @@
   <sub><i>Recorded on v1.0.0</i></sub>
 </p>
 
-Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor supporting 15 block types, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
+Notebook is a TUI note manager that organizes markdown notes into notebooks. It comes with a block editor supporting 14 block types, an interactive browser with search, 16 themes, inline markdown formatting, undo/redo, and a view mode for reading.
 
 Everything runs in your terminal. No account, no sync, no config required.
 
@@ -70,13 +70,16 @@ notebook ideas "First Thought"
 notebook path/to/file.md
 ```
 
+### Use with coding agents
+
+The repo includes a [`notebook-cli` agent skill](skills/notebook-cli/SKILL.md) for creating and editing polished, round-trip-safe notes. See the [agent authoring guide](docs/agents.md) for installation and usage.
+
 ## Features
 
-- **Block editor** — 15 block types: paragraphs, headings (3 levels), bullet lists, numbered lists, checklists, code blocks, tables, quotes, definitions, callouts, dividers, embeds, and kanban boards. Press **/** to switch types.
+- **Block editor** — 14 block types: paragraphs, headings (3 levels), bullet lists, numbered lists, checklists, code blocks, tables, quotes, callouts, dividers, embeds, and kanban boards. Press **/** to switch types; `/link` inserts inline markdown.
 - **Tables** — Pipe-delimited GFM tables with per-column widths. Alt+R/C to add rows/columns, Alt+Shift+Backspace/Alt+Shift+D to delete. Press Enter on an empty row to exit the table and drop the row.
 - **Kanban boards** — Visual boards with priority cards and issue tags. Arrows navigate, Shift+arrows move cards, **n** new card, **Opt+K** copy card, **p** cycle priority, **Ctrl+T** cycle tag, **s** toggle auto-sort. Round-trips as a `kanban` fenced block.
 - **Callouts** — Five admonition variants (Note, Tip, Important, Warning, Caution). Ctrl+T to cycle.
-- **Definitions** — Term/definition pairs. Press **:** to search and jump to definitions.
 - **Embeds** — Reference other notes inline with `![[notebook/note]]`. Click in view mode to expand.
 - **Nested lists** — Tab/Shift+Tab to indent and outdent. Checklist cascading on toggle.
 - **Syntax highlighting** — 500+ languages via Chroma. Name the language on the first line of a code block.
@@ -97,7 +100,6 @@ notebook path/to/file.md
 |---|---|
 | **Enter** | New block below |
 | **/** | Command palette (at start of block) |
-| **:** | Definition lookup (on empty block) |
 | **Ctrl+S** | Save |
 | **Ctrl+Z / Ctrl+Y** | Undo / Redo |
 | **Ctrl+K** | Cut block |

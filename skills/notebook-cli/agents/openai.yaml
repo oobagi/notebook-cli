@@ -1,0 +1,4 @@
+interface:
+  display_name: "Notebook CLI"
+  short_description: "Create polished notebook-cli notes safely"
+  default_prompt: "Use $notebook-cli to turn this information into a polished notebook-cli note."
